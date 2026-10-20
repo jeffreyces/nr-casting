@@ -1,0 +1,21 @@
+# Build output — the shipped artefact is dist/nr_casting/, produced by tools/package.sh
+/target/
+mod/target/
+dist/
+
+# Runtime files the mod writes beside its DLL
+*.log
+nr_casting.ini
+nr_casting_slots.txt
+nr_casting_offsets.txt
+nr_casting_catalogue.txt
+nr_casting_build.txt
+
+# Unpacked game data (never commit; regenerate with WitchyBND)
+work/
+
+# Build by-products
+*.pdb
+*.d
+*.rlib
+*.lib
