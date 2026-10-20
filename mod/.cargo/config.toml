@@ -1,0 +1,16 @@
+[target.x86_64-pc-windows-msvc]
+# me3 injects the DLL into the game process; a static CRT keeps it free of any
+# VC++ redistributable dependency. cargo-xwin supplies the MSVC libs.
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[build]
+# Windows-only crate: build it explicitly with
+#   cargo xwin build --release --target x86_64-pc-windows-msvc
+
+[env]
+# `retour` -> `libudis86-sys` 0.2.1 builds C with an ancient GCC-ism
+# (`-includestring.h`) that clang 22 rejects, leaving memset undeclared. Supply the
+# include properly and keep the implicit-declaration warning non-fatal so the C
+# dependency compiles. Nothing here affects our own Rust code.
+CFLAGS_x86_64_pc_windows_msvc = "-Wno-implicit-function-declaration -FIstring.h"
+CFLAGS_x86_64-pc-windows-msvc = "-Wno-implicit-function-declaration -FIstring.h"

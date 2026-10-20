@@ -1,0 +1,36 @@
+[package]
+name = "nr_casting"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+# me3 loads this with LoadLibrary, so it has to be a DLL (output: nr_casting.dll).
+crate-type = ["cdylib"]
+
+[dependencies]
+# ImGui overlay for the assignment panel. dx12 only: ER is a DX12 title, and under
+# Proton this hooks vkd3d-proton's IDXGISwapChain::Present.
+hudhook = { version = "0.9.3", default-features = false, features = ["dx12"] }
+imgui = "0.12"
+# Pinned to the commit that added the ELDEN RING 2.7.2.0 (Ww2720) RVA table,
+# which is what the installed exe reports. The crates.io release (0.14.0) only
+# knows 2.7.1.0 and would fail version detection at load.
+eldenring = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "09a4208ac26af4ae07b08c5273ee0e89faf97cb8" }
+fromsoftware-shared = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "09a4208ac26af4ae07b08c5273ee0e89faf97cb8" }
+# Inline detour for the XInputGetState hook — the game's pad source, and the place
+# R2/L2 become casts instead of heavy attack / ash of war.
+retour = "0.3"
+
+[profile.release]
+# me3 injects this into a running game: keep it small and self-contained.
+panic = "abort"
+opt-level = "s"
+lto = true
+
+# The vendored copy differs from upstream in one place: an unrecognised game version falls
+# back to the newest known RVA table instead of panicking, and records what it detected so
+# the DLL can validate the layout and report a precise failure.
+[patch."https://github.com/vswarte/fromsoftware-rs"]
+eldenring = { path = "../vendor/fromsoftware-rs/crates/eldenring" }
+fromsoftware-shared = { path = "../vendor/fromsoftware-rs/crates/shared" }
