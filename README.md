@@ -145,10 +145,15 @@ cargo build --release --target x86_64-pc-windows-msvc       # native Windows
 
 ### Releases
 
-Pushing a `v*` tag builds and publishes: `.github/workflows/release.yml` cross-compiles the DLL on
-the runner, runs `tools/package.sh`, and attaches `nr-casting-<tag>.zip` to a GitHub release. The
-tag has to match `version` in `mod/Cargo.toml` — the job stops before building if it does not.
-Running the workflow by hand uploads the same archive as a build artifact without a release.
+Pushing a `v*` tag builds and publishes: `.github/workflows/release.yml` cross-compiles the DLL,
+runs `tools/package.sh`, and attaches `nr-casting-<tag>.zip` to a GitHub release. The tag has to
+match `version` in `mod/Cargo.toml` — the job stops before building if it does not. Running the
+workflow by hand uploads the same archive as a build artifact without a release.
+
+The job runs on `ubuntu-slim` (1 vCPU container, free on public repos) rather than a 4 vCPU VM,
+with `cargo-xwin`, its MSVC payload and the dependency graph cached, so a warm run is mostly
+download time. A cold single-threaded build of this crate measures ~48 s, comfortably inside that
+runner's 15-minute cap.
 
 `fromsoftware-rs` is vendored in [`vendor/`](vendor/) and wired in through `[patch]` in
 `mod/Cargo.toml`; the vendor copy differs from upstream only in version handling (below).

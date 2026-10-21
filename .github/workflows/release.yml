@@ -15,30 +15,59 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_XWIN: v0.23.1
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # 1 vCPU / 5 GB container instead of a 4 vCPU VM: it boots in seconds and is free on public
+    # repositories, and this build is ~100 crates of pure Rust plus one small C dependency. The
+    # hard cap is 15 minutes; the caches below keep a warm run near a minute and a cold one well
+    # inside it. If a cold run ever trips the cap, move to ubuntu-24.04 for the 4x CPU.
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      # cargo-xwin supplies the MSVC CRT and libs from Microsoft's servers, so the cross-build
-      # matches what a native Windows build links against. llvm/lld provide llvm-lib and
-      # lld-link; clang compiles the C dependency (libudis86-sys) that the detour crate pulls in.
-      - name: Install cross-compilation prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang lld llvm
-          cargo install --locked cargo-xwin@0.23.1
+      # Warm runs skip every download: the cross-compiler driver, the MSVC headers and libs it
+      # fetches once, and the whole dependency graph.
+      - name: Cache cargo-xwin and the MSVC payload
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-xwin
+            ~/.cache/cargo-xwin
+          key: cargo-xwin-${{ env.CARGO_XWIN }}-${{ runner.os }}
 
-      - name: Cache cargo
+      - name: Cache the Rust build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: mod
+
+      # Prebuilt static musl binary: no `cargo install`, which would compile the tool itself on a
+      # single-core runner.
+      - name: Install cargo-xwin
+        run: |
+          if ! command -v cargo-xwin >/dev/null; then
+            url="https://github.com/rust-cross/cargo-xwin/releases/download/${CARGO_XWIN}/cargo-xwin-${CARGO_XWIN}.x86_64-unknown-linux-musl.tar.gz"
+            curl -sSL "$url" | tar -xz -C "$HOME/.cargo/bin"
+            chmod +x "$HOME/.cargo/bin/cargo-xwin"
+          fi
+          cargo-xwin --version
+
+      # cargo-xwin brings the MSVC CRT but not a compiler or linker: clang builds the C
+      # dependency (libudis86-sys), lld-link links, llvm-lib makes import libraries.
+      - name: Install LLVM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends clang lld llvm
+          clang --version | head -1
 
       # A release tag that disagrees with the crate version ships a DLL nobody can identify.
       - name: Check the tag matches the crate version
@@ -58,7 +87,7 @@ jobs:
           name="nr-casting-${GITHUB_REF_NAME:-dev}"
           mkdir -p out
           cp -r dist/nr_casting "out/$name"
-          (cd out && zip -r "$name.zip" "$name")
+          (cd out && zip -qr "$name.zip" "$name")
           ls -l out
 
       - uses: actions/upload-artifact@v4
