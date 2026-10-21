@@ -22,12 +22,11 @@ env:
 
 jobs:
   release:
-    # 1 vCPU / 5 GB container instead of a 4 vCPU VM: it boots in seconds and is free on public
-    # repositories, and this build is ~100 crates of pure Rust plus one small C dependency. The
-    # hard cap is 15 minutes; the caches below keep a warm run near a minute and a cold one well
-    # inside it. If a cold run ever trips the cap, move to ubuntu-24.04 for the 4x CPU.
-    runs-on: ubuntu-slim
-    timeout-minutes: 15
+    # 4 vCPU VM rather than the 1 vCPU `ubuntu-slim` container: this job pulls a ~1.2 GB MSVC
+    # toolchain payload and then links with fat LTO, and on a cold slim run that combination
+    # does not fit in the 15-minute cap that runner enforces.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -35,10 +34,13 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      # Warm runs skip every download: the cross-compiler driver, the MSVC headers and libs it
-      # fetches once, and the whole dependency graph.
-      - name: Cache cargo-xwin and the MSVC payload
-        uses: actions/cache@v4
+      # Everything downloaded at build time: the cross-compiler driver and the MSVC CRT/SDK
+      # payload (~1.2 GB). Restore and save are separate steps so the payload survives a failed
+      # or cancelled run — a plain `actions/cache` only saves on success, so one bad run would
+      # pay for the download twice.
+      - name: Restore cargo-xwin and the MSVC payload
+        id: xwin-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/bin/cargo-xwin
@@ -50,8 +52,7 @@ jobs:
         with:
           workspaces: mod
 
-      # Prebuilt static musl binary: no `cargo install`, which would compile the tool itself on a
-      # single-core runner.
+      # Prebuilt static musl binary: no `cargo install`, which would compile the tool itself.
       - name: Install cargo-xwin
         run: |
           if ! command -v cargo-xwin >/dev/null; then
@@ -61,13 +62,27 @@ jobs:
           fi
           cargo-xwin --version
 
-      # cargo-xwin brings the MSVC CRT but not a compiler or linker: clang builds the C
+      # cargo-xwin brings the MSVC CRT and SDK but not a compiler or linker: clang builds the C
       # dependency (libudis86-sys), lld-link links, llvm-lib makes import libraries.
       - name: Install LLVM
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends clang lld llvm
           clang --version | head -1
+
+      # Its own step on purpose: a cold run spends most of its wall clock here, and inside the
+      # build step every slow download looks like a hung compile.
+      - name: Fetch the MSVC CRT and SDK
+        run: cargo xwin cache xwin
+
+      - name: Save cargo-xwin and the MSVC payload
+        if: always() && steps.xwin-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: cargo-xwin-${{ env.CARGO_XWIN }}-${{ runner.os }}
+          path: |
+            ~/.cargo/bin/cargo-xwin
+            ~/.cache/cargo-xwin
 
       # A release tag that disagrees with the crate version ships a DLL nobody can identify.
       - name: Check the tag matches the crate version
