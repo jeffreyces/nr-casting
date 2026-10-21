@@ -10,6 +10,9 @@
 //! `selected_slot` is pointed at it, which is what makes four different spells work
 //! off one selection.
 //!
+//! **Ash of war:** hold R3 while pressing L2 and the trigger is passed through unchanged,
+//! so the weapon skill fires exactly as it does without the mod.
+//!
 //! **Capture mode:** hold D-pad Up and press the input you want to bind (R1/R2/L1/L2).
 //! Whatever spell is currently selected in the game is written to that weapon's slot
 //! and saved to `nr_casting_slots.txt` beside eldenring.exe:
@@ -40,6 +43,7 @@ use fromsoftware_shared::{FromStatic, Program};
 
 // XInput button bits (xinput.h).
 const XINPUT_GAMEPAD_LEFT_THUMB: u16 = 0x0040;
+const XINPUT_GAMEPAD_RIGHT_THUMB: u16 = 0x0080;
 const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
 const XINPUT_GAMEPAD_RIGHT_SHOULDER: u16 = 0x0200;
 const TRIGGER_THRESHOLD: u8 = 100;
@@ -454,6 +458,17 @@ fn adjust(state: &mut XInputState) {
     let left_pull = pad.left_trigger >= TRIGGER_THRESHOLD;
     let right_bump = buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER != 0;
     let left_bump = buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0;
+
+    // Ash of war: R3 + L2 hands the trigger back to the game untouched. L2 is ours on a
+    // catalyst (it casts slot 2), which left the skill with no input at all; holding R3 for
+    // that press restores vanilla L2, so the ash of war on the weapon still fires.
+    if buttons & XINPUT_GAMEPAD_RIGHT_THUMB != 0 && left_pull {
+        // R3 is the combo's modifier here, so hide it from the game (it would otherwise toggle
+        // lock-on mid-skill) while leaving L2 exactly as the pad reported it.
+        pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
+        release_borrowed();
+        return;
+    }
 
     if !(right_pull || left_pull || right_bump || left_bump) {
         // No spell input held: hand the borrowed entry back before anything else reads it.

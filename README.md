@@ -13,7 +13,7 @@ game's data is edited.
 ## Scope
 
 - **Elden Ring data only.** Names, requirements and ownership come from your own `regulation.bin`;
-  the cast is the game's own. Nothing from any other game ships or is read.
+  the cast is the game's own.
 - **Offline only.** Launch through me3 with online play disabled so EAC never loads. Saves are
   never touched.
 - No data edits: assignments live in `nr_casting/nr_casting_slots.txt` beside the DLL, and nothing in
@@ -27,12 +27,15 @@ Elden Ring already casts on R1 and L1 with a catalyst in that hand — it casts 
 | input | vanilla | with this mod |
 |---|---|---|
 | R1 / L1 | cast the selected spell | cast **slot 1** of that hand's weapon |
-| R2 / L2 | heavy attack / ash of war | cast **slot 2** of that hand's weapon |
+| R2 | heavy attack | cast **slot 2** of the right-hand weapon |
+| L2 | ash of war | cast **slot 2** of the left-hand weapon |
+| **R3 + L2** | — | **unchanged vanilla L2**, so the ash of war still fires (R3 itself is swallowed) |
 
 Two pieces make that work:
 
 1. **`XInputGetState` is detoured**, so R2/L2 are rewritten into shoulder presses before the game
-   picks an action. The game then runs its normal cast — casting is never reimplemented.
+   picks an action. The game then runs its normal cast — casting is never reimplemented. Holding
+   R3 skips the rewrite for that press, which is how the ash of war keeps its own input.
 2. **The selection is steered per press**: `EquipMagicData.entries[].param_id` and
    `selected_slot` are pointed at the bound spell as the input is read. Steering has to be
    press-scoped, because two inputs on the same weapon must cast different spells.
@@ -116,6 +119,7 @@ mod/       the DLL: Cargo.toml, src/{lib,overlay,pointer,probe,config}.rs
 tools/     gen-spell-names.py, gen-weapon-names.py, package.sh
 vendor/    fromsoftware-rs, trimmed to the crates the DLL needs (see Version tolerance)
 dist/      build output: the release folder produced by tools/package.sh
+NEXUS.md   the mod-page description, written in BBCode for Nexus
 ```
 
 Build output and unpacked game data are never stored: `mod/target/` and `work/` are generated,
@@ -173,9 +177,3 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 | spells/selection mods | direct conflict: both write the magic selection |
 | regulation mods | no conflict today (no param edits shipped) |
 | online / EAC | not supported by design |
-
-## Memory
-
-Bounded by construction: five process-lifetime detours, one log handle, an assignment map sized
-by the number of weapons bound. The heartbeat logs `mem ws=<MiB> pf=<MiB>` every 30 seconds so
-growth is measurable rather than argued about.
