@@ -1,7 +1,13 @@
 [target.x86_64-pc-windows-msvc]
 # me3 injects the DLL into the game process; a static CRT keeps it free of any
 # VC++ redistributable dependency. cargo-xwin supplies the MSVC libs.
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    # The MSVC static libs ship without their PDBs, so lld-link warns once per object about
+    # missing debug info (LNK4099). Nothing is degraded; silence it rather than bury real
+    # linker output under ~50 lines of it.
+    "-C", "link-arg=/ignore:4099",
+]
 
 [build]
 # Windows-only crate: build it explicitly with

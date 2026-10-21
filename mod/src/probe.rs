@@ -59,9 +59,6 @@ pub fn maybe_validate() {
 }
 
 /// True while the probe has not run yet.
-pub fn pending() -> bool {
-    STATE.load(Ordering::Relaxed) == UNVALIDATED
-}
 
 fn path(name: &str) -> PathBuf {
     crate::config::path(name)

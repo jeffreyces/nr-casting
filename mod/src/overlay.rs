@@ -26,12 +26,6 @@ use hudhook::{Hudhook, ImguiRenderLoop, MessageFilter, RenderContext};
 use imgui::{Condition, ConfigFlags, Context, Io, Ui};
 
 
-#[repr(C)]
-struct CursorPoint {
-    x: i32,
-    y: i32,
-}
-
 extern "system" {
     fn GetAsyncKeyState(vk: i32) -> i16;
 }

@@ -24,7 +24,6 @@ pub struct LiveSpell {
     pub fai: u32,
     pub arc: u32,
     pub fp: u32,
-    pub slots: u32,
 }
 
 /// Read every `Magic` row. Returns an empty vector if the repository is not up yet or the
@@ -40,8 +39,7 @@ pub fn live_spells() -> Vec<LiveSpell> {
         if cap.res_cap.name != Magic::NAME {
             continue;
         }
-        // SAFETY: the pointer is owned by the repository and valid for this borrow.
-        let file = unsafe { cap.data.as_ref() };
+        let file = cap.data.as_ref();
         for id in file.row_ids() {
             // 999999999 is the game's "no spell" sentinel row, not a castable spell.
             if id >= 999_999_999 {
@@ -57,7 +55,6 @@ pub fn live_spells() -> Vec<LiveSpell> {
                 fai: row.requirement_faith() as u32,
                 arc: row.requirement_luck() as u32,
                 fp: row.mp().max(0) as u32,
-                slots: row.slot_length() as u32,
             });
         }
         break;
@@ -79,8 +76,7 @@ pub fn live_weapon_ids() -> Vec<i32> {
         if cap.res_cap.name != EquipParamWeapon::NAME {
             continue;
         }
-        // SAFETY: the pointer is owned by the repository and valid for this borrow.
-        let file = unsafe { cap.data.as_ref() };
+        let file = cap.data.as_ref();
         for id in file.row_ids() {
             // Weapon rows are 8-digit base ids; the upgrade level is not part of the row id.
             if id < 0x0FFF_FFFF {

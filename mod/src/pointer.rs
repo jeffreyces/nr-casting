@@ -35,7 +35,6 @@ static RENDER_THREAD: AtomicU32 = AtomicU32::new(0);
 
 extern "system" {
     fn ClipCursor(rect: *const u8) -> i32;
-    fn SetCursorPos(x: i32, y: i32) -> i32;
     fn ShowCursor(show: i32) -> i32;
     fn ReleaseCapture() -> i32;
     fn GetModuleHandleA(name: *const u8) -> *mut u8;

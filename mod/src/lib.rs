@@ -42,7 +42,6 @@ use eldenring::util::system::{wait_for_system_init, SystemInitError};
 use fromsoftware_shared::{FromStatic, Program};
 
 // XInput button bits (xinput.h).
-const XINPUT_GAMEPAD_LEFT_THUMB: u16 = 0x0040;
 const XINPUT_GAMEPAD_RIGHT_THUMB: u16 = 0x0080;
 const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
 const XINPUT_GAMEPAD_RIGHT_SHOULDER: u16 = 0x0200;
@@ -341,7 +340,6 @@ fn seed_store() {
 }
 
 fn reload_store() {
-    let store = STORE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut map = HashMap::new();
     if let Ok(text) = std::fs::read_to_string(slots_path()) {
         for line in text.lines() {
@@ -660,16 +658,13 @@ pub(crate) fn sample_player_selection() {
 
 fn player() -> Option<&'static eldenring::cs::PlayerIns> {
     let wcm = unsafe { WorldChrMan::instance() }.ok()?;
-    let player = wcm.main_player.as_ref()?;
-    if player.player_game_data.as_ptr().is_null() {
-        return None;
-    }
-    Some(player)
+    // OwnedPtr cannot be null, and `as_ref` already answers "is the player loaded".
+    Some(wcm.main_player.as_ref()?)
 }
 
 pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
-    let mut ptr = player()?.player_game_data;
-    // SAFETY: non-null (checked in player()), owned by PlayerIns.
+    let ptr = player()?.player_game_data;
+    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
     let pgd = unsafe { ptr.as_ref() };
     let ids = &pgd.equipment.chr_asm.equipment_param_ids;
     Some((
@@ -680,8 +675,8 @@ pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
 
 /// INT, FAI, ARC of the loaded character.
 pub(crate) fn player_stats() -> Option<(u32, u32, u32)> {
-    let mut ptr = player()?.player_game_data;
-    // SAFETY: non-null (checked in player()), owned by PlayerIns.
+    let ptr = player()?.player_game_data;
+    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
     let pgd = unsafe { ptr.as_ref() };
     Some((pgd.intelligence, pgd.faith, pgd.arcane))
 }
@@ -692,8 +687,8 @@ pub(crate) fn inventory_goods_ids() -> Vec<i32> {
     let Some(player) = player() else {
         return Vec::new();
     };
-    let mut ptr = player.player_game_data;
-    // SAFETY: non-null (checked in player()), owned by PlayerIns.
+    let ptr = player.player_game_data;
+    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
     let pgd = unsafe { ptr.as_ref() };
     pgd.equipment
         .equip_inventory_data
@@ -711,7 +706,7 @@ pub(crate) fn magic_slots() -> Option<(usize, i32)> {
 
 fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
     let mut ptr = player()?.player_game_data;
-    // SAFETY: non-null (checked in player()), owned by PlayerIns.
+    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
     let pgd = unsafe { ptr.as_mut() };
-    Some(unsafe { pgd.equipment.equip_magic_data.as_mut() })
+    Some(pgd.equipment.equip_magic_data.as_mut())
 }
