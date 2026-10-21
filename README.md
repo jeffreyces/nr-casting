@@ -18,6 +18,10 @@ game's data is edited.
   never touched.
 - No data edits: assignments live in `nr_casting/nr_casting_slots.txt` beside the DLL, and nothing in
   `regulation.bin` is modified.
+- **Non-destructive.** No save file is ever written and no game data is modified. While casting, the
+  mod borrows the spell slot the game already has selected and restores it as soon as the input is
+  released, so nothing lingers in memory either. Remove the DLL and the game behaves exactly as it
+  did before; delete `nr_casting/` and every trace of the mod is gone.
 
 ## How it works
 

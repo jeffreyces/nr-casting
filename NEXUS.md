@@ -25,6 +25,8 @@ to assign the spell currently selected in the wheel.
 [*][b]Ash of war still works[/b] — hold R3 and press L2 and the trigger passes through untouched.
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
 live in a small text file next to the DLL.
+[*][b]Safe to remove[/b] — no save file is ever written and nothing persists in memory, so the mod
+can be uninstalled at any time and the game behaves exactly as it did before.
 [*][b]Offline only[/b] — built for me3 with online play disabled, so EAC never loads.
 [/list]
 
@@ -116,6 +118,8 @@ over input.
 [size=5][b]Notes[/b][/size]
 
 [list]
+[*]Removing the mod is a clean revert: delete the DLL and the profile, and the game is back to
+vanilla. Nothing was added to your save file, and no game data was modified.
 [*]Spell and weapon names are compiled into the DLL, so the mod works without unpacking anything.
 [*]After a game update the mod falls back to the nearest known offset table and validates it before
 touching memory; if validation fails it stays out of the way and says so in its log.

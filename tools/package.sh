@@ -90,8 +90,9 @@ tools/gen-spell-names.py and tools/gen-weapon-names.py and rebuild — or drop t
 regenerated .txt files beside the DLL to override without a rebuild. The log says
 when the game has weapons the table cannot name yet.
 
-Settings live in nr_casting.ini. Delete the nr_casting\ subfolder to reset
-everything the mod generated.
+Nothing here touches your save file or the game's data: remove the DLL and the
+profile and the game is back to vanilla. Settings live in nr_casting.ini; delete
+the nr_casting\ subfolder to reset everything the mod generated.
 
 Never launch with EAC / online play: this mod requires the offline launch.
 TXT
