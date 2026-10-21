@@ -1,0 +1,76 @@
+name: Release
+
+# Pushing a v* tag builds the DLL and publishes a GitHub release with the archive attached.
+# Run manually (Actions -> Release -> Run workflow) to get the same archive as a build artifact
+# without cutting a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # cargo-xwin supplies the MSVC CRT and libs from Microsoft's servers, so the cross-build
+      # matches what a native Windows build links against. llvm/lld provide llvm-lib and
+      # lld-link; clang compiles the C dependency (libudis86-sys) that the detour crate pulls in.
+      - name: Install cross-compilation prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang lld llvm
+          cargo install --locked cargo-xwin@0.23.1
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mod
+
+      # A release tag that disagrees with the crate version ships a DLL nobody can identify.
+      - name: Check the tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' mod/Cargo.toml | head -1)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match mod/Cargo.toml version $version"
+            exit 1
+          fi
+
+      - name: Build and package
+        run: ./tools/package.sh
+
+      - name: Assemble the archive
+        run: |
+          name="nr-casting-${GITHUB_REF_NAME:-dev}"
+          mkdir -p out
+          cp -r dist/nr_casting "out/$name"
+          (cd out && zip -r "$name.zip" "$name")
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nr-casting
+          path: out/*.zip
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
