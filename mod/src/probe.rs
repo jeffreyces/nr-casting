@@ -225,3 +225,60 @@ pub fn validate_player() {
     }
     write_map(&results);
 }
+
+#[repr(C)]
+struct MemoryBasicInformation {
+    base_address: *mut u8,
+    allocation_base: *mut u8,
+    allocation_protect: u32,
+    region_size: usize,
+    state: u32,
+    protect: u32,
+    memory_type: u32,
+}
+
+extern "system" {
+    fn VirtualQuery(address: *const u8, buffer: *mut MemoryBasicInformation, length: usize) -> usize;
+}
+
+/// Is `ptr..ptr+len` committed and readable right now?
+///
+/// A reload tears the world down and builds a new one, so a pointer sampled a moment ago can be
+/// freed underneath us. Dereferencing it is how a mod turns "load a save" into a hard freeze, so
+/// every game-structure read goes through this first and simply reports "no player" if the
+/// memory is gone.
+pub fn readable(ptr: *const u8, len: usize) -> bool {
+    const MEM_COMMIT: u32 = 0x1000;
+    const PAGE_NOACCESS: u32 = 0x01;
+    const PAGE_GUARD: u32 = 0x100;
+
+    if ptr.is_null() || len == 0 {
+        return false;
+    }
+    let mut info = MemoryBasicInformation {
+        base_address: std::ptr::null_mut(),
+        allocation_base: std::ptr::null_mut(),
+        allocation_protect: 0,
+        region_size: 0,
+        state: 0,
+        protect: 0,
+        memory_type: 0,
+    };
+    // SAFETY: info is a valid, correctly sized out-parameter.
+    let got = unsafe {
+        VirtualQuery(
+            ptr,
+            &mut info,
+            std::mem::size_of::<MemoryBasicInformation>(),
+        )
+    };
+    if got == 0 || info.state != MEM_COMMIT {
+        return false;
+    }
+    if info.protect & PAGE_GUARD != 0 || info.protect & 0xFF == PAGE_NOACCESS {
+        return false;
+    }
+    // A single region must cover the whole read.
+    let end = ptr as usize + len;
+    end <= info.base_address as usize + info.region_size
+}

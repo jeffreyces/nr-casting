@@ -34,6 +34,8 @@ pub struct Config {
     /// XInput button bit that starts a bind when held with a spell input.
     pub modifier: u16,
     pub modifier_name: String,
+    /// Install the ImGui overlay. Off = casting only, no Present hook, no panel.
+    pub overlay: bool,
     /// Mirror slot 1 onto the game's HUD while the panel is closed.
     pub hud_mirror: bool,
     /// Log every cast, not just captures and errors.
@@ -47,6 +49,7 @@ impl Default for Config {
             hotkey_name: "F8".to_string(),
             modifier: 0x0040, // L3
             modifier_name: "L3".to_string(),
+            overlay: true,
             hud_mirror: false,
             debug_log: false,
         }
@@ -225,6 +228,9 @@ pub fn load() -> &'static Config {
             let defaults = "\
 ; nr-casting — two spells per catalyst
 [ui]
+; Install the in-game panel. Turn this off when another overlay owns the frame presentation
+; (frame-generation mods, class-port HUDs): casting still works, only the panel goes away.
+overlay = on
 ; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
 hotkey = F8
 
@@ -280,6 +286,7 @@ debug_log = off
                             config.modifier_name
                         )),
                     },
+                    "overlay" => config.overlay = truthy(value),
                     "hud_mirror" => config.hud_mirror = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     _ => {}

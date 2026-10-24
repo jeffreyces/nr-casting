@@ -45,6 +45,7 @@ use fromsoftware_shared::{FromStatic, Program};
 const XINPUT_GAMEPAD_RIGHT_THUMB: u16 = 0x0080;
 const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
 const XINPUT_GAMEPAD_RIGHT_SHOULDER: u16 = 0x0200;
+const XINPUT_GAMEPAD_Y: u16 = 0x8000;
 const TRIGGER_THRESHOLD: u8 = 100;
 
 #[repr(C)]
@@ -298,8 +299,21 @@ fn run() {
     // Low-rate readout: mapping state, the player's current spell, slots file changes.
     let mut last_mtime = file_mtime();
     let mut catalogue_ready = false;
+    let mut world_was_live = false;
     loop {
         probe::maybe_validate();
+        // A reload destroys the character and builds a new one. Logging the edge is what tells
+        // us whether a freeze happened while we were holding game memory.
+        let world_live = player().is_some();
+        if world_live != world_was_live {
+            world_was_live = world_live;
+            if world_live {
+                log("world: character present");
+            } else {
+                log("world: character gone (reload or quit to menu)");
+                release_borrowed();
+            }
+        }
         // Build the spell catalogue as soon as the regulation is loaded, so the generated file
         // exists whether or not the player ever opens the panel.
         if !catalogue_ready {
@@ -466,6 +480,15 @@ fn adjust(state: &mut XInputState) {
         // R3 is the combo's modifier here, so hide it from the game (it would otherwise toggle
         // lock-on mid-skill) while leaving L2 exactly as the pad reported it.
         pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
+        release_borrowed();
+        return;
+    }
+
+    // Y is a chord modifier in class-port mods: Recluse reads Y+RB (0x8200) and Y+LB (0x8100)
+    // as skill casts, and hides those shoulders from the game while it does. Synthesising a
+    // shoulder press under Y would look exactly like their chord, so pass the trigger through
+    // untouched instead — a heavy attack for that press, never somebody else's skill.
+    if buttons & XINPUT_GAMEPAD_Y != 0 && (right_pull || left_pull) {
         release_borrowed();
         return;
     }
@@ -654,14 +677,29 @@ pub(crate) fn sample_player_selection() {
 
 fn player() -> Option<&'static eldenring::cs::PlayerIns> {
     let wcm = unsafe { WorldChrMan::instance() }.ok()?;
-    // OwnedPtr cannot be null, and `as_ref` already answers "is the player loaded".
-    Some(wcm.main_player.as_ref()?)
+    let owned = wcm.main_player.as_ref()?;
+    let ptr = owned.as_ptr();
+    // The pointer having a value does not mean the character exists any more: a reload frees
+    // it. Anything unreadable is treated exactly like "no player".
+    if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::PlayerIns>()) {
+        return None;
+    }
+    Some(unsafe { &*ptr })
+}
+
+/// The player's game data, guarded the same way. Every accessor below goes through this.
+fn game_data() -> Option<&'static mut eldenring::cs::PlayerGameData> {
+    let player = player()?;
+    let ptr = player.player_game_data.as_ptr();
+    if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::PlayerGameData>()) {
+        return None;
+    }
+    // SAFETY: readable, owned by PlayerIns, and re-derived on every call.
+    Some(unsafe { &mut *ptr })
 }
 
 pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
-    let ptr = player()?.player_game_data;
-    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
-    let pgd = unsafe { ptr.as_ref() };
+    let pgd = game_data()?;
     let ids = &pgd.equipment.chr_asm.equipment_param_ids;
     Some((
         ids[ChrAsmSlot::WeaponLeft1 as usize],
@@ -671,21 +709,16 @@ pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
 
 /// INT, FAI, ARC of the loaded character.
 pub(crate) fn player_stats() -> Option<(u32, u32, u32)> {
-    let ptr = player()?.player_game_data;
-    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
-    let pgd = unsafe { ptr.as_ref() };
+    let pgd = game_data()?;
     Some((pgd.intelligence, pgd.faith, pgd.arcane))
 }
 
 /// Param ids in the goods half of the inventory. Spells are goods entries in ER, so
 /// this is how the panel learns what the character has picked up.
 pub(crate) fn inventory_goods_ids() -> Vec<i32> {
-    let Some(player) = player() else {
+    let Some(pgd) = game_data() else {
         return Vec::new();
     };
-    let ptr = player.player_game_data;
-    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
-    let pgd = unsafe { ptr.as_ref() };
     pgd.equipment
         .equip_inventory_data
         .items_data
@@ -701,9 +734,7 @@ pub(crate) fn magic_slots() -> Option<(usize, i32)> {
 }
 
 fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
-    let mut ptr = player()?.player_game_data;
-    // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
-    let pgd = unsafe { ptr.as_mut() };
+    let pgd = game_data()?;
     Some(pgd.equipment.equip_magic_data.as_mut())
 }
 

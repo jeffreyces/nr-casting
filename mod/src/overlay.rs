@@ -556,6 +556,10 @@ fn load_spells() -> Vec<Spell> {
 
 /// Install the DX12 present hook on its own thread.
 pub fn start(hmodule: usize) {
+    if !crate::config::load().overlay {
+        crate::log("overlay: disabled in nr_casting.ini (casting only)");
+        return;
+    }
     std::thread::spawn(move || {
         match crate::pointer::install() {
             Ok(()) => crate::log("pointer: detours installed"),
