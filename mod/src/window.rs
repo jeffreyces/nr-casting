@@ -379,29 +379,16 @@ impl App {
                 ui.columns(3, "layout", false);
 
                 // ---- left hand -------------------------------------------------------------
-                ui.text("LEFT HAND");
-                let left = model.weapons.0;
-                ui.text(if left > 0 {
-                    model.panel.weapon_name(left)
-                } else {
-                    "(nothing equipped)".to_string()
-                });
-                for index in [0usize, 1, 2] {
-                    let slot = SLOTS[index];
-                    let current = if left > 0 { model.panel.slot_value(left, slot.weapon_slot) } else { -1 };
-                    let preview = if current > 0 {
-                        format!("{} [{}]", model.panel.spell_name(current), current)
-                    } else {
-                        "(none)".to_string()
-                    };
-                    ui.text(slot.label);
-                    ui.same_line();
-                    ui.text_disabled(slot.mouse);
-                    if let Some(picked) =
-                        slot_combo(ui, &format!("##left{index}"), preview, current, &candidates[..])
-                    {
-                        assign = Some((index, picked));
-                    }
+                if let Some(choice) = hand_column(
+                    ui,
+                    "LEFT HAND",
+                    model.weapons.0,
+                    [0, 1, 2],
+                    "left",
+                    &model.panel,
+                    &candidates,
+                ) {
+                    assign = Some(choice);
                 }
 
                 ui.next_column();
@@ -427,34 +414,20 @@ impl App {
                     assign = assign.or(Some((usize::MAX, 0)));
                 }
                 ui.spacing();
-                ui.text_disabled("F8 or Esc closes.");
 
                 ui.next_column();
 
                 // ---- right hand ------------------------------------------------------------
-                ui.text("RIGHT HAND");
-                let right = model.weapons.1;
-                ui.text(if right > 0 {
-                    model.panel.weapon_name(right)
-                } else {
-                    "(nothing equipped)".to_string()
-                });
-                for index in [3usize, 4, 5] {
-                    let slot = SLOTS[index];
-                    let current = if right > 0 { model.panel.slot_value(right, slot.weapon_slot) } else { -1 };
-                    let preview = if current > 0 {
-                        format!("{} [{}]", model.panel.spell_name(current), current)
-                    } else {
-                        "(none)".to_string()
-                    };
-                    ui.text(slot.label);
-                    ui.same_line();
-                    ui.text_disabled(slot.mouse);
-                    if let Some(picked) =
-                        slot_combo(ui, &format!("##right{index}"), preview, current, &candidates[..])
-                    {
-                        assign = Some((index, picked));
-                    }
+                if let Some(choice) = hand_column(
+                    ui,
+                    "RIGHT HAND",
+                    model.weapons.1,
+                    [3, 4, 5],
+                    "right",
+                    &model.panel,
+                    &candidates,
+                ) {
+                    assign = Some(choice);
                 }
 
                 ui.columns(1, "footer", false);
@@ -533,6 +506,47 @@ impl App {
         self.gfx = Some(gfx);
     }
 
+}
+
+/// One hand's column: the equipped catalyst, then a row per slot (label, its mouse binding, and
+/// the spell picker). Returns the pick the user made, if any.
+fn hand_column(
+    ui: &Ui,
+    heading: &str,
+    weapon: i32,
+    indices: [usize; 3],
+    prefix: &str,
+    panel: &Panel,
+    candidates: &[(i32, String)],
+) -> Option<(usize, i32)> {
+    ui.text(heading);
+    ui.text(if weapon > 0 {
+        panel.weapon_name(weapon)
+    } else {
+        "(nothing equipped)".to_string()
+    });
+    let mut chosen = None;
+    for index in indices {
+        let slot = SLOTS[index];
+        let current = if weapon > 0 {
+            panel.slot_value(weapon, slot.weapon_slot)
+        } else {
+            -1
+        };
+        let preview = if current > 0 {
+            format!("{} [{}]", panel.spell_name(current), current)
+        } else {
+            "(none)".to_string()
+        };
+        ui.text(slot.label);
+        ui.same_line();
+        ui.text_disabled(slot.mouse);
+        if let Some(picked) = slot_combo(ui, &format!("##{prefix}{index}"), preview, current, candidates)
+        {
+            chosen = Some((index, picked));
+        }
+    }
+    chosen
 }
 
 /// One slot's spell picker.

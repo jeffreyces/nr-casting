@@ -802,53 +802,16 @@ fn adjust(state: &mut XInputState) {
     // putting the side effect inside a getter.
     sample_player_selection();
     let pad = &mut state.gamepad;
-    let buttons = pad.buttons;
-    let right_pull = pad.right_trigger >= TRIGGER_THRESHOLD;
-    let left_pull = pad.left_trigger >= TRIGGER_THRESHOLD;
-    let right_bump = buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER != 0;
-    let left_bump = buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0;
+    let held = PadInput::new(pad);
 
-    if right_pull || left_pull || right_bump || left_bump {
+    if held.any() {
         debug!(
             "pad: buttons={:#06x} rt={} lt={}",
-            buttons, pad.right_trigger, pad.left_trigger
+            held.buttons, pad.right_trigger, pad.left_trigger
         );
     }
 
-    // Ash of war: R3 + L2 hands the trigger back to the game untouched. L2 is ours on a
-    // catalyst (it casts slot 2), which left the skill with no input at all; holding R3 for
-    // that press restores vanilla L2, so the ash of war on the weapon still fires.
-    if buttons & XINPUT_GAMEPAD_RIGHT_THUMB != 0 && left_pull {
-        // R3 is the combo's modifier here, so hide it from the game (it would otherwise toggle
-        // lock-on mid-skill) while leaving L2 exactly as the pad reported it.
-        pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
-        release_borrowed();
-        return;
-    }
-
-    if !(right_pull || left_pull || right_bump || left_bump) {
-        if let Some((right, slot, which)) = mouse_combo() {
-            probe::maybe_validate();
-            if probe::validated() {
-                cast_slot(right, slot, which, pad);
-            }
-            return;
-        }
-        // No spell input held: hand the borrowed entry back before anything else reads it.
-        release_borrowed();
-        // Idle: optionally show the right weapon's slot-1 spell on the game's own HUD.
-        // Mirroring forces the wheel selection every frame, which would stop the player
-        // cycling spells — so it is suppressed while the panel is open, and only writes
-        // when the selection actually differs.
-        if HUD_MIRROR.load(Ordering::Relaxed) && !UI_OPEN.load(Ordering::Relaxed) {
-            if let Some((left_id, right_id)) = weapon_ids() {
-                if let Some(pair) = store_get(right_id).or_else(|| store_get(left_id)) {
-                    if pair[0] > 0 && !selection_is(pair[0]) {
-                        select_spell(pair[0]);
-                    }
-                }
-            }
-        }
+    if ash_of_war_passthrough(&held, pad) || idle(&held, pad) {
         return;
     }
 
@@ -861,59 +824,11 @@ fn adjust(state: &mut XInputState) {
         return;
     };
 
-    // Capture: the configured modifier held + one of the four inputs = bind the selected spell.
-    let modifier = config::load().modifier;
-    if buttons & modifier != 0 {
-        let target = if right_pull {
-            Some((right_id, 1, "R2"))
-        } else if right_bump {
-            Some((right_id, 0, "R1"))
-        } else if left_pull {
-            Some((left_id, 1, "L2"))
-        } else if left_bump {
-            Some((left_id, 0, "L1"))
-        } else {
-            None
-        };
-        if let Some((weapon, slot, which)) = target {
-            let key = (weapon as u32) << 8 | slot as u32;
-            if LAST_CAPTURE_KEY.swap(key, Ordering::Relaxed) != key {
-                let spell = PLAYER_SPELL.load(Ordering::Relaxed);
-                if spell > 0 {
-                    store_set(weapon, slot, spell);
-                    log(&format!("capture: {which} on {weapon} = spell {spell}"));
-                } else {
-                    log(&format!("capture: {which} on {weapon} — no spell selected yet"));
-                }
-            }
-            // Swallow the press so binding never also casts.
-            pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER
-                | XINPUT_GAMEPAD_RIGHT_SHOULDER
-                | modifier);
-            pad.left_trigger = 0;
-            pad.right_trigger = 0;
-            return;
-        }
-    }
-
-    // Y + trigger: a fourth and fifth slot per catalyst. Two-handing is meaningless on a staff,
-    // which is what Y+RB/Y+LB would otherwise do, so the chord is spent on a spell instead.
-    //
-    // Under Y the trigger is never rewritten into a shoulder press on its own: Recluse reads
-    // Y+RB (0x8200) and Y+LB (0x8100) as its own skills. `cast_slot` clears Y for that press,
-    // so the game still gets a plain cast while the port (chained beneath us) keeps seeing the
-    // raw Y + trigger, which is no chord of theirs. With nothing bound the press passes through.
-    if buttons & XINPUT_GAMEPAD_Y != 0 && (right_pull || left_pull) {
-        let which = if right_pull { "Y+R2" } else { "Y+L2" };
-        if cast_slot(right_pull, 2, which, pad) {
-            return;
-        }
-        debug!("input: {which} has no bound spell — trigger passed through");
-        release_borrowed();
+    if capture_binding(&held, pad, left_id, right_id) || y_chord(&held, pad) {
         return;
     }
 
-    let (right, slot, which) = match (right_pull, right_bump, left_pull, left_bump) {
+    let (right, slot, which) = match (held.right_pull, held.right_bump, held.left_pull, held.left_bump) {
         (true, _, _, _) => (true, 1, "R2"),
         (_, true, _, _) => (true, 0, "R1"),
         (_, _, true, _) => (false, 1, "L2"),
@@ -921,6 +836,139 @@ fn adjust(state: &mut XInputState) {
         _ => return,
     };
     cast_slot(right, slot, which, pad);
+}
+
+/// Which spell inputs the pad reported this poll.
+struct PadInput {
+    buttons: u16,
+    right_pull: bool,
+    left_pull: bool,
+    right_bump: bool,
+    left_bump: bool,
+}
+
+impl PadInput {
+    fn new(pad: &XInputGamepad) -> Self {
+        PadInput {
+            buttons: pad.buttons,
+            right_pull: pad.right_trigger >= TRIGGER_THRESHOLD,
+            left_pull: pad.left_trigger >= TRIGGER_THRESHOLD,
+            right_bump: pad.buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER != 0,
+            left_bump: pad.buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0,
+        }
+    }
+
+    fn any(&self) -> bool {
+        self.right_pull || self.left_pull || self.right_bump || self.left_bump
+    }
+}
+
+/// Ash of war: R3 + L2 hands the trigger back to the game untouched.
+///
+/// L2 is ours on a catalyst (it casts slot 2), which left the skill with no input at all;
+/// holding R3 for that press restores vanilla L2, so the weapon's ash of war still fires. R3 is
+/// the combo's modifier, so it is hidden from the game (it would otherwise toggle lock-on
+/// mid-skill) while L2 passes through exactly as the pad reported it.
+fn ash_of_war_passthrough(held: &PadInput, pad: &mut XInputGamepad) -> bool {
+    if held.buttons & XINPUT_GAMEPAD_RIGHT_THUMB == 0 || !held.left_pull {
+        return false;
+    }
+    pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
+    release_borrowed();
+    true
+}
+
+/// Nothing spell-shaped is held: hand back the borrowed entry, then optionally mirror slot 1
+/// onto the game's own HUD.
+///
+/// Mirroring forces the wheel selection every frame, which would stop the player cycling
+/// spells — so it is suppressed while the panel is open, and only writes when the selection
+/// actually differs.
+fn idle(held: &PadInput, pad: &mut XInputGamepad) -> bool {
+    if held.any() {
+        return false;
+    }
+    if let Some((right, slot, which)) = mouse_combo() {
+        probe::maybe_validate();
+        if probe::validated() {
+            cast_slot(right, slot, which, pad);
+        }
+        return true;
+    }
+    release_borrowed();
+    if HUD_MIRROR.load(Ordering::Relaxed) && !UI_OPEN.load(Ordering::Relaxed) {
+        if let Some((left_id, right_id)) = weapon_ids() {
+            if let Some(pair) = store_get(right_id).or_else(|| store_get(left_id)) {
+                if pair[0] > 0 && !selection_is(pair[0]) {
+                    select_spell(pair[0]);
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Hold the configured modifier and press a spell input to bind whatever the wheel has
+/// selected. Swallows the press so binding never also casts.
+fn capture_binding(
+    held: &PadInput,
+    pad: &mut XInputGamepad,
+    left_id: i32,
+    right_id: i32,
+) -> bool {
+    if held.buttons & config::load().modifier == 0 {
+        return false;
+    }
+    let target = if held.right_pull {
+        Some((right_id, 1, "R2"))
+    } else if held.right_bump {
+        Some((right_id, 0, "R1"))
+    } else if held.left_pull {
+        Some((left_id, 1, "L2"))
+    } else if held.left_bump {
+        Some((left_id, 0, "L1"))
+    } else {
+        None
+    };
+    let Some((weapon, slot, which)) = target else {
+        return false;
+    };
+    let key = (weapon as u32) << 8 | slot as u32;
+    if LAST_CAPTURE_KEY.swap(key, Ordering::Relaxed) != key {
+        let spell = PLAYER_SPELL.load(Ordering::Relaxed);
+        if spell > 0 {
+            store_set(weapon, slot, spell);
+            log(&format!("capture: {which} on {weapon} = spell {spell}"));
+        } else {
+            log(&format!("capture: {which} on {weapon} — no spell selected yet"));
+        }
+    }
+    let modifier = config::load().modifier;
+    pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER | modifier);
+    pad.left_trigger = 0;
+    pad.right_trigger = 0;
+    true
+}
+
+/// Y + trigger: a third slot per catalyst.
+///
+/// Two-handing is meaningless on a staff, which is what Y+RB/Y+LB would otherwise do, so the
+/// chord is spent on a spell instead. Under Y the trigger is never rewritten into a shoulder
+/// press on its own: a class port reads Y+RB (0x8200) and Y+LB (0x8100) as its own skills.
+/// `cast_slot` clears Y for that press, so the game still gets a plain cast while the port
+/// (chained beneath us) keeps seeing the raw Y + trigger, which is no chord of theirs. With
+/// nothing bound the press passes through.
+fn y_chord(held: &PadInput, pad: &mut XInputGamepad) -> bool {
+    if held.buttons & XINPUT_GAMEPAD_Y == 0 || !(held.right_pull || held.left_pull) {
+        return false;
+    }
+    let which = if held.right_pull { "Y+R2" } else { "Y+L2" };
+    if cast_slot(held.right_pull, 2, which, pad) {
+        return true;
+    }
+    debug!("input: {which} has no bound spell — trigger passed through");
+    release_borrowed();
+    true
 }
 
 /// Cast the spell bound to `slot` of the weapon in `right`'s hand.
