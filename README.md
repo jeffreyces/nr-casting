@@ -117,6 +117,22 @@ The name tables are compiled into the DLL and only exist as files if you drop an
 beside it. Settings are read from the shipped `nr_casting.ini` first, so editing it always
 takes effect even if an older copy sits in the subfolder.
 
+### Installing through the ME3 Manager
+
+The graphical [ME3 Manager](https://github.com/2Pz/me3-manager) is a front end over the same me3:
+it writes the `.me3` profile for you and lists the DLL under `[[natives]]` (relative to the
+profile, or by absolute path when the file lives outside its mods folder). Nothing in the DLL
+reads the profile, so a Manager install and a hand-written one behave identically — the mod finds
+its own folder from its module path and writes its files there.
+
+Two Manager behaviours are worth knowing:
+
+- **`start_online` is a profile field.** me3 keeps matchmaking off by default; if you turn that
+  option on in the Manager, the game runs online and this mod is not supported there.
+- **Updating a mod replaces its folder**, so `nr_casting.ini` and `nr_casting_slots.txt` go with
+  it. Copy them somewhere safe before updating, or keep the assignments in a folder you point me3
+  at yourself.
+
 ## Configuration — `nr_casting.ini`
 
 ```ini
@@ -181,6 +197,19 @@ NEXUS.md   the mod-page description, written in BBCode for Nexus
 
 Build output and unpacked game data are never stored: `mod/target/` and `work/` are generated,
 and `dist/` is what a release uploads.
+
+### Tests
+
+The two pieces worth testing — the slot-file format and the input routing table — live in
+`mod/pure` (`nr_casting_core`), which has no Win32 and no game dependency, so it runs anywhere:
+
+```bash
+cd mod/pure && cargo test
+```
+
+That covers which input means which slot, which input wins when several are held (ash of war,
+then binding, then the Y chord, then a plain cast), the mouse mapping, and slot files written by
+older versions. Everything else needs the live game.
 
 ## Building
 

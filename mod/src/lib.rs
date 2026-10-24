@@ -41,6 +41,7 @@ use std::time::Duration;
 use eldenring::cs::{ChrAsmSlot, WorldChrMan};
 use eldenring::util::system::{wait_for_system_init, SystemInitError};
 use fromsoftware_shared::{FromStatic, Program};
+use nr_casting_core::{Category, Held, Route};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorInfo, GetForegroundWindow, GetWindowThreadProcessId, CURSORINFO, CURSOR_SHOWING,
@@ -124,11 +125,11 @@ pub(crate) static HUD_MIRROR: AtomicBool = AtomicBool::new(false);
 /// the wheel selection every frame and capture needs the player to be able to cycle it.
 pub(crate) static UI_OPEN: AtomicBool = AtomicBool::new(false);
 /// weapon param id -> [bumper spell, trigger spell]
-static STORE: OnceLock<Mutex<HashMap<i32, [i32; 3]>>> = OnceLock::new();
+static STORE: OnceLock<Mutex<HashMap<i32, Category>>> = OnceLock::new();
 
 /// A panic while holding the store would otherwise poison it and, with `panic = "abort"`,
 /// take the process with it. The data is plain values, so recovering the guard is safe.
-fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, [i32; 3]>> {
+fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, Category>> {
     STORE
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -384,44 +385,16 @@ fn seed_store() {
 fn reload_store() {
     let mut map = HashMap::new();
     if let Ok(text) = std::fs::read_to_string(slots_path()) {
-        for line in text.lines() {
-            let line = line.split('#').next().unwrap_or("").trim();
-            if line.is_empty() {
-                continue;
-            }
-            if line.starts_with("hud_mirror") || line.starts_with("debug_log") {
-                log("slots: hud_mirror/debug_log moved to nr_casting.ini — ignored here");
-                continue;
-            }
-            let Some((id, spells)) = line.split_once('=') else { continue };
-            let Ok(id) = id.trim().parse::<i32>() else { continue };
-            let parts: Vec<i32> = spells
-                .split(',')
-                .filter_map(|s| s.trim().parse::<i32>().ok())
-                .collect();
-            if parts.len() >= 2 {
-                // Older files carry two entries; the third (Y + trigger) defaults to unbound.
-                let third = parts.get(2).copied().unwrap_or(-1);
-                map.insert(id, [parts[0], parts[1], third]);
-            }
+        for (id, spells) in nr_casting_core::parse_slots(&text) {
+            map.insert(id, spells);
         }
     }
     *store_lock() = map;
 }
 
-fn save_store(map: &HashMap<i32, [i32; 3]>) {
-    let mut out = String::from(
-        "# weapon_param_id = bumper_spell, trigger_spell, y_chord_spell\n\
-         # y_chord_spell is cast by holding Y and pulling the trigger: Y+R2 (right weapon)\n\
-         # and Y+L2 (left weapon). Two-entry lines from older versions are still accepted.\n",
-    );
-    let mut ids: Vec<&i32> = map.keys().collect();
-    ids.sort();
-    for id in ids {
-        let s = map[id];
-        out.push_str(&format!("{id} = {}, {}, {}\n", s[0], s[1], s[2]));
-    }
-    if let Err(e) = std::fs::write(slots_path(), out) {
+fn save_store(map: &HashMap<i32, Category>) {
+    let entries: Vec<(i32, Category)> = map.iter().map(|(id, spells)| (*id, *spells)).collect();
+    if let Err(e) = std::fs::write(slots_path(), nr_casting_core::format_slots(&entries)) {
         log(&format!("slots: FAILED to write {}: {e}", slots_path().display()));
     }
 }
@@ -436,7 +409,7 @@ fn describe_store() -> String {
         .join(" ")
 }
 
-pub(crate) fn store_get(weapon: i32) -> Option<[i32; 3]> {
+pub(crate) fn store_get(weapon: i32) -> Option<Category> {
     store_lock().get(&weapon).copied()
 }
 
@@ -761,8 +734,8 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
         }
     }
     // In menus, the title screen and any other UI the game shows its cursor; in gameplay it
-    // hides and captures it. Clicking there belongs to the game's UI — synthesising a pad
-    // press for it turned "Exit" into an attack/confirm, so the cursor decides.
+    // hides and captures it. Clicking there belongs to the game's UI — synthesising a pad press
+    // for it turned "Exit" into an attack/confirm, so the cursor decides.
     let mut cursor = CURSORINFO {
         cbSize: std::mem::size_of::<CURSORINFO>() as u32,
         ..Default::default()
@@ -771,25 +744,12 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
         return None;
     }
     let down = |vk: i32| unsafe { GetAsyncKeyState(vk) } < 0;
-    let (left_click, right_click) = (down(VK_LBUTTON), down(VK_RBUTTON));
-    let (shift, ctrl) = (down(VK_SHIFT), down(VK_CONTROL));
-    match (left_click, right_click) {
-        (true, false) => Some(if ctrl {
-            (true, 2, "ctrl + LMB")
-        } else if shift {
-            (true, 1, "shift + LMB")
-        } else {
-            (true, 0, "LMB")
-        }),
-        (false, true) => Some(if ctrl {
-            (false, 2, "ctrl + RMB")
-        } else if shift {
-            (false, 1, "shift + RMB")
-        } else {
-            (false, 0, "RMB")
-        }),
-        _ => None,
-    }
+    nr_casting_core::mouse_route(
+        down(VK_LBUTTON),
+        down(VK_RBUTTON),
+        down(VK_SHIFT),
+        down(VK_CONTROL),
+    )
 }
 
 const VK_LBUTTON: i32 = 0x01;
@@ -802,7 +762,7 @@ fn adjust(state: &mut XInputState) {
     // putting the side effect inside a getter.
     sample_player_selection();
     let pad = &mut state.gamepad;
-    let held = PadInput::new(pad);
+    let held = held_from(pad);
 
     if held.any() {
         debug!(
@@ -811,7 +771,16 @@ fn adjust(state: &mut XInputState) {
         );
     }
 
-    if ash_of_war_passthrough(&held, pad) || idle(&held, pad) {
+    // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
+    // function only carries out the answer.
+    let route = nr_casting_core::route(&held, config::load().modifier);
+    if route == Route::AshOfWar {
+        pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
+        release_borrowed();
+        return;
+    }
+    if route == Route::Idle {
+        idle(pad);
         return;
     }
 
@@ -819,156 +788,104 @@ fn adjust(state: &mut XInputState) {
     if !probe::validated() {
         return;
     }
-    let Some((left_id, right_id)) = weapon_ids() else {
-        debug!("input: no weapon ids (player data unreadable)");
-        return;
-    };
 
-    if capture_binding(&held, pad, left_id, right_id) || y_chord(&held, pad) {
-        return;
-    }
-
-    let (right, slot, which) = match (held.right_pull, held.right_bump, held.left_pull, held.left_bump) {
-        (true, _, _, _) => (true, 1, "R2"),
-        (_, true, _, _) => (true, 0, "R1"),
-        (_, _, true, _) => (false, 1, "L2"),
-        (_, _, _, true) => (false, 0, "L1"),
-        _ => return,
-    };
-    cast_slot(right, slot, which, pad);
-}
-
-/// Which spell inputs the pad reported this poll.
-struct PadInput {
-    buttons: u16,
-    right_pull: bool,
-    left_pull: bool,
-    right_bump: bool,
-    left_bump: bool,
-}
-
-impl PadInput {
-    fn new(pad: &XInputGamepad) -> Self {
-        PadInput {
-            buttons: pad.buttons,
-            right_pull: pad.right_trigger >= TRIGGER_THRESHOLD,
-            left_pull: pad.left_trigger >= TRIGGER_THRESHOLD,
-            right_bump: pad.buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER != 0,
-            left_bump: pad.buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0,
+    match route {
+        Route::Capture {
+            right_hand,
+            slot,
+            label,
+        } => {
+            let Some((left_id, right_id)) = weapon_ids() else {
+                debug!("input: no weapon ids (player data unreadable)");
+                return;
+            };
+            let weapon = if right_hand { right_id } else { left_id };
+            capture(pad, weapon, slot, label);
         }
-    }
-
-    fn any(&self) -> bool {
-        self.right_pull || self.left_pull || self.right_bump || self.left_bump
+        Route::Chord {
+            right_hand,
+            slot,
+            label,
+        }
+        | Route::Cast {
+            right_hand,
+            slot,
+            label,
+        } => {
+            if !cast_slot(right_hand, slot, label, pad) && label.starts_with("Y+") {
+                debug!("input: {label} has no bound spell — trigger passed through");
+                release_borrowed();
+            }
+        }
+        // Handled above. A future variant lands here and does nothing rather than panicking
+        // inside the game's call stack.
+        Route::AshOfWar | Route::Idle => {}
     }
 }
 
-/// Ash of war: R3 + L2 hands the trigger back to the game untouched.
-///
-/// L2 is ours on a catalyst (it casts slot 2), which left the skill with no input at all;
-/// holding R3 for that press restores vanilla L2, so the weapon's ash of war still fires. R3 is
-/// the combo's modifier, so it is hidden from the game (it would otherwise toggle lock-on
-/// mid-skill) while L2 passes through exactly as the pad reported it.
-fn ash_of_war_passthrough(held: &PadInput, pad: &mut XInputGamepad) -> bool {
-    if held.buttons & XINPUT_GAMEPAD_RIGHT_THUMB == 0 || !held.left_pull {
-        return false;
+/// Read the pad into the shape the routing rules take.
+fn held_from(pad: &XInputGamepad) -> Held {
+    Held {
+        buttons: pad.buttons,
+        right_pull: pad.right_trigger >= TRIGGER_THRESHOLD,
+        left_pull: pad.left_trigger >= TRIGGER_THRESHOLD,
+        right_bump: pad.buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER != 0,
+        left_bump: pad.buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0,
     }
-    pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
-    release_borrowed();
-    true
 }
 
-/// Nothing spell-shaped is held: hand back the borrowed entry, then optionally mirror slot 1
-/// onto the game's own HUD.
+/// Nothing spell-shaped is held: hand back the borrowed entry, take a mouse cast if one is
+/// pending, and optionally mirror slot 1 onto the game's own HUD.
 ///
-/// Mirroring forces the wheel selection every frame, which would stop the player cycling
-/// spells — so it is suppressed while the panel is open, and only writes when the selection
-/// actually differs.
-fn idle(held: &PadInput, pad: &mut XInputGamepad) -> bool {
-    if held.any() {
-        return false;
-    }
+/// Mirroring forces the wheel selection every frame, which would stop the player cycling spells
+/// — so it is suppressed while the panel is open, and only writes when the selection differs.
+fn idle(pad: &mut XInputGamepad) {
     if let Some((right, slot, which)) = mouse_combo() {
         probe::maybe_validate();
         if probe::validated() {
             cast_slot(right, slot, which, pad);
         }
-        return true;
+        return;
     }
     release_borrowed();
-    if HUD_MIRROR.load(Ordering::Relaxed) && !UI_OPEN.load(Ordering::Relaxed) {
-        if let Some((left_id, right_id)) = weapon_ids() {
-            if let Some(pair) = store_get(right_id).or_else(|| store_get(left_id)) {
-                if pair[0] > 0 && !selection_is(pair[0]) {
-                    select_spell(pair[0]);
-                }
-            }
+    if !HUD_MIRROR.load(Ordering::Relaxed) || UI_OPEN.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some((left_id, right_id)) = weapon_ids() else {
+        return;
+    };
+    if let Some(pair) = store_get(right_id).or_else(|| store_get(left_id)) {
+        if pair[0] > 0 && !selection_is(pair[0]) {
+            select_spell(pair[0]);
         }
     }
-    true
 }
 
-/// Hold the configured modifier and press a spell input to bind whatever the wheel has
-/// selected. Swallows the press so binding never also casts.
-fn capture_binding(
-    held: &PadInput,
-    pad: &mut XInputGamepad,
-    left_id: i32,
-    right_id: i32,
-) -> bool {
-    if held.buttons & config::load().modifier == 0 {
-        return false;
-    }
-    let target = if held.right_pull {
-        Some((right_id, 1, "R2"))
-    } else if held.right_bump {
-        Some((right_id, 0, "R1"))
-    } else if held.left_pull {
-        Some((left_id, 1, "L2"))
-    } else if held.left_bump {
-        Some((left_id, 0, "L1"))
-    } else {
-        None
-    };
-    let Some((weapon, slot, which)) = target else {
-        return false;
-    };
+/// Bind whatever the wheel has selected to `slot`, and swallow the press so binding never also
+/// casts.
+fn capture(pad: &mut XInputGamepad, weapon: i32, slot: usize, which: &str) {
     let key = (weapon as u32) << 8 | slot as u32;
-    if LAST_CAPTURE_KEY.swap(key, Ordering::Relaxed) != key {
-        let spell = PLAYER_SPELL.load(Ordering::Relaxed);
-        if spell > 0 {
-            store_set(weapon, slot, spell);
-            log(&format!("capture: {which} on {weapon} = spell {spell}"));
-        } else {
-            log(&format!("capture: {which} on {weapon} — no spell selected yet"));
-        }
+    if LAST_CAPTURE_KEY.swap(key, Ordering::Relaxed) == key {
+        // Same press as the last poll: swallow it without binding twice.
+        swallow_spell_inputs(pad);
+        return;
     }
-    let modifier = config::load().modifier;
-    pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER | modifier);
+    let spell = PLAYER_SPELL.load(Ordering::Relaxed);
+    if spell > 0 {
+        store_set(weapon, slot, spell);
+        log(&format!("capture: {which} on {weapon} = spell {spell}"));
+    } else {
+        log(&format!("capture: {which} on {weapon} — no spell selected yet"));
+    }
+    swallow_spell_inputs(pad);
+}
+
+fn swallow_spell_inputs(pad: &mut XInputGamepad) {
+    pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER
+        | XINPUT_GAMEPAD_RIGHT_SHOULDER
+        | config::load().modifier);
     pad.left_trigger = 0;
     pad.right_trigger = 0;
-    true
-}
-
-/// Y + trigger: a third slot per catalyst.
-///
-/// Two-handing is meaningless on a staff, which is what Y+RB/Y+LB would otherwise do, so the
-/// chord is spent on a spell instead. Under Y the trigger is never rewritten into a shoulder
-/// press on its own: a class port reads Y+RB (0x8200) and Y+LB (0x8100) as its own skills.
-/// `cast_slot` clears Y for that press, so the game still gets a plain cast while the port
-/// (chained beneath us) keeps seeing the raw Y + trigger, which is no chord of theirs. With
-/// nothing bound the press passes through.
-fn y_chord(held: &PadInput, pad: &mut XInputGamepad) -> bool {
-    if held.buttons & XINPUT_GAMEPAD_Y == 0 || !(held.right_pull || held.left_pull) {
-        return false;
-    }
-    let which = if held.right_pull { "Y+R2" } else { "Y+L2" };
-    if cast_slot(held.right_pull, 2, which, pad) {
-        return true;
-    }
-    debug!("input: {which} has no bound spell — trigger passed through");
-    release_borrowed();
-    true
 }
 
 /// Cast the spell bound to `slot` of the weapon in `right`'s hand.
