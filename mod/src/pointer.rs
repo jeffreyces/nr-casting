@@ -9,7 +9,7 @@
 //! | game call                     | while open                                    |
 //! |-------------------------------|-----------------------------------------------|
 //! | `ClipCursor` / `SetCursorPos` | swallowed (no clipping, no re-centring)       |
-//! | `SetCapture`                  | swallowed; `ReleaseCapture` each frame        |
+//! | `SetCapture`                  | swallowed; `ReleaseCapture` every frame       |
 //! | `GetRawInputData[Buffer]`     | empty for the game's threads (kills mouse-look)|
 //! | `ShowCursor`                  | pushed visible on open, unwound exactly on close|
 //!
@@ -20,7 +20,7 @@
 //! driver every frame, which pins it to the screen centre. On native Windows it is
 //! harmless but unnecessary.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering};
 
 static OPEN: AtomicBool = AtomicBool::new(false);
 static CLIP_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
@@ -30,25 +30,24 @@ static RAW_DATA_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static RAW_BUFFER_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 /// `ShowCursor` is a counter; remember how far we pushed it to unwind the same amount.
 static CURSOR_SHOWS: AtomicI32 = AtomicI32::new(0);
-/// Thread the panel renders (and reads raw input for ImGui) on.
-static RENDER_THREAD: AtomicU32 = AtomicU32::new(0);
-
 extern "system" {
     fn ClipCursor(rect: *const u8) -> i32;
     fn ShowCursor(show: i32) -> i32;
     fn ReleaseCapture() -> i32;
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
-    fn GetCurrentThreadId() -> u32;
 }
 
 fn is_open() -> bool {
     OPEN.load(Ordering::Relaxed)
 }
 
-/// Starve every raw-input reader except the panel's render thread.
+/// Starve raw mouse input while the panel owns the pointer.
+///
+/// Every thread, deliberately: the panel reads its cursor from window messages, not raw input,
+/// so nothing in this process needs the mouse raw while it is open.
 fn starving() -> bool {
-    is_open() && unsafe { GetCurrentThreadId() } != RENDER_THREAD.load(Ordering::Relaxed)
+    is_open()
 }
 
 unsafe extern "system" fn clip_detour(rect: *const u8) -> i32 {
@@ -175,11 +174,6 @@ pub fn install() -> Result<(), String> {
                 )
             })
     }
-}
-
-/// Record the calling thread as the panel render thread. Called every frame.
-pub fn note_render_thread() {
-    RENDER_THREAD.store(unsafe { GetCurrentThreadId() }, Ordering::Relaxed);
 }
 
 /// Open or close the panel's claim on the pointer.

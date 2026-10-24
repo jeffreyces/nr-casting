@@ -59,7 +59,6 @@ pub fn maybe_validate() {
 }
 
 /// True while the probe has not run yet.
-
 fn path(name: &str) -> PathBuf {
     crate::config::path(name)
 }

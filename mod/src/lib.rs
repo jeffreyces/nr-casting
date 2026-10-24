@@ -153,11 +153,19 @@ fn slots_path() -> std::path::PathBuf {
     game_dir_file("nr_casting_slots.txt")
 }
 
-/// Detailed per-cast chatter; enabled with `debug_log = on` in the slots file.
-pub(crate) fn debug_log(msg: &str) {
-    if DEBUG_LOG.load(Ordering::Relaxed) {
-        log(msg);
-    }
+/// Detailed per-cast chatter; enabled with `debug_log = on` in the ini.
+pub(crate) fn debug_enabled() -> bool {
+    DEBUG_LOG.load(Ordering::Relaxed)
+}
+
+/// Log only when debugging is on: the check comes before `format!`, so a disabled debug log
+/// costs one relaxed load instead of a `String` per input poll.
+macro_rules! debug {
+    ($($arg:tt)*) => {
+        if $crate::debug_enabled() {
+            $crate::log(&format!($($arg)*));
+        }
+    };
 }
 
 pub(crate) fn log(msg: &str) {
@@ -170,7 +178,7 @@ pub(crate) fn log(msg: &str) {
     let slot = LOG_FILE.get_or_init(|| Mutex::new(None));
 
     // Size check costs a syscall, so only pay for it occasionally.
-    if LOG_WRITES.fetch_add(1, Ordering::Relaxed) % 256 == 0
+    if LOG_WRITES.fetch_add(1, Ordering::Relaxed).is_multiple_of(256)
         && std::fs::metadata(log_path()).map(|m| m.len()).unwrap_or(0) > LOG_LIMIT
     {
         let _ = std::fs::rename(log_path(), game_dir_file("nr_casting_probe.old.log"));
@@ -721,8 +729,8 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
         if n > PEAK_POLLS.load(Ordering::Relaxed) {
             PEAK_POLLS.store(n, Ordering::Relaxed);
         }
-        if n == 1 || n % 600 == 0 {
-            debug_log(&format!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe { (*state).gamepad.buttons }));
+        if n == 1 || n.is_multiple_of(600) {
+            debug!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe { (*state).gamepad.buttons });
         }
         adjust(&mut *state);
     }
@@ -801,10 +809,10 @@ fn adjust(state: &mut XInputState) {
     let left_bump = buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0;
 
     if right_pull || left_pull || right_bump || left_bump {
-        debug_log(&format!(
+        debug!(
             "pad: buttons={:#06x} rt={} lt={}",
             buttons, pad.right_trigger, pad.left_trigger
-        ));
+        );
     }
 
     // Ash of war: R3 + L2 hands the trigger back to the game untouched. L2 is ours on a
@@ -849,7 +857,7 @@ fn adjust(state: &mut XInputState) {
         return;
     }
     let Some((left_id, right_id)) = weapon_ids() else {
-        debug_log("input: no weapon ids (player data unreadable)");
+        debug!("input: no weapon ids (player data unreadable)");
         return;
     };
 
@@ -888,8 +896,6 @@ fn adjust(state: &mut XInputState) {
         }
     }
 
-    let key = (buttons as u32) << 16 | (pad.right_trigger as u32) << 8 | pad.left_trigger as u32;
-
     // Y + trigger: a fourth and fifth slot per catalyst. Two-handing is meaningless on a staff,
     // which is what Y+RB/Y+LB would otherwise do, so the chord is spent on a spell instead.
     //
@@ -902,7 +908,7 @@ fn adjust(state: &mut XInputState) {
         if cast_slot(right_pull, 2, which, pad) {
             return;
         }
-        debug_log(&format!("input: {which} has no bound spell — trigger passed through"));
+        debug!("input: {which} has no bound spell — trigger passed through");
         release_borrowed();
         return;
     }
@@ -929,7 +935,7 @@ fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> 
     let weapon = if right { right_id } else { left_id };
     let bound = store_get(weapon).map(|s| s.get(slot).copied().unwrap_or(-1)).unwrap_or(-1);
     if bound <= 0 {
-        debug_log(&format!("input: {which} has no bound spell"));
+        debug!("input: {which} has no bound spell");
         return false;
     }
     pad.right_trigger = 0;
@@ -941,12 +947,12 @@ fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> 
         pad.buttons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
     }
     if !select_spell(bound) {
-        debug_log(&format!("input: {which} bound to {bound} but magic data unreadable"));
+        debug!("input: {which} bound to {bound} but magic data unreadable");
         return false;
     }
     let key = (slot as u32) << 1 | u32::from(right);
     if LAST_INPUT.swap(key, Ordering::Relaxed) != key {
-        debug_log(&format!("{which} -> spell {bound}"));
+        debug!("{which} -> spell {bound}");
     }
     true
 }

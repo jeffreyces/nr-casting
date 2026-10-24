@@ -5,10 +5,6 @@
 
 extern crate alloc;
 
-use alloc::vec;
-use alloc::vec::Vec;
-use core::ptr::null;
-
 mod runtime_shader;
 
 // E_FAIL, used to report a shader that failed to compile at runtime.

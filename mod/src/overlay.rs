@@ -64,7 +64,6 @@ impl Spell {
 
 pub struct Panel {
     visible: bool,
-    f8_down: bool,
     spells: Vec<Spell>,
     by_id: std::collections::HashMap<i32, usize>,
     /// base weapon id -> name (upgrade level is the low two digits of the equipped id)
@@ -88,7 +87,6 @@ impl Panel {
             .collect::<std::collections::HashMap<_, _>>();
         Panel {
             visible: false,
-            f8_down: false,
             spells,
             by_id,
             weapons: load_weapon_names(),
@@ -146,8 +144,9 @@ impl Panel {
     }
 
     fn reindex(&mut self) {
+        // `sort_by_cached_key` lower-cases each name once instead of once per comparison.
         self.spells
-            .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            .sort_by_cached_key(|spell| spell.name.to_lowercase());
         self.by_id = self
             .spells
             .iter()
@@ -205,9 +204,6 @@ impl Panel {
         }
     }
 
-    pub fn visible(&self) -> bool {
-        self.visible
-    }
 
     /// Everything the window needs to fill a slot's list, already filtered.
     pub fn candidates(&self, needle: &str) -> Vec<(i32, String)> {
@@ -440,7 +436,7 @@ fn parse_spells(text: &str) -> Vec<Spell> {
             spell.name = format!("Spell {}", spell.id);
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_cached_key(|spell| spell.name.to_lowercase());
     out
 }
 

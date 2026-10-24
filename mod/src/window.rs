@@ -16,6 +16,7 @@
 //! a process that already runs one, and creating it mid-game hitches.
 
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Instant;
 
 use imgui::{Condition, Ui};
@@ -42,7 +43,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, LoadCursorW, IDC_ARROW, WS_EX_TOPMOST, WS_POPUP, DispatchMessageW, GetClientRect, IsIconic, PeekMessageW,
     GetForegroundWindow, RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG,
     PM_REMOVE, SW_HIDE,
-    SW_SHOW, WNDCLASSW, WS_OVERLAPPEDWINDOW, WM_CHAR, WM_CLOSE, WM_KEYDOWN, WM_KEYUP,
+    SW_SHOW, WNDCLASSW, WM_CHAR, WM_CLOSE, WM_KEYDOWN, WM_KEYUP,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE,
 };
@@ -80,9 +81,24 @@ struct Model {
     search: String,
     show_all: bool,
     status: String,
+    /// Rebuilt only when the filter or the character's stats change. The panel redraws every
+    /// frame, and this list is several hundred formatted strings.
+    candidates: Rc<Vec<(i32, String)>>,
+    candidates_key: String,
 }
 
 impl Model {
+    fn refresh_candidates(&mut self) {
+        let stats = crate::player_stats().unwrap_or((0, 0, 0));
+        let (int, fai, arc) = stats;
+        let key = format!("{}\u{1}{}\u{1}{int}\u{1}{fai}\u{1}{arc}", self.search, self.show_all);
+        if key == self.candidates_key {
+            return;
+        }
+        self.candidates = Rc::new(self.panel.candidates(&self.search));
+        self.candidates_key = key;
+    }
+
     fn new() -> Self {
         Model {
             panel: Panel::new(),
@@ -90,11 +106,14 @@ impl Model {
             search: String::new(),
             show_all: false,
             status: "waiting for the player...".to_string(),
+            candidates: Rc::new(Vec::new()),
+            candidates_key: String::new(),
         }
     }
 
     fn reload(&mut self) {
         self.panel.reload();
+        self.candidates_key.clear();
         self.weapons = crate::weapon_ids().unwrap_or((0, 0));
         self.panel.set_filter(self.search.clone());
         self.panel.set_show_all(self.show_all);
@@ -149,6 +168,9 @@ impl Gfx {
                 return;
             }
         };
+        // Drop the old view before replacing it: `ResizeBuffers` calls this every time, and an
+        // overwritten COM pointer is a leaked render target, not a freed one.
+        self.view = None;
         let mut view: Option<ID3D11RenderTargetView> = None;
         match self.device.CreateRenderTargetView(&buffer, None, Some(&mut view)) {
             Ok(()) => self.view = view,
@@ -239,12 +261,12 @@ impl App {
                 D3D_DRIVER_TYPE_HARDWARE,
                 HMODULE::default(),
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
+                Some(&levels),
                 D3D11_SDK_VERSION,
                 Some(&desc),
                 Some(&mut swap_chain),
                 Some(&mut device),
-                None,
+                Some(&mut level),
                 Some(&mut context),
             )
         };
@@ -332,7 +354,8 @@ impl App {
         let mut assign: Option<(usize, i32)> = None;
 
         // Recomputed each frame so the search box takes effect immediately.
-        let candidates = model.panel.candidates(&model.search);
+        model.refresh_candidates();
+        let candidates = Rc::clone(&model.candidates);
 
         let size = ui.io().display_size;
         imgui::Window::new("nr-casting")
@@ -368,7 +391,7 @@ impl App {
                     ui.same_line();
                     ui.text_disabled(slot.mouse);
                     if let Some(picked) =
-                        slot_combo(ui, &format!("##left{index}"), preview, current, &candidates)
+                        slot_combo(ui, &format!("##left{index}"), preview, current, &candidates[..])
                     {
                         assign = Some((index, picked));
                     }
@@ -421,7 +444,7 @@ impl App {
                     ui.same_line();
                     ui.text_disabled(slot.mouse);
                     if let Some(picked) =
-                        slot_combo(ui, &format!("##right{index}"), preview, current, &candidates)
+                        slot_combo(ui, &format!("##right{index}"), preview, current, &candidates[..])
                     {
                         assign = Some((index, picked));
                     }
@@ -688,6 +711,9 @@ pub fn start() {
                 let _ = unsafe { TranslateMessage(&msg) };
                 unsafe { DispatchMessageW(&msg) };
             }
+
+            // No-op while the panel is closed; releases the pointer's capture while it is open.
+            crate::pointer::frame();
 
             APP.with(|cell| {
                 let mut guard = cell.borrow_mut();

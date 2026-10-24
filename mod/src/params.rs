@@ -47,7 +47,7 @@ pub fn live_spells() -> Vec<LiveSpell> {
             continue;
         }
         // SAFETY: readable, owned by the repository, re-checked on every call.
-        let file = unsafe { cap.data.as_ref() };
+        let file = cap.data.as_ref();
         // Bounded: these tables hold a few hundred rows (spells) to a few thousand (weapons).
         for id in file.row_ids().take(200_000) {
             // 999999999 is the game's "no spell" sentinel row, not a castable spell.
@@ -92,7 +92,7 @@ pub fn live_weapon_ids() -> Vec<i32> {
             continue;
         }
         // SAFETY: readable, owned by the repository, re-checked on every call.
-        let file = unsafe { cap.data.as_ref() };
+        let file = cap.data.as_ref();
         // Bounded: these tables hold a few hundred rows (spells) to a few thousand (weapons).
         for id in file.row_ids().take(200_000) {
             // Weapon rows are 8-digit base ids; the upgrade level is not part of the row id.
