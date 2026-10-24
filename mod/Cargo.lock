@@ -341,10 +341,15 @@ dependencies = [
  "fromsoftware-shared",
  "imgui",
  "imgui-dx11-renderer",
+ "nr_casting_core",
  "retour",
  "windows 0.36.1",
  "windows 0.61.3",
 ]
+
+[[package]]
+name = "nr_casting_core"
+version = "0.2.0"
 
 [[package]]
 name = "num_enum"

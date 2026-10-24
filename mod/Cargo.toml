@@ -9,6 +9,9 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+# Pure slot parsing and input routing, kept in its own crate so `cargo test` can exercise it
+# without a Windows target or a running game.
+nr_casting_core = { path = "pure" }
 # Panel UI: Dear ImGui, rendered with D3D11 into a window of our own. The renderer crate is
 # vendored because upstream compiles its two shaders with `fxc` in a build script; the vendored
 # copy compiles them at runtime through d3dcompiler_47.dll instead (see

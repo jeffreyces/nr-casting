@@ -115,6 +115,12 @@ INSTALL — me3 Manager (the graphical one)
    Add the mod through the manager and point it at nr_casting.dll. The manager
    writes its own profile, so nr-casting.me3 is not needed there.
 
+   Two things to know about the manager:
+     - it has a "start online" toggle. Leave it off; this mod is offline only.
+     - updating a mod replaces its folder, which takes nr_casting.ini and
+       nr_casting_slots.txt with it. Copy them out first if you have
+       assignments you care about.
+
 
 IN GAME
 
