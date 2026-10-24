@@ -25,19 +25,6 @@ const OWNED_FILES: [&str; 4] = [
     "nr_casting_probe.old.log",
 ];
 
-/// When the panel's Present hook is installed.
-///
-/// A hook cannot be installed lazily — hudhook has no teardown — so it runs every frame while
-/// loaded. That is wasted work in normal play and, with another overlay in the process, it
-/// disturbs that overlay's drawing (a class port's HUD disappears). `Auto` therefore skips
-/// installing when another overlay DLL is already loaded, and `On` forces it.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum OverlayMode {
-    Auto,
-    On,
-    Off,
-}
-
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Virtual-key code for the panel toggle.
@@ -47,8 +34,8 @@ pub struct Config {
     /// XInput button bit that starts a bind when held with a spell input.
     pub modifier: u16,
     pub modifier_name: String,
-    /// When to install the ImGui overlay.
-    pub overlay: OverlayMode,
+    /// Open the assignment panel window. Off = casting only.
+    pub overlay: bool,
     /// Mirror slot 1 onto the game's HUD while the panel is closed.
     pub hud_mirror: bool,
     /// Log every cast, not just captures and errors.
@@ -62,7 +49,7 @@ impl Default for Config {
             hotkey_name: "F8".to_string(),
             modifier: 0x0040, // L3
             modifier_name: "L3".to_string(),
-            overlay: OverlayMode::Auto,
+            overlay: true,
             hud_mirror: false,
             debug_log: false,
         }
@@ -239,10 +226,9 @@ pub fn load() -> &'static Config {
         };
         if !file.exists() {
             let defaults = "\
-; nr-casting — two spells per catalyst
+; nr-casting — three spells per catalyst (bumper, trigger, Y + trigger)
 [ui]
-; Install the in-game panel. Turn this off when another overlay owns the frame presentation
-; (frame-generation mods, class-port HUDs): casting still works, only the panel goes away.
+; Open the assignment panel on the hotkey. Set this to off for casting only — no window at all.
 overlay = on
 ; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
 hotkey = F8
@@ -299,13 +285,9 @@ debug_log = off
                             config.modifier_name
                         )),
                     },
-                    "overlay" => {
-                        config.overlay = match value.trim().to_ascii_lowercase().as_str() {
-                            "off" | "0" | "false" | "no" | "never" => OverlayMode::Off,
-                            "on" | "1" | "true" | "yes" | "force" | "always" => OverlayMode::On,
-                            _ => OverlayMode::Auto,
-                        }
-                    }
+                    // "auto" is accepted for older installs: the panel no longer hooks the
+                    // game's swap chain, so there is nothing to skip automatically.
+                    "overlay" => config.overlay = truthy(value),
                     "hud_mirror" => config.hud_mirror = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     _ => {}

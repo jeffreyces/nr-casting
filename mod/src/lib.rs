@@ -28,6 +28,7 @@
 
 mod config;
 mod overlay;
+mod window;
 mod params;
 mod pointer;
 mod probe;
@@ -40,6 +41,10 @@ use std::time::Duration;
 use eldenring::cs::{ChrAsmSlot, WorldChrMan};
 use eldenring::util::system::{wait_for_system_init, SystemInitError};
 use fromsoftware_shared::{FromStatic, Program};
+use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetCursorInfo, GetForegroundWindow, GetWindowThreadProcessId, CURSORINFO, CURSOR_SHOWING,
+};
 
 // XInput button bits (xinput.h).
 const XINPUT_GAMEPAD_RIGHT_THUMB: u16 = 0x0080;
@@ -119,11 +124,11 @@ pub(crate) static HUD_MIRROR: AtomicBool = AtomicBool::new(false);
 /// the wheel selection every frame and capture needs the player to be able to cycle it.
 pub(crate) static UI_OPEN: AtomicBool = AtomicBool::new(false);
 /// weapon param id -> [bumper spell, trigger spell]
-static STORE: OnceLock<Mutex<HashMap<i32, [i32; 2]>>> = OnceLock::new();
+static STORE: OnceLock<Mutex<HashMap<i32, [i32; 3]>>> = OnceLock::new();
 
 /// A panic while holding the store would otherwise poison it and, with `panic = "abort"`,
 /// take the process with it. The data is plain values, so recovering the guard is safe.
-fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, [i32; 2]>> {
+fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, [i32; 3]>> {
     STORE
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -262,6 +267,7 @@ fn run() {
     }
     let _ = std::fs::write(&marker, format!("{stamp}\n"));
 
+
     let cfg = config::load();
     log(&format!(
         "=== nr_casting loaded ({} opens the panel; hold {} + R1/R2/L1/L2 to bind)",
@@ -294,7 +300,7 @@ fn run() {
 
     seed_store();
     probe::resolve_table();
-    overlay::start(HINSTANCE_USIZE.load(Ordering::Relaxed));
+    window::start();
     std::thread::spawn(watch_hook);
     match install_hook() {
         Ok(addr) => log(&format!("XInputGetState hooked at {addr:p}")),
@@ -385,24 +391,27 @@ fn reload_store() {
                 .split(',')
                 .filter_map(|s| s.trim().parse::<i32>().ok())
                 .collect();
-            if parts.len() == 2 {
-                map.insert(id, [parts[0], parts[1]]);
+            if parts.len() >= 2 {
+                // Older files carry two entries; the third (Y + trigger) defaults to unbound.
+                let third = parts.get(2).copied().unwrap_or(-1);
+                map.insert(id, [parts[0], parts[1], third]);
             }
         }
     }
     *store_lock() = map;
 }
 
-fn save_store(map: &HashMap<i32, [i32; 2]>) {
+fn save_store(map: &HashMap<i32, [i32; 3]>) {
     let mut out = String::from(
-        "# weapon_param_id = bumper_spell, trigger_spell\n\
-         # Hold D-pad Up + press R1/R2/L1/L2 in game to overwrite a slot.\n",
+        "# weapon_param_id = bumper_spell, trigger_spell, y_chord_spell\n\
+         # y_chord_spell is cast by holding Y and pulling the trigger: Y+R2 (right weapon)\n\
+         # and Y+L2 (left weapon). Two-entry lines from older versions are still accepted.\n",
     );
     let mut ids: Vec<&i32> = map.keys().collect();
     ids.sort();
     for id in ids {
         let s = map[id];
-        out.push_str(&format!("{id} = {}, {}\n", s[0], s[1]));
+        out.push_str(&format!("{id} = {}, {}, {}\n", s[0], s[1], s[2]));
     }
     if let Err(e) = std::fs::write(slots_path(), out) {
         log(&format!("slots: FAILED to write {}: {e}", slots_path().display()));
@@ -419,7 +428,7 @@ fn describe_store() -> String {
         .join(" ")
 }
 
-pub(crate) fn store_get(weapon: i32) -> Option<[i32; 2]> {
+pub(crate) fn store_get(weapon: i32) -> Option<[i32; 3]> {
     store_lock().get(&weapon).copied()
 }
 
@@ -428,7 +437,10 @@ pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
     // interleave and save out of order.
     let snapshot = {
         let mut map = store_lock();
-        map.entry(weapon).or_insert([-1, -1])[slot] = spell;
+        let entry = map.entry(weapon).or_insert([-1, -1, -1]);
+        if slot < entry.len() {
+            entry[slot] = spell;
+        }
         map.clone()
     };
     save_store(&snapshot);
@@ -717,6 +729,66 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     ret
 }
 
+/// The six mouse combinations, in the same order as the pad's slots.
+///
+/// The game casts from its own mouse bindings (left = right hand, right = left hand, with the
+/// usual modifier for the strong attacks), so the mod does what it does on the pad: steer the
+/// selection at the bound spell and hand the game a shoulder press. Mouse and pad share one
+/// code path so a slot can never mean two different things.
+fn mouse_combo() -> Option<(bool, usize, &'static str)> {
+    // Only while the game itself has focus: clicks in the panel or another window are somebody
+    // else's input.
+    if UI_OPEN.load(Ordering::Relaxed) {
+        return None;
+    }
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid != std::process::id() {
+            return None;
+        }
+    }
+    // In menus, the title screen and any other UI the game shows its cursor; in gameplay it
+    // hides and captures it. Clicking there belongs to the game's UI — synthesising a pad
+    // press for it turned "Exit" into an attack/confirm, so the cursor decides.
+    let mut cursor = CURSORINFO {
+        cbSize: std::mem::size_of::<CURSORINFO>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GetCursorInfo(&mut cursor) }.is_ok() && cursor.flags.0 & CURSOR_SHOWING.0 != 0 {
+        return None;
+    }
+    let down = |vk: i32| unsafe { GetAsyncKeyState(vk) } < 0;
+    let (left_click, right_click) = (down(VK_LBUTTON), down(VK_RBUTTON));
+    let (shift, ctrl) = (down(VK_SHIFT), down(VK_CONTROL));
+    match (left_click, right_click) {
+        (true, false) => Some(if ctrl {
+            (true, 2, "ctrl + LMB")
+        } else if shift {
+            (true, 1, "shift + LMB")
+        } else {
+            (true, 0, "LMB")
+        }),
+        (false, true) => Some(if ctrl {
+            (false, 2, "ctrl + RMB")
+        } else if shift {
+            (false, 1, "shift + RMB")
+        } else {
+            (false, 0, "RMB")
+        }),
+        _ => None,
+    }
+}
+
+const VK_LBUTTON: i32 = 0x01;
+const VK_RBUTTON: i32 = 0x02;
+const VK_SHIFT: i32 = 0x10;
+const VK_CONTROL: i32 = 0x11;
+
 fn adjust(state: &mut XInputState) {
     // One sample per poll keeps the panel's "selected" line and capture accurate without
     // putting the side effect inside a getter.
@@ -746,17 +818,14 @@ fn adjust(state: &mut XInputState) {
         return;
     }
 
-    // Y is a chord modifier in class-port mods: Recluse reads Y+RB (0x8200) and Y+LB (0x8100)
-    // as skill casts, and hides those shoulders from the game while it does. Synthesising a
-    // shoulder press under Y would look exactly like their chord, so pass the trigger through
-    // untouched instead — a heavy attack for that press, never somebody else's skill.
-    if buttons & XINPUT_GAMEPAD_Y != 0 && (right_pull || left_pull) {
-        debug_log("input: Y held — trigger passed through (chord guard)");
-        release_borrowed();
-        return;
-    }
-
     if !(right_pull || left_pull || right_bump || left_bump) {
+        if let Some((right, slot, which)) = mouse_combo() {
+            probe::maybe_validate();
+            if probe::validated() {
+                cast_slot(right, slot, which, pad);
+            }
+            return;
+        }
         // No spell input held: hand the borrowed entry back before anything else reads it.
         release_borrowed();
         // Idle: optionally show the right weapon's slot-1 spell on the game's own HUD.
@@ -821,34 +890,65 @@ fn adjust(state: &mut XInputState) {
 
     let key = (buttons as u32) << 16 | (pad.right_trigger as u32) << 8 | pad.left_trigger as u32;
 
-    let (spell, which) = match (right_pull, right_bump, left_pull, left_bump) {
-        (true, _, _, _) => (store_get(right_id).map(|s| s[1]), "R2"),
-        (_, true, _, _) => (store_get(right_id).map(|s| s[0]), "R1"),
-        (_, _, true, _) => (store_get(left_id).map(|s| s[1]), "L2"),
-        (_, _, _, true) => (store_get(left_id).map(|s| s[0]), "L1"),
-        _ => (None, ""),
-    };
-
-    let Some(spell) = spell.filter(|s| *s > 0) else {
-        debug_log(&format!("input: {which} has no bound spell"));
+    // Y + trigger: a fourth and fifth slot per catalyst. Two-handing is meaningless on a staff,
+    // which is what Y+RB/Y+LB would otherwise do, so the chord is spent on a spell instead.
+    //
+    // Under Y the trigger is never rewritten into a shoulder press on its own: Recluse reads
+    // Y+RB (0x8200) and Y+LB (0x8100) as its own skills. `cast_slot` clears Y for that press,
+    // so the game still gets a plain cast while the port (chained beneath us) keeps seeing the
+    // raw Y + trigger, which is no chord of theirs. With nothing bound the press passes through.
+    if buttons & XINPUT_GAMEPAD_Y != 0 && (right_pull || left_pull) {
+        let which = if right_pull { "Y+R2" } else { "Y+L2" };
+        if cast_slot(right_pull, 2, which, pad) {
+            return;
+        }
+        debug_log(&format!("input: {which} has no bound spell — trigger passed through"));
+        release_borrowed();
         return;
-    };
+    }
 
-    // R2/L2 are not cast inputs: hand the game a shoulder press instead.
-    if which == "R2" {
-        pad.right_trigger = 0;
+    let (right, slot, which) = match (right_pull, right_bump, left_pull, left_bump) {
+        (true, _, _, _) => (true, 1, "R2"),
+        (_, true, _, _) => (true, 0, "R1"),
+        (_, _, true, _) => (false, 1, "L2"),
+        (_, _, _, true) => (false, 0, "L1"),
+        _ => return,
+    };
+    cast_slot(right, slot, which, pad);
+}
+
+/// Cast the spell bound to `slot` of the weapon in `right`'s hand.
+///
+/// Used by both the pad and the mouse. The trigger is always swallowed and a shoulder press
+/// substituted (that is what the game treats as a cast), and Y is cleared so the press reads as
+/// a plain cast rather than two-handing or a class port's skill chord.
+fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> bool {
+    let Some((left_id, right_id)) = weapon_ids() else {
+        return false;
+    };
+    let weapon = if right { right_id } else { left_id };
+    let bound = store_get(weapon).map(|s| s.get(slot).copied().unwrap_or(-1)).unwrap_or(-1);
+    if bound <= 0 {
+        debug_log(&format!("input: {which} has no bound spell"));
+        return false;
+    }
+    pad.right_trigger = 0;
+    pad.left_trigger = 0;
+    pad.buttons &= !XINPUT_GAMEPAD_Y;
+    if right {
         pad.buttons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
-    } else if which == "L2" {
-        pad.left_trigger = 0;
+    } else {
         pad.buttons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
     }
-
-    let steered = select_spell(spell);
-    if !steered {
-        debug_log(&format!("input: {which} bound to {spell} but magic data unreadable"));
-    } else if LAST_INPUT.swap(key, Ordering::Relaxed) != key {
-        debug_log(&format!("{which} -> spell {spell}"));
+    if !select_spell(bound) {
+        debug_log(&format!("input: {which} bound to {bound} but magic data unreadable"));
+        return false;
     }
+    let key = (slot as u32) << 1 | u32::from(right);
+    if LAST_INPUT.swap(key, Ordering::Relaxed) != key {
+        debug_log(&format!("{which} -> spell {bound}"));
+    }
+    true
 }
 
 /// Steer the game's selection at `spell` through a spare magic entry.
@@ -1032,15 +1132,6 @@ fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
 /// Every compatibility report so far reduces to "which other DLL is loaded": proxy DLLs for
 /// frame generation, another overlay, a class-port mod. Naming them in the log turns that from
 /// a guessing game into a line somebody can paste into a bug report.
-/// First loaded DLL that is a known frame-presentation overlay, if any.
-pub(crate) fn foreign_overlay() -> Option<String> {
-    const KNOWN: [&str; 4] = ["ernativeui.dll", "recluse_ui.dll", "recluse-hud", "erss-fg.dll"];
-    let modules = foreign_modules()?;
-    modules
-        .into_iter()
-        .find(|name| KNOWN.iter().any(|k| name.to_ascii_lowercase().contains(k)))
-}
-
 fn foreign_modules() -> Option<Vec<String>> {
     extern "system" {
         fn GetCurrentProcess() -> *mut u8;

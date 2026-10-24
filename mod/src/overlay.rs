@@ -1,5 +1,9 @@
-//! In-game panel for the two-spells-per-catalyst mod. Rendered with hudhook over ER's
-//! DX12 swap chain (vkd3d-proton under Proton), toggled with F8.
+//! The assignment panel for the two-spells-per-catalyst mod.
+//!
+//! This module owns the panel's content and state; `window` owns the host. The panel is drawn
+//! in its own window rather than into the game's swap chain: a second Present hook on ER's
+//! swap chain makes a co-resident class port's HUD stop drawing (verified with ERNativeUI), and
+//! no amount of state restoration inside the hook fixes it.
 //!
 //! Layout: the left weapon and its two dropdowns on the left, the right weapon and its
 //! two dropdowns on the right, character/state information in the middle.
@@ -20,15 +24,7 @@
 
 use std::collections::HashSet;
 
-use hudhook::hooks::dx12::ImguiDx12Hooks;
-use hudhook::windows::Win32::Foundation::HINSTANCE;
-use hudhook::{Hudhook, ImguiRenderLoop, MessageFilter, RenderContext};
-use imgui::{Condition, ConfigFlags, Context, Io, Ui};
 
-
-extern "system" {
-    fn GetAsyncKeyState(vk: i32) -> i16;
-}
 
 #[derive(Clone)]
 pub struct Spell {
@@ -118,7 +114,9 @@ impl Panel {
         match self.weapons.get(&base).or_else(|| self.weapons.get(&id)) {
             Some(name) if upgrade > 0 => format!("{name} +{upgrade}"),
             Some(name) => name.clone(),
-            None => format!("weapon {id}"),
+            // A weapon the vanilla table does not know: the Recluse port adds its own, and those
+            // names live in the port's data, not in Paramdex.
+            None => format!("mod weapon {id}"),
         }
     }
 
@@ -189,187 +187,86 @@ impl Panel {
             None => false,
         }
     }
+}
 
-    fn assign(&self, weapon: i32, slot: usize, label: &str, id: i32) {
+impl Panel {
+    /// Open or close the panel. Ownership of the cursor and any borrowed spell slot follows.
+    pub fn set_visible(&mut self, visible: bool) {
+        if self.visible == visible {
+            return;
+        }
+        self.visible = visible;
+        crate::UI_OPEN.store(visible, std::sync::atomic::Ordering::Relaxed);
+        crate::pointer::set_open(visible);
+        if visible {
+            self.refresh_owned();
+        } else {
+            crate::release_borrowed();
+        }
+    }
+
+    pub fn visible(&self) -> bool {
+        self.visible
+    }
+
+    /// Everything the window needs to fill a slot's list, already filtered.
+    pub fn candidates(&self, needle: &str) -> Vec<(i32, String)> {
+        let needle = needle.trim().to_ascii_lowercase();
+        let stats = crate::player_stats();
+        self.spells
+            .iter()
+            .filter(|spell| self.offered(spell, stats))
+            .filter(|spell| {
+                needle.is_empty()
+                    || spell.name.to_ascii_lowercase().contains(&needle)
+                    || spell.id.to_string().contains(&needle)
+            })
+            .map(|spell| (spell.id, format!("{}   {}", spell.name, spell.detail())))
+            .collect()
+    }
+
+    pub fn assign(&self, weapon: i32, slot: usize, id: i32) {
         if weapon <= 0 {
             return;
         }
         crate::store_set(weapon, slot, id);
         crate::log(&format!(
-            "panel: {label} on {weapon} = spell {id} ({})",
+            "panel: slot {slot} on {weapon} = spell {id} ({})",
             self.label(id)
         ));
     }
 
-    /// One dropdown for a weapon+slot pair; returns the spell picked this frame.
-    fn combo(
-        &self,
-        ui: &Ui,
-        label: &str,
-        weapon: i32,
-        slot: usize,
-        stats: Option<(u32, u32, u32)>,
-        needle: &str,
-    ) -> Option<i32> {
-        let current = crate::store_get(weapon).map(|p| p[slot]).unwrap_or(-1);
-        let preview = if current > 0 {
-            format!("{}  [{current}]", self.label(current))
-        } else {
-            "(none)".to_string()
-        };
+    pub fn slot_value(&self, weapon: i32, slot: usize) -> i32 {
+        crate::store_get(weapon).map(|pair| pair[slot]).unwrap_or(-1)
+    }
 
-        let mut chosen = None;
-        if let Some(_token) = ui.begin_combo(label, preview) {
-            let mut any = false;
-            for spell in &self.spells {
-                if !self.offered(spell, stats) {
-                    continue;
-                }
-                if !needle.is_empty()
-                    && !spell.name.to_ascii_lowercase().contains(needle)
-                    && !spell.id.to_string().contains(needle)
-                {
-                    continue;
-                }
-                any = true;
-                let selected = spell.id == current;
-                if ui
-                    .selectable_config(format!("{}   {}", spell.name, spell.detail()))
-                    .selected(selected)
-                    .build()
-                {
-                    chosen = Some(spell.id);
-                }
-            }
-            if !any {
-                ui.text("(nothing matches)");
-            }
-        }
-        chosen
+    /// Re-read everything that changes while the game runs.
+    pub fn reload(&mut self) {
+        self.apply_live_catalogue();
+        self.refresh_owned();
+    }
+
+    pub fn set_filter(&mut self, needle: String) {
+        self.filter = needle;
+    }
+
+    pub fn set_show_all(&mut self, show: bool) {
+        self.show_all = show;
+    }
+
+    pub fn spell_name(&self, id: i32) -> String {
+        self.label(id)
+    }
+
+    pub fn spell_count(&self) -> usize {
+        self.spells.len()
+    }
+
+    pub fn weapon_name(&self, id: i32) -> String {
+        self.weapon_label(id)
     }
 }
 
-impl ImguiRenderLoop for Panel {
-    fn before_render<'a>(&'a mut self, ctx: &mut Context, _render: &'a mut dyn RenderContext) {
-        // hudhook renders and feeds ImGui from this thread; raw-input starvation spares it.
-        crate::pointer::note_render_thread();
-        let io = ctx.io_mut();
-        io.config_flags |= ConfigFlags::NAV_ENABLE_KEYBOARD;
-        io.mouse_draw_cursor = self.visible;
-        crate::pointer::frame();
-    }
-
-    fn message_filter(&self, _io: &Io) -> MessageFilter {
-        if self.visible {
-            MessageFilter::InputKeyboard | MessageFilter::InputMouse | MessageFilter::InputRaw
-        } else {
-            MessageFilter::empty()
-        }
-    }
-
-    fn render(&mut self, ui: &mut Ui) {
-        // SAFETY: GetAsyncKeyState only reads key state.
-        let down = unsafe { GetAsyncKeyState(crate::config::load().hotkey) } < 0;
-        if down && !self.f8_down {
-            self.visible = !self.visible;
-            crate::UI_OPEN.store(self.visible, std::sync::atomic::Ordering::Relaxed);
-            crate::pointer::set_open(self.visible);
-            if self.visible {
-                self.refresh_owned();
-            } else {
-                crate::release_borrowed();
-            }
-        }
-        self.f8_down = down;
-        if !self.visible {
-            return;
-        }
-
-        // Keep "selected now" live while the panel is open.
-        crate::sample_player_selection();
-        let weapons = crate::weapon_ids();
-        let stats = crate::player_stats();
-        let needle = self.filter.trim().to_ascii_lowercase();
-
-        ui.window("nr-casting")
-            .position([40.0, 90.0], Condition::FirstUseEver)
-            .size([720.0, 400.0], Condition::FirstUseEver)
-            .build(|| {
-                let Some((left, right)) = weapons else {
-                    ui.text("waiting for the player...");
-                    return;
-                };
-
-                ui.columns(3, "layout", true);
-
-                // --- left weapon ------------------------------------------------
-                ui.text("LEFT HAND");
-                ui.text(self.weapon_label(left));
-                ui.text_disabled(format!("{left}"));
-                ui.spacing();
-                for (slot, label) in [(0usize, "L1"), (1, "L2")] {
-                    if let Some(id) = self.combo(ui, label, left, slot, stats, &needle) {
-                        self.assign(left, slot, label, id);
-                    }
-                }
-
-                ui.next_column();
-
-                // --- middle ------------------------------------------------------
-                ui.text("CHARACTER");
-                match stats {
-                    Some((int, fai, arc)) => ui.text(format!("INT {int}   FAI {fai}   ARC {arc}")),
-                    None => ui.text("(stats unavailable)"),
-                }
-                ui.spacing();
-                let selected = crate::PLAYER_SPELL.load(std::sync::atomic::Ordering::Relaxed);
-                if selected > 0 {
-                    ui.text(format!("selected: {}", self.label(selected)));
-                } else {
-                    ui.text("selected: (none seen)");
-                }
-                let mut hud = crate::HUD_MIRROR.load(std::sync::atomic::Ordering::Relaxed);
-                if ui.checkbox("mirror slot 1 on HUD", &mut hud) {
-                    crate::HUD_MIRROR.store(hud, std::sync::atomic::Ordering::Relaxed);
-                }
-                ui.spacing();
-                ui.text("search");
-                ui.input_text("##search", &mut self.filter).build();
-                if ui.button("refresh inventory") {
-                    self.refresh_owned();
-                }
-                ui.checkbox("show everything", &mut self.show_all);
-                ui.spacing();
-                if self.owned_known {
-                    ui.text(format!("{} spells owned", self.owned.len()));
-                } else {
-                    ui.text_colored([1.0, 0.8, 0.3, 1.0], "inventory unreadable");
-                }
-                ui.spacing();
-                ui.text(format!("{} closes this panel", crate::config::load().hotkey_name));
-                ui.text("L3 + input binds in game");
-
-                ui.next_column();
-
-                // --- right weapon -------------------------------------------------
-                ui.text("RIGHT HAND");
-                ui.text(self.weapon_label(right));
-                ui.text_disabled(format!("{right}"));
-                ui.spacing();
-                for (slot, label) in [(0usize, "R1"), (1, "R2")] {
-                    if let Some(id) = self.combo(ui, label, right, slot, stats, &needle) {
-                        self.assign(right, slot, label, id);
-                    }
-                }
-
-                ui.columns(1, "", false);
-            });
-    }
-}
-
-/// Both name tables are compiled into the DLL, so a single file is a complete install. A file
-/// of the same name beside the DLL overrides the embedded copy — that is how a game patch gets
-/// its extra rows without a rebuild.
 const WEAPONS_TABLE: &str = include_str!("../data/nr_casting_weapons.txt");
 const SPELLS_TABLE: &str = include_str!("../data/nr_casting_spells.txt");
 
@@ -552,42 +449,4 @@ fn load_spells() -> Vec<Spell> {
     let out = parse_spells(&text);
     crate::log(&format!("table: {} spells from the {source} copy", out.len()));
     out
-}
-
-/// Install the DX12 present hook on its own thread.
-pub fn start(hmodule: usize) {
-    use crate::config::OverlayMode;
-    match crate::config::load().overlay {
-        OverlayMode::Off => {
-            crate::log("overlay: disabled in nr_casting.ini (casting only)");
-            return;
-        }
-        OverlayMode::Auto => {
-            // Another overlay already draws on this swapchain. Adding a second Present hook on
-            // top of it makes that overlay's art vanish (verified with ERNativeUI / Recluse), so
-            // stay out of the way until the user asks for the panel explicitly.
-            if let Some(name) = crate::foreign_overlay() {
-                crate::log(&format!(
-                    "overlay: {name} is present — panel not installed (set overlay = on to force it)"
-                ));
-                return;
-            }
-        }
-        OverlayMode::On => {}
-    }
-    std::thread::spawn(move || {
-        match crate::pointer::install() {
-            Ok(()) => crate::log("pointer: detours installed"),
-            Err(e) => crate::log(&format!("pointer: FAILED to install detours: {e}")),
-        }
-        let result = Hudhook::builder()
-            .with::<ImguiDx12Hooks>(Panel::new())
-            .with_hmodule(HINSTANCE(hmodule as *mut _))
-            .build()
-            .apply();
-        match result {
-            Ok(()) => crate::log("overlay: DX12 hooks installed (F8 toggles the panel)"),
-            Err(e) => crate::log(&format!("overlay: FAILED to apply DX12 hook: {e:?}")),
-        }
-    });
 }

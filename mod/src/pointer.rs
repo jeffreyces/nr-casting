@@ -13,8 +13,8 @@
 //! | `GetRawInputData[Buffer]`     | empty for the game's threads (kills mouse-look)|
 //! | `ShowCursor`                  | pushed visible on open, unwound exactly on close|
 //!
-//! Raw-input starvation spares the render thread, because hudhook feeds ImGui's cursor
-//! from raw input too — starving everything froze the overlay's own pointer.
+//! Raw-input starvation spares the panel's render thread: ImGui feeds its cursor from raw
+//! input too, and starving every thread froze the panel's own pointer.
 //!
 //! The capture handling is aimed at Wine: a captured pointer is re-centred by the X11
 //! driver every frame, which pins it to the screen centre. On native Windows it is
@@ -30,7 +30,7 @@ static RAW_DATA_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static RAW_BUFFER_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 /// `ShowCursor` is a counter; remember how far we pushed it to unwind the same amount.
 static CURSOR_SHOWS: AtomicI32 = AtomicI32::new(0);
-/// Thread hudhook renders (and reads raw input for ImGui) on.
+/// Thread the panel renders (and reads raw input for ImGui) on.
 static RENDER_THREAD: AtomicU32 = AtomicU32::new(0);
 
 extern "system" {
@@ -46,7 +46,7 @@ fn is_open() -> bool {
     OPEN.load(Ordering::Relaxed)
 }
 
-/// Starve every raw-input reader except hudhook's render thread.
+/// Starve every raw-input reader except the panel's render thread.
 fn starving() -> bool {
     is_open() && unsafe { GetCurrentThreadId() } != RENDER_THREAD.load(Ordering::Relaxed)
 }
@@ -87,6 +87,16 @@ unsafe extern "system" fn capture_detour(hwnd: *mut u8) -> *mut u8 {
     original(hwnd)
 }
 
+/// `RID_INPUT` is the only command whose payload starts with a `RAWINPUT` header, and mouse is
+/// type 0. Starvation exists to stop mouse-look, so keyboard is never dropped: a stuck panel
+/// flag must not be able to take the keyboard away from the game.
+const RID_INPUT: u32 = 0x1000_0003;
+const RIM_TYPE_MOUSE: u32 = 0;
+
+unsafe fn mouse_payload(data: *const u8) -> bool {
+    unsafe { *(data as *const u32) == RIM_TYPE_MOUSE }
+}
+
 unsafe extern "system" fn raw_data_detour(
     device: *mut u8,
     command: u32,
@@ -94,7 +104,7 @@ unsafe extern "system" fn raw_data_detour(
     size: *mut u32,
     header_size: u32,
 ) -> u32 {
-    if starving() {
+    if starving() && !data.is_null() && command == RID_INPUT && mouse_payload(data) {
         return 0;
     }
     let tramp = RAW_DATA_TRAMP.load(Ordering::Acquire);
@@ -107,7 +117,9 @@ unsafe extern "system" fn raw_data_detour(
 }
 
 unsafe extern "system" fn raw_buffer_detour(data: *mut u8, size: *mut u32, header: u32) -> u32 {
-    if starving() {
+    // Each entry in the buffer is a `u32` byte count followed by the `RAWINPUT`, so the first
+    // header's `dwType` sits four bytes in.
+    if starving() && !data.is_null() && unsafe { *((data as *const u32).add(1)) } == RIM_TYPE_MOUSE {
         return 0;
     }
     let tramp = RAW_BUFFER_TRAMP.load(Ordering::Acquire);
@@ -165,7 +177,7 @@ pub fn install() -> Result<(), String> {
     }
 }
 
-/// Record the calling thread as hudhook's render thread. Called every frame.
+/// Record the calling thread as the panel render thread. Called every frame.
 pub fn note_render_thread() {
     RENDER_THREAD.store(unsafe { GetCurrentThreadId() }, Ordering::Relaxed);
 }

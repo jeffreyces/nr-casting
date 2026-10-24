@@ -29,9 +29,9 @@ cp "$BUILD/nr_casting.dll" "$OUT/"
 
 if [[ ! -f "$OUT/nr_casting.ini" ]]; then
 cat > "$OUT/nr_casting.ini" <<'INI'
-; nr-casting — two spells per catalyst
+; nr-casting — three spells per catalyst (bumper, trigger, Y + trigger)
 [ui]
-; Install the in-game panel. Turn off when another overlay owns the frame presentation.
+; Open the assignment panel on the hotkey. Set off for casting only (no window at all).
 overlay = on
 ; Key that opens the assignment panel
 hotkey = F8
@@ -68,7 +68,7 @@ enabled = true
 PROFILE
 
 cat > "$OUT/INSTALL.txt" <<'TXT'
-nr-casting — two spells per catalyst for ELDEN RING (offline only)
+nr-casting — three spells per catalyst for ELDEN RING (offline only)
 
 WHAT IS IN THIS FOLDER
    nr_casting.dll    the mod
@@ -121,8 +121,14 @@ IN GAME
    F8                      open/close the assignment panel
    R1 / R2                 cast slot 1 / slot 2 of the right-hand catalyst
    L1 / L2                 cast slot 1 / slot 2 of the left-hand catalyst
+   Y + R2 / Y + L2         cast slot 3 of the right / left-hand catalyst
    R3 + L2                 plain L2, for the weapon's ash of war
    hold L3 + R1/R2/L1/L2   bind the spell selected in the wheel to that slot
+
+   Mouse, same slots, no setup:
+   left click              R1        shift + left click     R2
+   right click             L1        shift + right click    L2
+   ctrl + left click       Y+R2      ctrl + right click     Y+L2
 
 
 WHERE THE MOD WRITES ITS FILES
@@ -145,9 +151,8 @@ IF IT DOES NOT WORK
    Read nr_casting\nr_casting_probe.log first. It lists every DLL loaded besides
    Windows' own, and that is usually the answer:
 
-     - another overlay, or a frame-generation mod (d3d12.dll, dxgi.dll,
-       erss-fg.dll), owns frame presentation. The panel may then not appear;
-       casting still works. Look for an "overlay: FAILED" line.
+     - the panel could not get a D3D11 device. Casting still works. Look for a
+       "panel:" line saying "no panel graphics" or "device creation failed".
      - a mod that also ships an overlay, or rewrites the spell wheel, can fight
        the panel and the cast steering.
 

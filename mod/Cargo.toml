@@ -9,10 +9,36 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-# ImGui overlay for the assignment panel. dx12 only: ER is a DX12 title, and under
-# Proton this hooks vkd3d-proton's IDXGISwapChain::Present.
-hudhook = { version = "0.9.3", default-features = false, features = ["dx12"] }
-imgui = "0.12"
+# Panel UI: Dear ImGui, rendered with D3D11 into a window of our own. The renderer crate is
+# vendored because upstream compiles its two shaders with `fxc` in a build script; the vendored
+# copy compiles them at runtime through d3dcompiler_47.dll instead (see
+# vendor/imgui-dx11-renderer/src/runtime_shader.rs). D3D11 is the only GPU API that survived
+# in-process here: Vulkan through wgpu and OpenGL through WGL both killed the game.
+imgui = "0.8"
+imgui-dx11-renderer = { path = "../vendor/imgui-dx11-renderer" }
+windows036 = { package = "windows", version = "0.36", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+] }
+# Win32 for the panel window: plain windows and controls, no GPU context of our own.
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }
 # Pinned to the commit that added the ELDEN RING 2.7.2.0 (Ww2720) RVA table,
 # which is what the installed exe reports. The crates.io release (0.14.0) only
 # knows 2.7.1.0 and would fail version detection at load.
@@ -23,8 +49,9 @@ fromsoftware-shared = { git = "https://github.com/vswarte/fromsoftware-rs", rev 
 retour = "0.3"
 
 [profile.release]
-# me3 injects this into a running game: keep it small and self-contained.
-panic = "abort"
+# me3 injects this into a running game: keep it small and self-contained, but unwind —
+# a panel bug has to die on its own thread rather than abort the host process.
+panic = "unwind"
 opt-level = "s"
 lto = true
 
