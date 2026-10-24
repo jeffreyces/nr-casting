@@ -33,7 +33,7 @@ mod pointer;
 mod probe;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -70,6 +70,7 @@ struct XInputState {
 extern "system" {
     fn LoadLibraryA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
+    fn GetModuleHandleA(name: *const u8) -> *mut u8;
 }
 
 /// Trampoline to the original `XInputGetState` (retour 0.3's `static_detour!` needs
@@ -85,6 +86,12 @@ static DEBUG_LOG: AtomicBool = AtomicBool::new(false);
 /// Rotate at 4 MiB so a long session cannot grow the file without bound.
 const LOG_LIMIT: u64 = 4 * 1024 * 1024;
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
+/// Pad polls seen by our detour. Zero after the game is up means our hook is not in the path.
+static POLLS: AtomicU32 = AtomicU32::new(0);
+/// Address our detour currently sits on (the game's pad entry point).
+static HOOK_TARGET: AtomicUsize = AtomicUsize::new(0);
+/// Live `RawDetour`, kept so it can be disabled before re-targeting.
+static ACTIVE_DETOUR: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CAPTURE_KEY: AtomicU32 = AtomicU32::new(u32::MAX);
 /// Magic-entry index pinning the steered spell. Cached: once written the entry is no
@@ -284,6 +291,7 @@ fn run() {
     seed_store();
     probe::resolve_table();
     overlay::start(HINSTANCE_USIZE.load(Ordering::Relaxed));
+    std::thread::spawn(watch_hook);
     match install_hook() {
         Ok(addr) => log(&format!("XInputGetState hooked at {addr:p}")),
         Err(e) => {
@@ -424,6 +432,21 @@ pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
 
 fn install_hook() -> Result<*mut u8, String> {
     unsafe {
+        // Hook the pointer the *game* calls, not just the export in the xinput DLL.
+        //
+        // Another mod that hooks input (a class port, an overlay) can route the game's polls
+        // around our patch, which reads as "the mod loads, the panel works, but triggers stop
+        // casting". So we detour the game's own pad entry point and keep watching it: if
+        // somebody moves it later, `watch_hook` re-targets.
+        let target = current_pad_target()?;
+        hook_target(target)?;
+        Ok(target)
+    }
+}
+
+/// Where the game's pad calls currently go.
+unsafe fn current_pad_target() -> Result<*mut u8, String> {
+    let export = {
         let module = LoadLibraryA(c"xinput1_4.dll".as_ptr() as *const u8);
         let module = if module.is_null() {
             LoadLibraryA(c"xinput9_1_0.dll".as_ptr() as *const u8)
@@ -437,14 +460,217 @@ fn install_hook() -> Result<*mut u8, String> {
         if addr.is_null() {
             return Err("XInputGetState not found".into());
         }
-        let raw = retour::RawDetour::new(addr as *const (), detour as *const ())
+        addr
+    };
+    match game_import_slot() {
+        Some(slot) => {
+            let value = *slot;
+            if value.is_null() {
+                Ok(export)
+            } else {
+                Ok(value)
+            }
+        }
+        None => Ok(export),
+    }
+}
+
+/// Move our detour onto `target`, disabling whatever it was on before.
+fn hook_target(target: *mut u8) -> Result<(), String> {
+    unsafe {
+        let previous = ACTIVE_DETOUR.swap(std::ptr::null_mut(), Ordering::AcqRel);
+        if !previous.is_null() {
+            // Restore the old entry point before patching the new one.
+            let detour: &retour::RawDetour =
+                &*(previous as *const _ as *const retour::RawDetour);
+            let _ = detour.disable();
+        }
+        let raw = retour::RawDetour::new(target as *const (), detour as *const ())
             .map_err(|e| format!("RawDetour::new: {e:?}"))?;
         raw.enable().map_err(|e| format!("enable: {e:?}"))?;
         TRAMPOLINE.store(raw.trampoline() as *const () as *mut (), Ordering::Release);
+        HOOK_TARGET.store(target as usize, Ordering::Release);
         HOOK_READY.store(true, Ordering::Relaxed);
-        std::mem::forget(raw); // process-lifetime state
-        Ok(addr)
+        // Leaked deliberately: the trampoline must outlive the process.
+        ACTIVE_DETOUR.store(Box::into_raw(Box::new(raw)) as *mut (), Ordering::Release);
+        Ok(())
     }
+}
+
+/// Re-target the hook if another mod has since routed the game's polls elsewhere.
+fn watch_hook() {
+    let mut attempts = 0;
+    let mut warned = false;
+    let mut ticks = 0u32;
+    let mut last_polls = 0u32;
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+        ticks += 1;
+        // A loaded hook that never fires means somebody else intercepts the pad: the mod then
+        // loads, the panel opens, and the triggers silently stop casting. Give the game time to
+        // start polling (loading screens legitimately poll nothing) before saying so, once.
+        if !warned && ticks >= 12 && POLLS.load(Ordering::Relaxed) == 0 {
+            log(
+                "input: no pad polls received — another mod is intercepting XInput, so the \
+                 trigger/ash rewriting cannot work. Remove or disable that mod's input DLL.",
+            );
+            warned = true;
+        }
+        // Another mod's hook installer can overwrite our patch bytes on the export (MinHook
+        // rewrites the same prologue). Nothing is logged by the OS when that happens: the hook
+        // simply stops firing. If polls stop arriving after the game is up, put our patch back.
+        if ticks >= 6 && attempts < 3 {
+            let seen = POLLS.load(Ordering::Relaxed);
+            if seen == last_polls {
+                if let Ok(target) = unsafe { current_pad_target() } {
+                    if hook_target(target).is_ok() {
+                        attempts += 1;
+                        log(&format!("XInputGetState: hook was overridden — re-installed at {target:p}"));
+                    }
+                }
+            }
+            last_polls = seen;
+        }
+        if !HOOK_READY.load(Ordering::Relaxed) || attempts >= 4 {
+            return;
+        }
+        let target = unsafe { current_pad_target() };
+        let Ok(target) = target else { continue };
+        if target as usize == HOOK_TARGET.load(Ordering::Acquire) {
+            continue;
+        }
+        match hook_target(target) {
+            Ok(()) => {
+                attempts += 1;
+                log(&format!(
+                    "XInputGetState: another mod moved the pad entry point — re-hooked at {target:p}"
+                ));
+            }
+            Err(e) => {
+                attempts += 1;
+                log(&format!("XInputGetState: re-hook failed at {target:p}: {e}"));
+            }
+        }
+    }
+}
+
+/// Address the executable's import table routes `XInputGetState` to, if it can be found.
+///
+/// Walks the PE import directory of the running game rather than scanning memory: the IAT entry
+/// is what the game's own code loads before every call, so its current value is the truth about
+/// who receives the poll. Every dereference is range-checked first — a parse mistake here must
+/// return `None`, never take the game down with it.
+unsafe fn game_import_slot() -> Option<*const *mut u8> {
+    #[repr(C)]
+    struct ImportDescriptor {
+        original_first_thunk: u32,
+        timestamp: u32,
+        forwarder_chain: u32,
+        name: u32,
+        first_thunk: u32,
+    }
+
+    let base = GetModuleHandleA(std::ptr::null()) as *const u8;
+    if base.is_null() || !probe::readable(base, 0x40) {
+        return None;
+    }
+    if *(base as *const u16) != 0x5A4D {
+        return None;
+    }
+    let pe_offset = *((base as *const u32).add(0x3C)) as usize;
+    if !probe::readable(base.add(pe_offset), 0x18) {
+        return None;
+    }
+    let nt = base.add(pe_offset);
+    if *(nt as *const u32) != 0x0000_4550 {
+        return None;
+    }
+
+    // COFF header is 20 bytes; the optional header follows.
+    let opt = nt.add(24);
+    if !probe::readable(opt, 0x80) {
+        return None;
+    }
+    let magic = *(opt as *const u16);
+    let (dir_offset, size_of_image_offset) = match magic {
+        0x20b => (112usize, 56usize), // PE32+
+        0x10b => (96, 56),            // PE32
+        _ => return None,
+    };
+    let image_size = *(opt.add(size_of_image_offset) as *const u32) as usize;
+    if image_size == 0 {
+        return None;
+    }
+    let in_module = |rva: usize| rva != 0 && rva < image_size;
+
+    // Data directory 1 is the import table; entry 0 is exports.
+    let import_rva = *(opt.add(dir_offset + 8) as *const u32) as usize;
+    if !in_module(import_rva) {
+        return None;
+    }
+
+    for index in 0..256usize {
+        let descriptor = base.add(import_rva + index * std::mem::size_of::<ImportDescriptor>());
+        if !probe::readable(descriptor, std::mem::size_of::<ImportDescriptor>()) {
+            return None;
+        }
+        let descriptor = &*(descriptor as *const ImportDescriptor);
+        if descriptor.name == 0 {
+            return None; // end of the descriptor array
+        }
+        if !in_module(descriptor.name as usize) {
+            return None;
+        }
+        let module_name = read_c_string(base.add(descriptor.name as usize));
+
+        if module_name.to_ascii_lowercase().contains("xinput") {
+            let thunk_rva = if descriptor.original_first_thunk != 0 {
+                descriptor.original_first_thunk
+            } else {
+                descriptor.first_thunk
+            };
+            if !in_module(thunk_rva as usize) || !in_module(descriptor.first_thunk as usize) {
+                return None;
+            }
+            for slot_index in 0..4096usize {
+                let thunk = base.add(thunk_rva as usize + slot_index * 8) as *const u64;
+                let slot = base.add(descriptor.first_thunk as usize + slot_index * 8) as *const *mut u8;
+                if !probe::readable(thunk as *const u8, 8) || !probe::readable(slot as *const u8, 8) {
+                    return None;
+                }
+                let entry = *thunk;
+                if entry == 0 {
+                    break;
+                }
+                // High bit set means "imported by ordinal"; XInputGetState never is.
+                if entry & 0x8000_0000_0000_0000 != 0 {
+                    continue;
+                }
+                let name_rva = entry as usize + 2;
+                if !in_module(name_rva) || !probe::readable(base.add(name_rva), 16) {
+                    continue;
+                }
+                if read_c_string(base.add(name_rva)) == "XInputGetState" {
+                    return Some(slot);
+                }
+            }
+        }
+    }
+    None
+}
+
+unsafe fn read_c_string(ptr: *const u8) -> String {
+    let mut out = Vec::new();
+    let mut i = 0;
+    loop {
+        let byte = *ptr.add(i);
+        if byte == 0 || out.len() > 128 {
+            break;
+        }
+        out.push(byte);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
 }
 
 /// Runs on whatever thread the game polls the pad from.
@@ -457,6 +683,10 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
         std::mem::transmute(tramp);
     let ret = original(user, state);
     if ret == 0 && !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
+        let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;
+        if n == 1 || n % 600 == 0 {
+            debug_log(&format!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe { (*state).gamepad.buttons }));
+        }
         adjust(&mut *state);
     }
     ret
@@ -472,6 +702,13 @@ fn adjust(state: &mut XInputState) {
     let left_pull = pad.left_trigger >= TRIGGER_THRESHOLD;
     let right_bump = buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER != 0;
     let left_bump = buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0;
+
+    if right_pull || left_pull || right_bump || left_bump {
+        debug_log(&format!(
+            "pad: buttons={:#06x} rt={} lt={}",
+            buttons, pad.right_trigger, pad.left_trigger
+        ));
+    }
 
     // Ash of war: R3 + L2 hands the trigger back to the game untouched. L2 is ours on a
     // catalyst (it casts slot 2), which left the skill with no input at all; holding R3 for
@@ -489,6 +726,7 @@ fn adjust(state: &mut XInputState) {
     // shoulder press under Y would look exactly like their chord, so pass the trigger through
     // untouched instead — a heavy attack for that press, never somebody else's skill.
     if buttons & XINPUT_GAMEPAD_Y != 0 && (right_pull || left_pull) {
+        debug_log("input: Y held — trigger passed through (chord guard)");
         release_borrowed();
         return;
     }
@@ -517,6 +755,7 @@ fn adjust(state: &mut XInputState) {
         return;
     }
     let Some((left_id, right_id)) = weapon_ids() else {
+        debug_log("input: no weapon ids (player data unreadable)");
         return;
     };
 
@@ -566,6 +805,7 @@ fn adjust(state: &mut XInputState) {
     };
 
     let Some(spell) = spell.filter(|s| *s > 0) else {
+        debug_log(&format!("input: {which} has no bound spell"));
         return;
     };
 
@@ -578,7 +818,10 @@ fn adjust(state: &mut XInputState) {
         pad.buttons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
     }
 
-    if select_spell(spell) && LAST_INPUT.swap(key, Ordering::Relaxed) != key {
+    let steered = select_spell(spell);
+    if !steered {
+        debug_log(&format!("input: {which} bound to {spell} but magic data unreadable"));
+    } else if LAST_INPUT.swap(key, Ordering::Relaxed) != key {
         debug_log(&format!("{which} -> spell {spell}"));
     }
 }
