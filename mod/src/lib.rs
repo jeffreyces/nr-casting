@@ -591,7 +591,12 @@ fn adjust(state: &mut XInputState) {
 /// slot, and permanently displacing somebody's spell risks the game saving that displacement.
 /// The tampering window here is one burst of input, and `release_borrowed` closes it on the
 /// first poll with no spell input held.
-fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> usize {
+fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
+    // No slots means nothing to steer (seen for a frame during a teardown); `entries[0]` would
+    // panic, and this crate is panic=abort, so a panic here kills the game.
+    if magic.entries.is_empty() {
+        return None;
+    }
     let selected = magic.selected_slot;
     let idx = if (0..magic.entries.len() as i32).contains(&selected) {
         selected as usize
@@ -600,13 +605,14 @@ fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> usize {
     };
     let mut borrowed = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
     if borrowed.is_none() {
+        let entry = &magic.entries[idx];
         *borrowed = Some(Borrow {
             idx,
-            param_id: magic.entries[idx].param_id,
-            charges: magic.entries[idx].charges,
+            param_id: entry.param_id,
+            charges: entry.charges,
         });
     }
-    idx
+    Some(idx)
 }
 
 /// Put back whatever `borrow_selected` overwrote. Cheap enough to call on every idle poll.
@@ -640,10 +646,15 @@ fn select_spell(spell: i32) -> bool {
     let Some(magic) = magic_data() else {
         return false;
     };
-    let idx = borrow_selected(magic);
-    magic.entries[idx].param_id = spell;
-    if magic.entries[idx].charges > 0 {
-        magic.entries[idx].charges = -1;
+    let Some(idx) = borrow_selected(magic) else {
+        return false;
+    };
+    let Some(entry) = magic.entries.get_mut(idx) else {
+        return false;
+    };
+    entry.param_id = spell;
+    if entry.charges > 0 {
+        entry.charges = -1;
     }
     magic.selected_slot = idx as i32;
     // The menu's `selected_magic_item` is deliberately left alone: the cast reads
@@ -723,6 +734,9 @@ pub(crate) fn inventory_goods_ids() -> Vec<i32> {
         .equip_inventory_data
         .items_data
         .items()
+        // The list is rebuilt on load; cap the walk so a stale length cannot spin through
+        // garbage. Real inventories are a few hundred entries.
+        .take(4096)
         .filter(|entry| entry.item_id.category() == eldenring::cs::ItemCategory::Goods)
         .map(|entry| entry.item_id.param_id() as i32)
         .collect()
@@ -735,7 +749,14 @@ pub(crate) fn magic_slots() -> Option<(usize, i32)> {
 
 fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
     let pgd = game_data()?;
-    Some(pgd.equipment.equip_magic_data.as_mut())
+    let ptr = pgd.equipment.equip_magic_data.as_ptr();
+    // OwnedPtr derefs without a check; during a teardown this is exactly the pointer that can be
+    // released while it still looks valid.
+    if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::EquipMagicData>()) {
+        return None;
+    }
+    // SAFETY: readable, owned by the player's game data, re-derived on every call.
+    Some(unsafe { &mut *ptr })
 }
 
 /// Log the DLLs in this process that are neither Windows' nor ours.

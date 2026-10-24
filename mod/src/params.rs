@@ -15,6 +15,7 @@
 //! name until the table is regenerated — assignable and correctly filtered either way.
 
 use eldenring::cs::{EquipParamWeapon, Magic, SoloParam, SoloParamRepository};
+use eldenring::fd4::ParamFile;
 use fromsoftware_shared::FromStatic;
 
 #[derive(Clone, Copy, Debug)]
@@ -39,8 +40,16 @@ pub fn live_spells() -> Vec<LiveSpell> {
         if cap.res_cap.name != Magic::NAME {
             continue;
         }
-        let file = cap.data.as_ref();
-        for id in file.row_ids() {
+        let ptr = cap.data.as_ptr();
+        // A reload can release the param file while the repository entry still points at it, so
+        // validate the pointer before walking its row table.
+        if !crate::probe::readable(ptr as *const u8, std::mem::size_of::<ParamFile>()) {
+            continue;
+        }
+        // SAFETY: readable, owned by the repository, re-checked on every call.
+        let file = unsafe { cap.data.as_ref() };
+        // Bounded: these tables hold a few hundred rows (spells) to a few thousand (weapons).
+        for id in file.row_ids().take(200_000) {
             // 999999999 is the game's "no spell" sentinel row, not a castable spell.
             if id >= 999_999_999 {
                 continue;
@@ -76,8 +85,16 @@ pub fn live_weapon_ids() -> Vec<i32> {
         if cap.res_cap.name != EquipParamWeapon::NAME {
             continue;
         }
-        let file = cap.data.as_ref();
-        for id in file.row_ids() {
+        let ptr = cap.data.as_ptr();
+        // A reload can release the param file while the repository entry still points at it, so
+        // validate the pointer before walking its row table.
+        if !crate::probe::readable(ptr as *const u8, std::mem::size_of::<ParamFile>()) {
+            continue;
+        }
+        // SAFETY: readable, owned by the repository, re-checked on every call.
+        let file = unsafe { cap.data.as_ref() };
+        // Bounded: these tables hold a few hundred rows (spells) to a few thousand (weapons).
+        for id in file.row_ids().take(200_000) {
             // Weapon rows are 8-digit base ids; the upgrade level is not part of the row id.
             if id < 0x0FFF_FFFF {
                 out.push(id as i32);
