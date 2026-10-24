@@ -287,7 +287,19 @@ debug_log = off
                     },
                     // "auto" is accepted for older installs: the panel no longer hooks the
                     // game's swap chain, so there is nothing to skip automatically.
-                    "overlay" => config.overlay = truthy(value),
+                    "overlay" => {
+                        // v0.1.0 shipped `auto | on | off`. There is no swap-chain hook to be
+                        // careful about any more, so the old default means what `on` means now —
+                        // say so rather than going dark for everyone who kept their ini.
+                        if value.trim().eq_ignore_ascii_case("auto") {
+                            crate::log(
+                                "config: overlay = auto is now the same as on — the panel is its own window",
+                            );
+                            config.overlay = true;
+                        } else {
+                            config.overlay = truthy(value);
+                        }
+                    }
                     "hud_mirror" => config.hud_mirror = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     _ => {}
