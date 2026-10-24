@@ -1,11 +1,13 @@
-# Two spells per catalyst for ELDEN RING
+# Nightreign-style casting for ELDEN RING
 
-Two staves, four spells: **R1/R2** cast the right-hand weapon's two spells and **L1/L2** the
-left-hand weapon's, while leaving Elden Ring's own cast path intact — real FP costs, animations,
-i-frames and requirements.
+**R1/R2** cast the right-hand weapon's first two spells and **L1/L2** the left-hand weapon's,
+while leaving Elden Ring's own cast path intact — real FP costs, animations, i-frames and
+requirements. Holding **Y** turns each trigger into a third slot (**Y+R2**, **Y+L2**), so two
+staves carry six spells.
 
 It reproduces Nightreign's casting layout — one spell on the bumper, one on the trigger, per staff —
-using only Elden Ring's data.
+using only Elden Ring's data. The Y chord is the one addition: two-handing a staff does nothing, so
+that input is spent on a spell instead.
 
 Assignment happens in game: press the panel hotkey, pick a slot, choose a spell. Nothing in the
 game's data is edited.
@@ -28,12 +30,25 @@ game's data is edited.
 Elden Ring already casts on R1 and L1 with a catalyst in that hand — it casts whatever spell is
 *selected*. R2 (heavy attack) and L2 (ash of war) do not cast. So:
 
-| input | vanilla | with this mod |
-|---|---|---|
-| R1 / L1 | cast the selected spell | cast **slot 1** of that hand's weapon |
-| R2 | heavy attack | cast **slot 2** of the right-hand weapon |
-| L2 | ash of war | cast **slot 2** of the left-hand weapon |
-| **R3 + L2** | — | **unchanged vanilla L2**, so the ash of war still fires (R3 itself is swallowed) |
+| input | mouse / keyboard | vanilla | with this mod |
+|---|---|---|---|
+| R1 (right hand) | left click | cast the selected spell | cast **slot 1** of the right-hand weapon |
+| L1 (left hand) | right click | cast the selected spell | cast **slot 1** of the left-hand weapon |
+| R2 | shift + left click | heavy attack | cast **slot 2** of the right-hand weapon |
+| L2 | shift + right click | ash of war | cast **slot 2** of the left-hand weapon |
+| **Y + R2** | ctrl + left click | two-hand stance, then heavy attack | cast **slot 3** of the right-hand weapon |
+| **Y + L2** | ctrl + right click | — | cast **slot 3** of the left-hand weapon |
+| **R3 + L2** | — | — | **unchanged vanilla L2**, so the ash of war still fires (R3 itself is swallowed) |
+
+Two-handing a staff is pointless, so the two-hand chord is spent on a third spell per catalyst
+instead: **Y + R2** and **Y + L2** carry their own slot, giving six spells across two staves.
+That press is not rewritten into a shoulder press while Y is held — the mod clears Y for the
+frame so the game performs a plain cast, which also keeps a class-port mod's `Y + RB` / `Y + LB`
+skill chords working (they read the raw pad, beneath our hook).
+
+The mouse bindings are the same six slots, with no separate configuration: the game performs the
+attack from its own click and the mod steers the selection, exactly as it does for a pad press.
+Clicks are ignored while the panel is open or another window has focus.
 
 Two pieces make that work:
 
@@ -44,7 +59,10 @@ Two pieces make that work:
    `selected_slot` are pointed at the bound spell as the input is read. Steering has to be
    press-scoped, because two inputs on the same weapon must cast different spells.
 
-The panel is ImGui (hudhook) over the game's DX12 swap chain.
+The panel is Dear ImGui drawn into a borderless window of the mod's own, with its own D3D11 device
+created the first time you open it. It is deliberately *not* an overlay on the game's swap chain:
+a second `Present` hook stops a co-resident class port's HUD from drawing (verified with
+`ERNativeUI.dll`), even when that hook draws nothing at all.
 
 ## Install
 
@@ -103,7 +121,7 @@ takes effect even if an older copy sits in the subfolder.
 
 ```ini
 [ui]
-overlay = auto           ; auto | on | off — see "Using the panel"
+overlay = on             ; on | off — the panel window (casting works either way)
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 
 [input]
@@ -124,37 +142,39 @@ The panel is optional. Assignment also works without it: select the spell you wa
 menu, then hold the bind modifier and press the bumper/trigger you want it on. The panel exists to
 save that trip through the menu.
 
-`overlay` decides whether the panel's hook is installed at all:
+`overlay` decides whether the hotkey can open the panel at all:
 
 | value | behaviour |
 |---|---|
-| `auto` (default) | install the panel unless another overlay DLL is loaded — casting is unaffected either way |
-| `on` | always install, even over another overlay |
-| `off` | never install; casting only |
+| `on` (default) | the hotkey opens the panel window |
+| `off` | never opens; casting only |
 
-A `Present` hook cannot be installed lazily and hudhook has no teardown, so it runs every frame
-while loaded. Two overlays on one swap chain do not coexist cleanly: with `overlay = on` and a
-class port loaded, that port's on-screen HUD stops drawing. `auto` is the default for that reason —
-the log says which decision was taken (`overlay: ERNativeUI.dll is present — panel not installed`).
+The window is created on the first keypress and destroyed on exit. It is topmost but entirely
+separate from the game — no swap-chain hook, no render-target grab — so another overlay or a class
+port's HUD keeps drawing while it is open. The trade is a second GPU device the first time you open
+it (a few hundred milliseconds), which is why it is lazy.
 
 With the panel installed:
 
 - **The hotkey** opens the panel; while it is open the game's pointer is released and its
   mouse-look starved, and both are handed back when it closes.
-- **Left column**: the left-hand weapon with dropdowns for L1/L2. **Right column**: the right-hand
-  weapon with R1/R2. **Middle**: your INT/FAI/ARC, the spell currently selected in game, search,
-  the HUD mirror toggle.
+- **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L2. **Right column**: the
+  right-hand weapon with R1 / R2 / Y+R2. Each row shows its mouse binding beside the pad one.
+  **Middle**: your INT/FAI/ARC, the spell currently selected in game, search, the HUD mirror
+  toggle. A footer spells out both mappings.
 - Dropdowns list only spells the character **owns** and **can cast** (requirements met).
   `show everything` bypasses both for planning a build.
 - **Binding without the panel**: hold the configured modifier and press R1/R2/L1/L2 to bind
-  whatever spell is selected in the game's own wheel.
+  whatever spell is selected in the game's own wheel. The third slot is bound from the panel only —
+  the modifier gesture would collide with Y.
 
 ## Repository layout
 
 ```
-mod/       the DLL: Cargo.toml, src/{lib,overlay,pointer,probe,config}.rs
+mod/       the DLL: Cargo.toml, src/{lib,window,overlay,pointer,probe,config}.rs
 tools/     gen-spell-names.py, gen-weapon-names.py, package.sh
-vendor/    fromsoftware-rs, trimmed to the crates the DLL needs (see Version tolerance)
+vendor/    fromsoftware-rs trimmed to the crates the DLL needs, and imgui-dx11-renderer with its
+           shaders compiled at runtime instead of by `fxc` in a build script
 dist/      build output: the release folder produced by tools/package.sh
 NEXUS.md   the mod-page description, written in BBCode for Nexus
 ```
@@ -222,10 +242,9 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 |---|---|
 | me3 | supported, tested |
 | frame-generation / upscaling proxies (FSR/FG `d3d12.dll`, `dxgi.dll`, `erss-fg.dll`) | they own frame presentation; the panel may not appear, casting still works |
-| class ports with their own HUD (`ERNativeUI.dll` and friends) | our panel is skipped automatically so their HUD keeps drawing; `overlay = on` forces it, and their HUD then disappears |
-| other hudhook-based overlays | one Present hook each — expect the panel and the other overlay to fight |
+| class ports with their own HUD (`ERNativeUI.dll` and friends) | no conflict: the panel is its own window, so their HUD keeps drawing |
 | Mod Engine 2 | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special |
-| other overlay mods | both hook DX12 Present and the window procedure — expect contention for input |
+| other overlay mods | no swap-chain conflict; both drive the pointer while their window is open, so expect contention there |
 | spells/selection mods | direct conflict: both write the magic selection |
 | regulation mods | no conflict today (no param edits shipped) |
 | online / EAC | not supported by design |
@@ -242,6 +261,8 @@ files in: C:\mods\nr-casting\nr_casting
 ```
 
 `modules` lists every DLL loaded besides Windows' own, so a proxy DLL, another overlay or a
-class-port mod shows up by name. If the panel never appears, look for `overlay: FAILED` — the
-mod keeps casting without it, it just cannot draw. If nothing loads at all, the profile path is
+class-port mod shows up by name. If the panel never appears, look for `panel:` —
+`panel: no panel graphics; staying closed` or `panel: D3D11 device creation failed` mean the window
+could not get a device (casting is unaffected), and `panel: first frame presented` confirms it
+drew. If nothing loads at all, the profile path is
 the first suspect: the log will not exist.

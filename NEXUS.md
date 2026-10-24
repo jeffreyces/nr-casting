@@ -1,5 +1,5 @@
 [center][size=6][b]Two Spells Per Catalyst[/b][/size]
-[size=4]Four spells on two staves — with Elden Ring doing the casting[/size][/center]
+[size=4]Six spells on two staves — with Elden Ring doing the casting[/size][/center]
 
 [line]
 
@@ -17,10 +17,12 @@ not either.
 [size=5][b]Features[/b][/size]
 
 [list]
-[*][b]Four spells, two catalysts[/b] — a bumper spell and a trigger spell per hand.
+[*][b]Six spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, plus a third on
+the Y chord ([b]Y+R2[/b], [b]Y+L2[/b]); two-handing a staff does nothing, so that input carries a
+spell instead.
 [*][b]Assignment without the panel[/b] — select the spell in the game's own menu, then hold the bind
 modifier and press the bumper or trigger you want it on. The panel is only a shortcut for this.
-[*][b]In-game assignment[/b] — an overlay panel lists your equipped catalysts and lets you pick
+[*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast.
 [*][b]No menu detours[/b] — bind without the panel: hold the bind key and press the input you want
 to assign the spell currently selected in the wheel.
@@ -117,12 +119,12 @@ spells, and a full spell wheel is never displaced.
 [list]
 [*][b]me3[/b] — supported, including me3 Manager.
 [*][b]Frame-generation and upscaling mods[/b] (FSR/FG: [code]d3d12.dll[/code],
-[code]dxgi.dll[/code], [code]erss-fg.dll[/code]) — they own frame presentation, so the panel may
-not appear. Casting keeps working without it; the log says [code]overlay: FAILED[/code].
-[*][b]Class ports with their own HUD[/b] (Recluse and friends, [code]ERNativeUI.dll[/code]) — the
-panel is skipped automatically so their on-screen HUD keeps working; casting is unaffected. Force
-it with [code]overlay = on[/code] if you would rather have the panel, but their HUD stops drawing.
-[*][b]Other overlay mods[/b] — one Present hook each, so the panel and the other overlay can fight.
+[code]dxgi.dll[/code], [code]erss-fg.dll[/code]) — the panel is a separate window, so it draws
+regardless of who presents the frame. Casting is unaffected either way.
+[*][b]Class ports with their own HUD[/b] (Recluse and friends, [code]ERNativeUI.dll[/code]) — no
+conflict: the panel never touches the game's swap chain, so their on-screen HUD keeps drawing.
+[*][b]Other overlay mods[/b] — no swap-chain conflict, but both drive the pointer while their window
+is open, so expect contention there.
 [*][b]Mod Engine 2[/b] — discontinued upstream, but the DLL is a plain native plugin.
 [*][b]Spell or selection mods[/b] — direct conflict, both write the game's magic selection.
 [*][b]Regulation mods[/b] — no conflict; this mod ships no param edits.
@@ -150,5 +152,6 @@ the log's [code]files in:[/code] line says which folder is in use.
 [size=4][b]Credits[/b][/size]
 
 Built on [url=https://github.com/vswarte/fromsoftware-rs]fromsoftware-rs[/url] (structure and RVA
-definitions) and [url=https://github.com/veeenu/hudhook]hudhook[/url] (DX12 ImGui overlay).
+definitions), [url=https://github.com/imgui-rs/imgui-rs]imgui-rs[/url] and
+[url=https://github.com/Yatekii/imgui-dx11-renderer]imgui-dx11-renderer[/url] for the panel.
 Everything it reads about spells comes from your own copy of ELDEN RING.
