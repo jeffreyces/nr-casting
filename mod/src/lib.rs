@@ -88,6 +88,10 @@ const LOG_LIMIT: u64 = 4 * 1024 * 1024;
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
 /// Pad polls seen by our detour. Zero after the game is up means our hook is not in the path.
 static POLLS: AtomicU32 = AtomicU32::new(0);
+/// Highest poll count seen: proves the hook was live at least once, which distinguishes "another
+/// mod overwrote us" from "the game has not started polling yet".
+static PEAK_POLLS: AtomicU32 = AtomicU32::new(0);
+
 /// Address our detour currently sits on (the game's pad entry point).
 static HOOK_TARGET: AtomicUsize = AtomicUsize::new(0);
 /// Live `RawDetour`, kept so it can be disabled before re-targeting.
@@ -477,14 +481,14 @@ unsafe fn current_pad_target() -> Result<*mut u8, String> {
 
 /// Move our detour onto `target`, disabling whatever it was on before.
 fn hook_target(target: *mut u8) -> Result<(), String> {
+    if unsafe { patch_is_ours(target) } {
+        return Ok(()); // already ours; patching again would recurse into ourselves
+    }
     unsafe {
-        let previous = ACTIVE_DETOUR.swap(std::ptr::null_mut(), Ordering::AcqRel);
-        if !previous.is_null() {
-            // Restore the old entry point before patching the new one.
-            let detour: &retour::RawDetour =
-                &*(previous as *const _ as *const retour::RawDetour);
-            let _ = detour.disable();
-        }
+        // Deliberately do NOT disable a previous detour: when another mod patched this entry
+        // first, the bytes here are its jump, and whatever we displace becomes our trampoline.
+        // Capturing them keeps that mod's hook in the chain — disabling would delete its patch
+        // and silently break its input handling (a class port's skill chords, for example).
         let raw = retour::RawDetour::new(target as *const (), detour as *const ())
             .map_err(|e| format!("RawDetour::new: {e:?}"))?;
         raw.enable().map_err(|e| format!("enable: {e:?}"))?;
@@ -497,19 +501,38 @@ fn hook_target(target: *mut u8) -> Result<(), String> {
     }
 }
 
+/// Is our jump still the one installed at `target`?
+///
+/// This is the liveness test that matters: another hook installer (MinHook-based input mods)
+/// rewrites the same prologue bytes, which silently removes our patch and leaves the game
+/// calling their detour instead. Poll counters cannot tell "overwritten" from "the game has not
+/// started polling yet", but the bytes can.
+unsafe fn patch_is_ours(target: *mut u8) -> bool {
+    if target.is_null() || !probe::readable(target, 5) {
+        return false;
+    }
+    // RawDetour writes a rel32 jump on x86-64.
+    if *target != 0xE9 {
+        return false;
+    }
+    let rel = *(target.add(1) as *const i32) as isize;
+    let destination = (target as isize).wrapping_add(5).wrapping_add(rel);
+    destination as usize == detour as *const () as usize
+}
+
 /// Re-target the hook if another mod has since routed the game's polls elsewhere.
 fn watch_hook() {
     let mut attempts = 0;
     let mut warned = false;
     let mut ticks = 0u32;
-    let mut last_polls = 0u32;
+
     loop {
         std::thread::sleep(Duration::from_secs(2));
         ticks += 1;
         // A loaded hook that never fires means somebody else intercepts the pad: the mod then
         // loads, the panel opens, and the triggers silently stop casting. Give the game time to
         // start polling (loading screens legitimately poll nothing) before saying so, once.
-        if !warned && ticks >= 12 && POLLS.load(Ordering::Relaxed) == 0 {
+        if !warned && ticks >= 12 && PEAK_POLLS.load(Ordering::Relaxed) == 0 {
             log(
                 "input: no pad polls received — another mod is intercepting XInput, so the \
                  trigger/ash rewriting cannot work. Remove or disable that mod's input DLL.",
@@ -519,17 +542,16 @@ fn watch_hook() {
         // Another mod's hook installer can overwrite our patch bytes on the export (MinHook
         // rewrites the same prologue). Nothing is logged by the OS when that happens: the hook
         // simply stops firing. If polls stop arriving after the game is up, put our patch back.
-        if ticks >= 6 && attempts < 3 {
-            let seen = POLLS.load(Ordering::Relaxed);
-            if seen == last_polls {
-                if let Ok(target) = unsafe { current_pad_target() } {
-                    if hook_target(target).is_ok() {
-                        attempts += 1;
-                        log(&format!("XInputGetState: hook was overridden — re-installed at {target:p}"));
-                    }
+        if ticks >= 4 && attempts < 4 {
+            if let Ok(target) = unsafe { current_pad_target() } {
+                // Capturing whatever is there now keeps a third-party hook in the chain.
+                if !unsafe { patch_is_ours(target) } && hook_target(target).is_ok() {
+                    attempts += 1;
+                    log(&format!(
+                        "XInputGetState: our patch was replaced — re-installed over it at {target:p} (previous hook chained)"
+                    ));
                 }
             }
-            last_polls = seen;
         }
         if !HOOK_READY.load(Ordering::Relaxed) || attempts >= 4 {
             return;
@@ -684,6 +706,9 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     let ret = original(user, state);
     if ret == 0 && !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
         let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;
+        if n > PEAK_POLLS.load(Ordering::Relaxed) {
+            PEAK_POLLS.store(n, Ordering::Relaxed);
+        }
         if n == 1 || n % 600 == 0 {
             debug_log(&format!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe { (*state).gamepad.buttons }));
         }
@@ -1007,7 +1032,16 @@ fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
 /// Every compatibility report so far reduces to "which other DLL is loaded": proxy DLLs for
 /// frame generation, another overlay, a class-port mod. Naming them in the log turns that from
 /// a guessing game into a line somebody can paste into a bug report.
-fn log_foreign_modules() {
+/// First loaded DLL that is a known frame-presentation overlay, if any.
+pub(crate) fn foreign_overlay() -> Option<String> {
+    const KNOWN: [&str; 4] = ["ernativeui.dll", "recluse_ui.dll", "recluse-hud", "erss-fg.dll"];
+    let modules = foreign_modules()?;
+    modules
+        .into_iter()
+        .find(|name| KNOWN.iter().any(|k| name.to_ascii_lowercase().contains(k)))
+}
+
+fn foreign_modules() -> Option<Vec<String>> {
     extern "system" {
         fn GetCurrentProcess() -> *mut u8;
         fn K32EnumProcessModules(p: *mut u8, modules: *mut *mut u8, size: u32, needed: *mut u32)
@@ -1027,7 +1061,7 @@ fn log_foreign_modules() {
         )
     };
     if ok == 0 {
-        return;
+        return None;
     }
     let count = (needed as usize / std::mem::size_of::<*mut u8>()).min(modules.len());
 
@@ -1052,9 +1086,13 @@ fn log_foreign_modules() {
     }
     foreign.sort();
     foreign.dedup();
-    if foreign.is_empty() {
-        log("modules: no foreign DLLs loaded");
-    } else {
-        log(&format!("modules: {}", foreign.join(", ")));
+    Some(foreign)
+}
+
+fn log_foreign_modules() {
+    match foreign_modules() {
+        Some(modules) if !modules.is_empty() => log(&format!("modules: {}", modules.join(", "))),
+        Some(_) => log("modules: no foreign DLLs loaded"),
+        None => log("modules: enumeration failed"),
     }
 }

@@ -18,6 +18,8 @@ not either.
 
 [list]
 [*][b]Four spells, two catalysts[/b] — a bumper spell and a trigger spell per hand.
+[*][b]Assignment without the panel[/b] — select the spell in the game's own menu, then hold the bind
+modifier and press the bumper or trigger you want it on. The panel is only a shortcut for this.
 [*][b]In-game assignment[/b] — an overlay panel lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast.
 [*][b]No menu detours[/b] — bind without the panel: hold the bind key and press the input you want
@@ -117,10 +119,11 @@ spells, and a full spell wheel is never displaced.
 [*][b]Frame-generation and upscaling mods[/b] (FSR/FG: [code]d3d12.dll[/code],
 [code]dxgi.dll[/code], [code]erss-fg.dll[/code]) — they own frame presentation, so the panel may
 not appear. Casting keeps working without it; the log says [code]overlay: FAILED[/code].
+[*][b]Class ports with their own HUD[/b] (Recluse and friends, [code]ERNativeUI.dll[/code]) — the
+panel is skipped automatically so their on-screen HUD keeps working; casting is unaffected. Force
+it with [code]overlay = on[/code] if you would rather have the panel, but their HUD stops drawing.
 [*][b]Other overlay mods[/b] — one Present hook each, so the panel and the other overlay can fight.
 [*][b]Mod Engine 2[/b] — discontinued upstream, but the DLL is a plain native plugin.
-[*][b]Other overlay mods[/b] — both hook the DX12 swap chain and window procedure; expect fights
-over input.
 [*][b]Spell or selection mods[/b] — direct conflict, both write the game's magic selection.
 [*][b]Regulation mods[/b] — no conflict; this mod ships no param edits.
 [/list]

@@ -25,6 +25,19 @@ const OWNED_FILES: [&str; 4] = [
     "nr_casting_probe.old.log",
 ];
 
+/// When the panel's Present hook is installed.
+///
+/// A hook cannot be installed lazily — hudhook has no teardown — so it runs every frame while
+/// loaded. That is wasted work in normal play and, with another overlay in the process, it
+/// disturbs that overlay's drawing (a class port's HUD disappears). `Auto` therefore skips
+/// installing when another overlay DLL is already loaded, and `On` forces it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OverlayMode {
+    Auto,
+    On,
+    Off,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Virtual-key code for the panel toggle.
@@ -34,8 +47,8 @@ pub struct Config {
     /// XInput button bit that starts a bind when held with a spell input.
     pub modifier: u16,
     pub modifier_name: String,
-    /// Install the ImGui overlay. Off = casting only, no Present hook, no panel.
-    pub overlay: bool,
+    /// When to install the ImGui overlay.
+    pub overlay: OverlayMode,
     /// Mirror slot 1 onto the game's HUD while the panel is closed.
     pub hud_mirror: bool,
     /// Log every cast, not just captures and errors.
@@ -49,7 +62,7 @@ impl Default for Config {
             hotkey_name: "F8".to_string(),
             modifier: 0x0040, // L3
             modifier_name: "L3".to_string(),
-            overlay: true,
+            overlay: OverlayMode::Auto,
             hud_mirror: false,
             debug_log: false,
         }
@@ -286,7 +299,13 @@ debug_log = off
                             config.modifier_name
                         )),
                     },
-                    "overlay" => config.overlay = truthy(value),
+                    "overlay" => {
+                        config.overlay = match value.trim().to_ascii_lowercase().as_str() {
+                            "off" | "0" | "false" | "no" | "never" => OverlayMode::Off,
+                            "on" | "1" | "true" | "yes" | "force" | "always" => OverlayMode::On,
+                            _ => OverlayMode::Auto,
+                        }
+                    }
                     "hud_mirror" => config.hud_mirror = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     _ => {}

@@ -556,9 +556,24 @@ fn load_spells() -> Vec<Spell> {
 
 /// Install the DX12 present hook on its own thread.
 pub fn start(hmodule: usize) {
-    if !crate::config::load().overlay {
-        crate::log("overlay: disabled in nr_casting.ini (casting only)");
-        return;
+    use crate::config::OverlayMode;
+    match crate::config::load().overlay {
+        OverlayMode::Off => {
+            crate::log("overlay: disabled in nr_casting.ini (casting only)");
+            return;
+        }
+        OverlayMode::Auto => {
+            // Another overlay already draws on this swapchain. Adding a second Present hook on
+            // top of it makes that overlay's art vanish (verified with ERNativeUI / Recluse), so
+            // stay out of the way until the user asks for the panel explicitly.
+            if let Some(name) = crate::foreign_overlay() {
+                crate::log(&format!(
+                    "overlay: {name} is present — panel not installed (set overlay = on to force it)"
+                ));
+                return;
+            }
+        }
+        OverlayMode::On => {}
     }
     std::thread::spawn(move || {
         match crate::pointer::install() {

@@ -31,6 +31,8 @@ if [[ ! -f "$OUT/nr_casting.ini" ]]; then
 cat > "$OUT/nr_casting.ini" <<'INI'
 ; nr-casting — two spells per catalyst
 [ui]
+; Install the in-game panel. Turn off when another overlay owns the frame presentation.
+overlay = on
 ; Key that opens the assignment panel
 hotkey = F8
 

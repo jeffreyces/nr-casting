@@ -103,6 +103,7 @@ takes effect even if an older copy sits in the subfolder.
 
 ```ini
 [ui]
+overlay = auto           ; auto | on | off — see "Using the panel"
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 
 [input]
@@ -118,6 +119,25 @@ debug_log = off          ; log every cast, not just captures and errors
 Malformed values are logged and the default kept.
 
 ## Using the panel
+
+The panel is optional. Assignment also works without it: select the spell you want in the game's
+menu, then hold the bind modifier and press the bumper/trigger you want it on. The panel exists to
+save that trip through the menu.
+
+`overlay` decides whether the panel's hook is installed at all:
+
+| value | behaviour |
+|---|---|
+| `auto` (default) | install the panel unless another overlay DLL is loaded — casting is unaffected either way |
+| `on` | always install, even over another overlay |
+| `off` | never install; casting only |
+
+A `Present` hook cannot be installed lazily and hudhook has no teardown, so it runs every frame
+while loaded. Two overlays on one swap chain do not coexist cleanly: with `overlay = on` and a
+class port loaded, that port's on-screen HUD stops drawing. `auto` is the default for that reason —
+the log says which decision was taken (`overlay: ERNativeUI.dll is present — panel not installed`).
+
+With the panel installed:
 
 - **The hotkey** opens the panel; while it is open the game's pointer is released and its
   mouse-look starved, and both are handed back when it closes.
@@ -202,6 +222,7 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 |---|---|
 | me3 | supported, tested |
 | frame-generation / upscaling proxies (FSR/FG `d3d12.dll`, `dxgi.dll`, `erss-fg.dll`) | they own frame presentation; the panel may not appear, casting still works |
+| class ports with their own HUD (`ERNativeUI.dll` and friends) | our panel is skipped automatically so their HUD keeps drawing; `overlay = on` forces it, and their HUD then disappears |
 | other hudhook-based overlays | one Present hook each — expect the panel and the other overlay to fight |
 | Mod Engine 2 | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special |
 | other overlay mods | both hook DX12 Present and the window procedure — expect contention for input |
