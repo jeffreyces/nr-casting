@@ -42,13 +42,20 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, LoadCursorW, IDC_ARROW, WS_EX_TOPMOST, WS_POPUP, DispatchMessageW, GetClientRect, IsIconic, PeekMessageW,
     GetForegroundWindow, RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG,
-    PM_REMOVE, SW_HIDE,
-    SW_SHOW, WNDCLASSW, WM_CHAR, WM_CLOSE, WM_KEYDOWN, WM_KEYUP,
+    PM_REMOVE, SW_HIDE, SW_SHOW,
+    WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_NCHITTEST,
+    WS_THICKFRAME, MINMAXINFO,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE,
 };
 
 use crate::overlay::Panel;
+
+/// Height of the draggable header band, in physical pixels.
+const TITLE_BAND: i16 = 28;
+/// `HTCAPTION` as `DefWindowProcW` returns it; the `windows` crate only exposes the constant on
+/// some target feature sets, and the value is part of the Win32 ABI.
+const HTCAPTION: isize = 2;
 
 extern "system" {
     fn GetAsyncKeyState(vk: i32) -> i16;
@@ -525,6 +532,7 @@ impl App {
 
         self.gfx = Some(gfx);
     }
+
 }
 
 /// One slot's spell picker.
@@ -589,19 +597,44 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     }
                     Some(LRESULT(0))
                 }
+                // Borderless, so there is no caption to drag by: the header band moves the
+                // window and the thick frame gives the edges their resize cursors.
+                WM_NCHITTEST => {
+                    let y = ((lparam.0 >> 16) & 0xFFFF) as i16;
+                    if (0..TITLE_BAND).contains(&y) {
+                        return Some(LRESULT(HTCAPTION));
+                    }
+                    // Fall through to the default handler for the resize borders.
+                    None
+                }
+                WM_GETMINMAXINFO => {
+                    let info = lparam.0 as *mut MINMAXINFO;
+                    if !info.is_null() {
+                        unsafe {
+                            (*info).ptMinTrackSize.x = 520;
+                            (*info).ptMinTrackSize.y = 320;
+                        }
+                    }
+                    Some(LRESULT(0))
+                }
                 WM_SIZE => {
                     if let Some(gfx) = app.gfx.as_mut() {
                         let width = (lparam.0 & 0xFFFF) as u32;
                         let height = ((lparam.0 >> 16) & 0xFFFF) as u32;
                         if width > 0 && height > 0 && (width, height) != gfx.size {
                             gfx.size = (width, height);
-                            let _ = gfx.swap_chain.ResizeBuffers(
+                            // DXGI refuses ResizeBuffers while any reference to a back buffer
+                            // lives, so the render target has to go first.
+                            gfx.view = None;
+                            if let Err(e) = gfx.swap_chain.ResizeBuffers(
                                 0,
                                 width,
                                 height,
                                 DXGI_FORMAT_R8G8B8A8_UNORM,
                                 Default::default(),
-                            );
+                            ) {
+                                crate::log(&format!("panel: resize failed: {e}"));
+                            }
                             gfx.rebuild_view();
                         }
                     }
@@ -664,11 +697,11 @@ fn create_window() -> Option<HWND> {
             WS_EX_TOPMOST,
             PCWSTR(class_name.as_ptr()),
             PCWSTR(title.as_ptr()),
-            WS_POPUP,
+            WS_POPUP | WS_THICKFRAME,
             80,
             80,
             900,
-            700,
+            560,
             None,
             None,
             Some(instance.into()),
