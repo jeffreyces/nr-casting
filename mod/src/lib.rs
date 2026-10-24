@@ -37,7 +37,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering}
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use eldenring::cs::{CSMenuManImp, ChrAsmSlot, WorldChrMan};
+use eldenring::cs::{ChrAsmSlot, WorldChrMan};
 use eldenring::util::system::{wait_for_system_init, SystemInitError};
 use fromsoftware_shared::{FromStatic, Program};
 
@@ -290,6 +290,8 @@ fn run() {
             return;
         }
     }
+    log_foreign_modules();
+    log(&format!("files in: {}", config::data_dir().display()));
     log(&format!("slots file: {}", slots_path().display()));
     log(&format!("loaded slots: {}", describe_store()));
 
@@ -621,16 +623,10 @@ fn select_spell(spell: i32) -> bool {
         magic.entries[idx].charges = -1;
     }
     magic.selected_slot = idx as i32;
-
-    // The cast path also consults the menu selection; keep it in step. Bitfield
-    // accessors are private, so the repr(transparent) u32 is edited directly:
-    // bits 0..27 = param id, bits 28..31 = category.
-    if let Ok(menu) = unsafe { CSMenuManImp::instance_mut() } {
-        let item = menu.player_menu_ctrl.selected_magic_item;
-        let raw: u32 = unsafe { std::mem::transmute(item) };
-        let updated = (raw & 0xF000_0000) | ((spell as u32) & 0x0FFF_FFFF);
-        menu.player_menu_ctrl.selected_magic_item = unsafe { std::mem::transmute(updated) };
-    }
+    // The menu's `selected_magic_item` is deliberately left alone: the cast reads
+    // `EquipMagicData`, that field is a display cache (it sat at the "no item" sentinel while
+    // casting worked fine), and writing it is one more piece of shared state to fight another
+    // mod over — class-port mods drive that exact field.
     true
 }
 
@@ -709,4 +705,61 @@ fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
     // SAFETY: OwnedPtr is non-null by construction and owned by PlayerIns.
     let pgd = unsafe { ptr.as_mut() };
     Some(pgd.equipment.equip_magic_data.as_mut())
+}
+
+/// Log the DLLs in this process that are neither Windows' nor ours.
+///
+/// Every compatibility report so far reduces to "which other DLL is loaded": proxy DLLs for
+/// frame generation, another overlay, a class-port mod. Naming them in the log turns that from
+/// a guessing game into a line somebody can paste into a bug report.
+fn log_foreign_modules() {
+    extern "system" {
+        fn GetCurrentProcess() -> *mut u8;
+        fn K32EnumProcessModules(p: *mut u8, modules: *mut *mut u8, size: u32, needed: *mut u32)
+            -> i32;
+        fn GetModuleFileNameW(module: *mut u8, buffer: *mut u16, size: u32) -> u32;
+    }
+
+    let mut modules = [std::ptr::null_mut::<u8>(); 512];
+    let mut needed = 0u32;
+    // SAFETY: fixed buffer; `needed` gets the true byte size, which is range-checked below.
+    let ok = unsafe {
+        K32EnumProcessModules(
+            GetCurrentProcess(),
+            modules.as_mut_ptr(),
+            (modules.len() * std::mem::size_of::<*mut u8>()) as u32,
+            &mut needed,
+        )
+    };
+    if ok == 0 {
+        return;
+    }
+    let count = (needed as usize / std::mem::size_of::<*mut u8>()).min(modules.len());
+
+    let own = config::dir().to_string_lossy().to_ascii_lowercase();
+    let mut foreign: Vec<String> = Vec::new();
+    for module in modules.iter().take(count) {
+        let mut buffer = [0u16; 1024];
+        // SAFETY: handle from the enumeration; buffer is sized for MAX_PATH comfortably.
+        let len = unsafe { GetModuleFileNameW(*module, buffer.as_mut_ptr(), buffer.len() as u32) };
+        if len == 0 {
+            continue;
+        }
+        use std::os::windows::ffi::OsStringExt;
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..len as usize]));
+        let text = path.to_string_lossy().to_ascii_lowercase();
+        if text.contains("\\windows\\") || text.starts_with(&own) {
+            continue;
+        }
+        if let Some(name) = path.file_name() {
+            foreign.push(name.to_string_lossy().to_string());
+        }
+    }
+    foreign.sort();
+    foreign.dedup();
+    if foreign.is_empty() {
+        log("modules: no foreign DLLs loaded");
+    } else {
+        log(&format!("modules: {}", foreign.join(", ")));
+    }
 }

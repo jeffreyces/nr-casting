@@ -54,8 +54,13 @@ profileVersion = "v1"
 [[supports]]
 game = "eldenring"
 
+# Keep this file next to nr_casting.dll and the relative path below works as-is: me3 resolves
+# it against the profile's own folder, so nothing needs editing.
+#
+# Only if you move the DLL somewhere else, put its absolute path here. Use single quotes so
+# Windows backslashes stay literal — 'C:\mods\nr-casting\nr_casting.dll' — or forward slashes.
 [[natives]]
-path = "REPLACE_WITH_FULL_PATH_TO\\nr_casting.dll"
+path = "nr_casting.dll"
 optional = false
 enabled = true
 PROFILE
@@ -63,36 +68,89 @@ PROFILE
 cat > "$OUT/INSTALL.txt" <<'TXT'
 nr-casting — two spells per catalyst for ELDEN RING (offline only)
 
-1. Put this folder anywhere outside the game directory.
-2. Copy nr-casting.me3 to your me3 profiles folder and set the path in it:
-      Linux   ~/.config/me3/profiles/
-      Windows %APPDATA%\me3\profiles\
-3. Launch:  me3 launch -g eldenring -p nr-casting
-4. In game, F8 opens the panel. Hold L3 and press R1/R2/L1/L2 to bind the spell
-   currently selected in the wheel.
+WHAT IS IN THIS FOLDER
+   nr_casting.dll    the mod
+   nr-casting.me3    loader profile — already points at the DLL, nothing to edit
+   nr_casting.ini    settings (panel key, bind key, HUD mirror, logging)
+   INSTALL.txt       this file
 
-This folder ships four files and nothing else: nr_casting.dll, nr-casting.me3,
-nr_casting.ini, INSTALL.txt. Everything the mod needs beyond that it generates
-itself, on first launch, inside an nr_casting\ subfolder beside the DLL:
 
-   nr_casting\nr_casting_catalogue.txt   spell catalogue read from your own game
-   nr_casting\nr_casting_slots.txt       your assignments (weapon = bumper,trigger)
-   nr_casting\nr_casting_offsets.txt     resolved addresses, for troubleshooting
-   nr_casting\nr_casting_build.txt       fingerprint of the build it belongs to
-   nr_casting\nr_casting_probe.log       what it did, in order
+INSTALL — the short way (no editing)
 
-The catalogue is built once and reused; if the game executable changes, the old
-catalogue and log are discarded and rebuilt automatically.
+   1. Keep these four files together, in a folder outside the game directory.
 
-Spell and weapon names are compiled into the DLL, because the game's params carry
-numbers only. After a game patch that adds content, regenerate the tables with
-tools/gen-spell-names.py and tools/gen-weapon-names.py and rebuild — or drop the
-regenerated .txt files beside the DLL to override without a rebuild. The log says
-when the game has weapons the table cannot name yet.
+   2. Launch, passing the profile BY PATH:
 
-Nothing here touches your save file or the game's data: remove the DLL and the
-profile and the game is back to vanilla. Settings live in nr_casting.ini; delete
-the nr_casting\ subfolder to reset everything the mod generated.
+         me3 launch -g eldenring -p "C:\mods\nr-casting\nr-casting.me3"
+
+      The DLL path inside the profile is relative, and me3 resolves it against the
+      profile's own folder. That is why the two files must stay together, and why
+      nothing needs editing.
+
+      Linux:  me3 launch -g eldenring -p "/home/you/mods/nr-casting/nr-casting.me3"
+
+
+INSTALL — the long way (profile inside me3's profile folder)
+
+   Copy nr-casting.me3 into:
+
+         Windows  %APPDATA%\me3\profiles\
+         Linux    ~/.config/me3/profiles/
+
+   then edit the path line to the DLL's full location, in SINGLE quotes so the
+   backslashes stay literal (in double quotes every \ has to be written as \\):
+
+         path = 'C:\mods\nr-casting\nr_casting.dll'
+
+   Forward slashes work too:   path = "C:/mods/nr-casting/nr_casting.dll"
+   The path must end at the .dll FILE, not at the folder holding it.
+
+   Then:  me3 launch -g eldenring -p nr-casting
+
+
+INSTALL — me3 Manager (the graphical one)
+
+   Add the mod through the manager and point it at nr_casting.dll. The manager
+   writes its own profile, so nr-casting.me3 is not needed there.
+
+
+IN GAME
+
+   F8                      open/close the assignment panel
+   R1 / R2                 cast slot 1 / slot 2 of the right-hand catalyst
+   L1 / L2                 cast slot 1 / slot 2 of the left-hand catalyst
+   R3 + L2                 plain L2, for the weapon's ash of war
+   hold L3 + R1/R2/L1/L2   bind the spell selected in the wheel to that slot
+
+
+WHERE THE MOD WRITES ITS FILES
+
+   Everything it generates goes into a subfolder beside the DLL:
+
+         nr_casting\nr_casting_catalogue.txt   spells read from your own game
+         nr_casting\nr_casting_slots.txt       your assignments
+         nr_casting\nr_casting_offsets.txt     resolved addresses (for bug reports)
+         nr_casting\nr_casting_build.txt       which build the catalogue belongs to
+         nr_casting\nr_casting_probe.log       what happened, in order
+
+   If that folder cannot be created (for example the DLL sits in Program Files),
+   the mod writes to %APPDATA%\nr_casting instead. The log's second line says
+   which one it used: "files in: ...".
+
+
+IF IT DOES NOT WORK
+
+   Read nr_casting\nr_casting_probe.log first. It lists every DLL loaded besides
+   Windows' own, and that is usually the answer:
+
+     - another overlay, or a frame-generation mod (d3d12.dll, dxgi.dll,
+       erss-fg.dll), owns frame presentation. The panel may then not appear;
+       casting still works. Look for an "overlay: FAILED" line.
+     - a mod that also ships an overlay, or rewrites the spell wheel, can fight
+       the panel and the cast steering.
+
+   Nothing here touches your save file or the game's data: remove the DLL and the
+   profile and the game is back to vanilla.
 
 Never launch with EAC / online play: this mod requires the offline launch.
 TXT

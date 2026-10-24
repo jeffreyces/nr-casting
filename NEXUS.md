@@ -60,12 +60,20 @@ The panel hotkey and the bind key are both configurable in [code]nr_casting.ini[
 
 [list=1]
 [*]Extract the archive anywhere outside the game folder.
-[*]Copy [code]nr-casting.me3[/code] into your me3 profiles folder:
-[code]Windows: %APPDATA%\me3\profiles\[/code]
-[code]Linux:   ~/.config/me3/profiles/[/code]
-[*]Edit the [code]path[/code] line in it to point at [code]nr_casting.dll[/code].
-[*]Launch with [code]me3 launch -g eldenring -p nr-casting[/code].
+[*]Keep the four files together — the profile already points at the DLL beside it.
+[*]Launch, passing the profile by path:
+[code]me3 launch -g eldenring -p "C:\mods\nr-casting\nr-casting.me3"[/code]
 [/list]
+
+No editing needed: me3 resolves the profile's relative DLL path against the profile's own folder.
+
+Using [b]me3 Manager[/b]? Add the mod through the manager and point it at [code]nr_casting.dll[/code];
+the manager writes its own profile.
+
+Keeping the profile in me3's profile folder instead? Then give [code]path[/code] the DLL's full
+location in [b]single quotes[/b], so backslashes stay literal:
+[code]path = 'C:\mods\nr-casting\nr_casting.dll'[/code]
+Forward slashes work too, and the path must end at the [i].dll file[/i], not the folder.
 
 The download contains four files and nothing else. Everything the mod needs it generates itself,
 in an [code]nr_casting\[/code] subfolder beside the DLL, so it never clutters a shared mods folder.
@@ -105,7 +113,11 @@ spells, and a full spell wheel is never displaced.
 [size=5][b]Compatibility[/b][/size]
 
 [list]
-[*][b]me3[/b] — supported.
+[*][b]me3[/b] — supported, including me3 Manager.
+[*][b]Frame-generation and upscaling mods[/b] (FSR/FG: [code]d3d12.dll[/code],
+[code]dxgi.dll[/code], [code]erss-fg.dll[/code]) — they own frame presentation, so the panel may
+not appear. Casting keeps working without it; the log says [code]overlay: FAILED[/code].
+[*][b]Other overlay mods[/b] — one Present hook each, so the panel and the other overlay can fight.
 [*][b]Mod Engine 2[/b] — discontinued upstream, but the DLL is a plain native plugin.
 [*][b]Other overlay mods[/b] — both hook the DX12 swap chain and window procedure; expect fights
 over input.
@@ -124,7 +136,10 @@ vanilla. Nothing was added to your save file, and no game data was modified.
 [*]After a game update the mod falls back to the nearest known offset table and validates it before
 touching memory; if validation fails it stays out of the way and says so in its log.
 [*]If something misbehaves, the log in [code]nr_casting\nr_casting_probe.log[/code] records what the
-mod did, in order.
+mod did, in order. Its [code]modules:[/code] line lists every DLL loaded besides Windows' own,
+which is usually the answer — please attach that line to any bug report.
+[*]If the DLL sits somewhere read-only, the mod writes to [code]%APPDATA%\nr_casting\[/code] instead;
+the log's [code]files in:[/code] line says which folder is in use.
 [/list]
 
 [line]

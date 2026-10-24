@@ -49,22 +49,35 @@ The panel is ImGui (hudhook) over the game's DX12 swap chain.
 ## Install
 
 **me3** is the supported loader (Mod Engine 2 is discontinued upstream; development moved to
-me3). Put the DLL in a folder and point a profile at it:
+me3). The shipped profile needs no editing:
 
-```toml
-# ~/.config/me3/profiles/nr-casting.me3   (Linux; %APPDATA%\me3\profiles on Windows)
-profileVersion = "v1"
-
-[[supports]]
-game = "eldenring"
-
-[[natives]]
-path = "C:\\mods\\nr-casting\\nr_casting.dll"
-optional = false
-enabled = true
+```
+mods/nr-casting/
+├── nr-casting.me3      path = "nr_casting.dll"  ← relative to this file
+├── nr_casting.dll
+├── nr_casting.ini
+└── INSTALL.txt
 ```
 
-Then `me3 launch -g eldenring -p nr-casting`.
+```bash
+me3 launch -g eldenring -p "C:\mods\nr-casting\nr-casting.me3"
+```
+
+me3 resolves a relative native path against the **profile's own folder**, so keeping the DLL
+next to the profile is all it takes. Passing the profile by path also means it does not have to
+live in me3's profile directory.
+
+If you would rather keep the profile with me3's others (`%APPDATA%\me3\profiles\`), give the
+`path` line the DLL's absolute location — in **single quotes**, so Windows backslashes stay
+literal:
+
+```toml
+path = 'C:\mods\nr-casting\nr_casting.dll'     # single quotes: one backslash each
+path = "C:/mods/nr-casting/nr_casting.dll"       # or forward slashes
+```
+
+The path ends at the `.dll` file, not at the folder holding it. Adding the DLL through
+**me3 Manager** works too: the manager writes its own profile.
 
 A release is four files — `nr_casting.dll`, `nr-casting.me3`, `nr_casting.ini`, `INSTALL.txt`.
 Everything else the mod needs it generates itself in an **`nr_casting/` subfolder beside the
@@ -188,8 +201,26 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 | layer | notes |
 |---|---|
 | me3 | supported, tested |
+| frame-generation / upscaling proxies (FSR/FG `d3d12.dll`, `dxgi.dll`, `erss-fg.dll`) | they own frame presentation; the panel may not appear, casting still works |
+| other hudhook-based overlays | one Present hook each — expect the panel and the other overlay to fight |
 | Mod Engine 2 | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special |
 | other overlay mods | both hook DX12 Present and the window procedure — expect contention for input |
 | spells/selection mods | direct conflict: both write the magic selection |
 | regulation mods | no conflict today (no param edits shipped) |
 | online / EAC | not supported by design |
+
+## Troubleshooting
+
+The mod logs what it found, in order, to `nr_casting/nr_casting_probe.log` beside the DLL (or
+`%APPDATA%\nr_casting\` if that folder is not writable — the log's second line, `files in:`,
+says which). Two lines answer most reports:
+
+```
+modules: amd_ags_x64.dll, d3d12.dll, dxgi.dll, erss-fg.dll, me3_mod_host.dll, ...
+files in: C:\mods\nr-casting\nr_casting
+```
+
+`modules` lists every DLL loaded besides Windows' own, so a proxy DLL, another overlay or a
+class-port mod shows up by name. If the panel never appears, look for `overlay: FAILED` — the
+mod keeps casting without it, it just cannot draw. If nothing loads at all, the profile path is
+the first suspect: the log will not exist.

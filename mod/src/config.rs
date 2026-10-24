@@ -82,21 +82,37 @@ pub fn dir() -> &'static Path {
 }
 
 /// Folder the mod writes into: `nr_casting/` inside the DLL's folder, created on first use.
-/// Falls back to the DLL's folder if it cannot be created (read-only install).
+///
+/// If that location cannot be written — the DLL was unpacked into `Program Files`, or into a
+/// mods directory a manager keeps read-only — fall back to `%APPDATA%\nr_casting` rather than
+/// failing silently. Where the files ended up is logged at startup, and the log is the first
+/// thing a bug report needs.
 pub fn data_dir() -> &'static Path {
     DATA_DIR.get_or_init(|| {
-        let candidate = dir().join("nr_casting");
-        match std::fs::create_dir_all(&candidate) {
-            Ok(()) => candidate,
-            Err(e) => {
-                crate::log(&format!(
-                    "config: could not create {} ({e}) — writing beside the DLL instead",
-                    candidate.display()
-                ));
-                dir().to_path_buf()
+        let beside = dir().join("nr_casting");
+        if usable(&beside) {
+            return beside;
+        }
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let fallback = PathBuf::from(appdata).join("nr_casting");
+            if usable(&fallback) {
+                return fallback;
             }
         }
+        dir().to_path_buf()
     })
+}
+
+/// Can we create this directory and write into it? Nothing here logs: this runs inside a
+/// `OnceLock` initialiser that the logger itself depends on.
+fn usable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".write-test");
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
 }
 
 /// Where a file is written.
