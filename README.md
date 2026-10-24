@@ -187,7 +187,19 @@ With the panel installed:
 ## Repository layout
 
 ```
-mod/       the DLL: Cargo.toml, src/{lib,window,overlay,pointer,probe,config}.rs
+mod/       the DLL:
+  src/lib.rs        entry point, init sequence, module bookkeeping
+  src/input.rs      the XInput hook, hook chaining and the cast/steer logic
+  src/game.rs       reads of the player, magic slots, inventory and stats
+  src/store.rs      per-weapon assignments and their text file
+  src/logging.rs    the log file and the debug gate
+  src/window.rs     the panel host (Win32 + D3D11 + ImGui)
+  src/overlay.rs    the panel's model: weapons, spells, filters
+  src/pointer.rs    pointer ownership while the panel is open
+  src/probe.rs      structure validation, version/RVA resolution
+  src/params.rs     live parameter reads
+  src/config.rs     nr_casting.ini
+  pure/             nr_casting_core: slot parsing and input routing, unit-tested
 tools/     gen-spell-names.py, gen-weapon-names.py, package.sh
 vendor/    fromsoftware-rs trimmed to the crates the DLL needs, and imgui-dx11-renderer with its
            shaders compiled at runtime instead of by `fxc` in a build script
