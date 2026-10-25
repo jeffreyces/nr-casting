@@ -7,6 +7,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  # A cache entry that goes 7 days without being restored is evicted, and the next release then
+  # pays the full ~1.2 GB download. This weekly run restores and verifies the payload (saving it
+  # only when the entry is gone or broken), so releases land on a warm cache. It also doubles as
+  # a weekly smoke build: everything except the tag-gated checks runs as usual.
+  schedule:
+    - cron: "17 5 * * 1"
 
 permissions:
   contents: write
