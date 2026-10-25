@@ -74,11 +74,25 @@ pub(crate) fn install_hook() -> Result<*mut u8, String> {
         //
         // Another mod that hooks input (a class port, an overlay) can route the game's polls
         // around our patch, which reads as "the mod loads, the panel works, but triggers stop
-        // casting". So we detour the game's own pad entry point and keep watching it: if
-        // somebody moves it later, `watch_hook` re-targets.
+        // casting". So first choice is the executable's own import slot — an aligned pointer,
+        // so the change is atomic and touches no instruction bytes — and only then the export's
+        // prologue.
         let target = current_pad_target()?;
-        hook_target(target)?;
-        Ok(target)
+        match hook_import_slot() {
+            Ok(_) => {
+                log(&format!(
+                    "XInputGetState: routed the game's import slot to our detour at {target:p} (no code patched)"
+                ));
+                Ok(target)
+            }
+            Err(e) => {
+                log(&format!(
+                    "XInputGetState: import slot unusable ({e}) — patching the export instead"
+                ));
+                hook_target(target)?;
+                Ok(target)
+            }
+        }
     }
 }
 
@@ -101,7 +115,7 @@ unsafe fn current_pad_target() -> Result<*mut u8, String> {
         addr
     };
     match game_import_slot() {
-        Some(slot) => {
+        Ok(slot) => {
             let value = *slot;
             if value.is_null() {
                 Ok(export)
@@ -109,7 +123,7 @@ unsafe fn current_pad_target() -> Result<*mut u8, String> {
                 Ok(value)
             }
         }
-        None => Ok(export),
+        Err(_) => Ok(export),
     }
 }
 
@@ -119,6 +133,15 @@ fn hook_target(target: *mut u8) -> Result<(), String> {
         return Ok(()); // already ours; patching again would recurse into ourselves
     }
     unsafe {
+        // If we own the game's import slot, hand it back before patching: two live paths into
+        // the same detour would run the routing twice for one poll, and the second pass would
+        // see an already-rewritten report.
+        if import_slot_is_ours() {
+            if let Ok(slot) = game_import_slot() {
+                let previous = TRAMPOLINE.load(Ordering::Acquire) as *mut u8;
+                *(slot as *mut *mut u8) = previous;
+            }
+        }
         // Deliberately do NOT disable a previous detour: when another mod patched this entry
         // first, the bytes here are its jump, and whatever we displace becomes our trampoline.
         // Capturing them keeps that mod's hook in the chain — disabling would delete its patch
@@ -145,12 +168,12 @@ extern "system" {
 /// function: an IAT entry is one aligned pointer, so the change is a single store and no
 /// instruction bytes are rewritten while the game may be executing them. The trampoline becomes
 /// whatever the slot held — the other mod's detour — so their hook keeps running inside ours.
-unsafe fn hook_import_slot() -> Result<(), String> {
+///
+/// `Ok(true)` means the slot was moved, `Ok(false)` that it already pointed at us.
+unsafe fn hook_import_slot() -> Result<bool, String> {
     const PAGE_READWRITE: u32 = 0x04;
     let size = std::mem::size_of::<*mut u8>();
-    let Some(slot) = game_import_slot() else {
-        return Err("no XInputGetState entry in the game's import table".into());
-    };
+    let slot = game_import_slot()?;
     // The import walk hands back a read-only view; writing the entry is the whole point here.
     let slot = slot as *mut *mut u8;
     // SAFETY: the slot address came from the import walk, which bounds-checked it.
@@ -162,7 +185,7 @@ unsafe fn hook_import_slot() -> Result<(), String> {
         return Err("import slot is empty".into());
     }
     if previous == detour as *const () as *mut u8 {
-        return Ok(());
+        return Ok(false);
     }
     let mut old = 0u32;
     let unlocked = VirtualProtect(slot as *mut u8, size, PAGE_READWRITE, &mut old) != 0;
@@ -174,7 +197,17 @@ unsafe fn hook_import_slot() -> Result<(), String> {
         let _ = VirtualProtect(slot as *mut u8, size, old, &mut old);
     }
     HOOK_READY.store(true, Ordering::Relaxed);
-    Ok(())
+    Ok(true)
+}
+
+/// Does the game's import slot already point at our detour?
+unsafe fn import_slot_is_ours() -> bool {
+    match game_import_slot() {
+        Ok(slot) if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>()) => {
+            *slot == detour as *const () as *mut u8
+        }
+        _ => false,
+    }
 }
 
 /// Is our jump still the one installed at `target`?
@@ -235,7 +268,7 @@ pub(crate) fn watch_hook() {
             continue;
         };
 
-        if unsafe { patch_is_ours(target) } {
+        if unsafe { patch_is_ours(target) } || unsafe { import_slot_is_ours() } {
             if !warned {
                 log(
                     "input: hooked, but the game is not polling XInputGetState — is a \
@@ -256,12 +289,12 @@ pub(crate) fn watch_hook() {
 
         // Prefer pointing the game's own import slot at our detour: that is one aligned pointer
         // store, with no instruction bytes rewritten while the game may be running them. Only
-        // fall back to patching the export's prologue if the game turns out not to read the slot
-        // on each call.
+        // fall back to patching the export's prologue if the slot is already ours (the game is
+        // evidently not reading it on each call) or cannot be found.
         if !tried_import_slot {
             tried_import_slot = true;
             match unsafe { hook_import_slot() } {
-                Ok(()) => {
+                Ok(true) => {
                     attempts += 1;
                     log(
                         "XInputGetState: another mod owns the export's prologue — routed the \
@@ -269,6 +302,12 @@ pub(crate) fn watch_hook() {
                          still runs inside ours)",
                     );
                     continue;
+                }
+                Ok(false) => {
+                    log(
+                        "XInputGetState: import slot already ours but no polls — the game is \
+                         not reading it per call; patching the export instead",
+                    );
                 }
                 Err(e) => log(&format!("XInputGetState: import slot unusable ({e})")),
             }
@@ -295,8 +334,9 @@ pub(crate) fn watch_hook() {
 /// Walks the PE import directory of the running game rather than scanning memory: the IAT entry
 /// is what the game's own code loads before every call, so its current value is the truth about
 /// who receives the poll. Every dereference is range-checked first — a parse mistake here must
-/// return `None`, never take the game down with it.
-unsafe fn game_import_slot() -> Option<*const *mut u8> {
+/// return `Err`, never take the game down with it. The `Err` carries what the walk saw, because
+/// "not found" is otherwise indistinguishable from "the parse gave up on descriptor 3".
+unsafe fn game_import_slot() -> Result<*const *mut u8, String> {
     #[repr(C)]
     struct ImportDescriptor {
         original_first_thunk: u32,
@@ -308,96 +348,112 @@ unsafe fn game_import_slot() -> Option<*const *mut u8> {
 
     let base = GetModuleHandleA(std::ptr::null()) as *const u8;
     if base.is_null() || !probe::readable(base, 0x40) {
-        return None;
+        return Err("main module header unreadable".into());
     }
     if *(base as *const u16) != 0x5A4D {
-        return None;
+        return Err("main module is not an MZ image".into());
     }
     let pe_offset = *((base as *const u32).add(0x3C)) as usize;
     if !probe::readable(base.add(pe_offset), 0x18) {
-        return None;
+        // Reality check: ELDEN RING's header is intact on disk (e_lfanew 0x168) but not in
+        // memory under Proton — Arxan or the loader has overwritten it, so the import table
+        // cannot be walked at runtime there. On Windows the walk works and the pad is hooked
+        // through the import slot; here it falls back to the export's prologue.
+        return Err(format!(
+            "PE header unusable (e_lfanew {pe_offset:#x}, expected 0x168) — packed image"
+        ));
     }
     let nt = base.add(pe_offset);
     if *(nt as *const u32) != 0x0000_4550 {
-        return None;
+        return Err("PE signature missing".into());
     }
 
     // COFF header is 20 bytes; the optional header follows.
     let opt = nt.add(24);
     if !probe::readable(opt, 0x80) {
-        return None;
+        return Err("optional header unreadable".into());
     }
     let magic = *(opt as *const u16);
     let (dir_offset, size_of_image_offset) = match magic {
         0x20b => (112usize, 56usize), // PE32+
         0x10b => (96, 56),            // PE32
-        _ => return None,
+        _ => return Err(format!("unknown optional header magic {magic:#x}")),
     };
     let image_size = *(opt.add(size_of_image_offset) as *const u32) as usize;
     if image_size == 0 {
-        return None;
+        return Err("image size is zero".into());
     }
     let in_module = |rva: usize| rva != 0 && rva < image_size;
 
     // Data directory 1 is the import table; entry 0 is exports.
     let import_rva = *(opt.add(dir_offset + 8) as *const u32) as usize;
     if !in_module(import_rva) {
-        return None;
+        return Err(format!("import directory rva {import_rva:#x} is outside the image"));
     }
 
+    let mut seen: Vec<String> = Vec::new();
     for index in 0..256usize {
         let descriptor = base.add(import_rva + index * std::mem::size_of::<ImportDescriptor>());
         if !probe::readable(descriptor, std::mem::size_of::<ImportDescriptor>()) {
-            return None;
+            return Err(format!("descriptor {index} unreadable; saw {seen:?}"));
         }
         let descriptor = &*(descriptor as *const ImportDescriptor);
         if descriptor.name == 0 {
-            return None; // end of the descriptor array
+            break; // end of the descriptor array
         }
         if !in_module(descriptor.name as usize) {
-            return None;
+            // One bad entry must not hide the rest: Arxan and packing tools leave odd values
+            // behind, and the entry we want is frequently further down the list.
+            seen.push(format!("{index}:bad-name-rva"));
+            continue;
         }
         let module_name = read_c_string(base.add(descriptor.name as usize));
+        seen.push(module_name.clone());
 
-        if module_name.to_ascii_lowercase().contains("xinput") {
-            let thunk_rva = if descriptor.original_first_thunk != 0 {
-                descriptor.original_first_thunk
-            } else {
-                descriptor.first_thunk
-            };
-            if !in_module(thunk_rva as usize) || !in_module(descriptor.first_thunk as usize) {
-                return None;
+        if !module_name.to_ascii_lowercase().contains("xinput") {
+            continue;
+        }
+        let thunk_rva = if descriptor.original_first_thunk != 0 {
+            descriptor.original_first_thunk
+        } else {
+            descriptor.first_thunk
+        };
+        if !in_module(thunk_rva as usize) || !in_module(descriptor.first_thunk as usize) {
+            return Err(format!(
+                "{module_name}: thunk rva (oft {:#x}, ft {:#x}) outside the image",
+                descriptor.original_first_thunk, descriptor.first_thunk
+            ));
+        }
+        for slot_index in 0..4096usize {
+            let thunk = base.add(thunk_rva as usize + slot_index * 8) as *const u64;
+            let slot = base.add(descriptor.first_thunk as usize + slot_index * 8) as *const *mut u8;
+            if !probe::readable(thunk as *const u8, 8) || !probe::readable(slot as *const u8, 8) {
+                return Err(format!("{module_name}: thunk {slot_index} unreadable"));
             }
-            for slot_index in 0..4096usize {
-                let thunk = base.add(thunk_rva as usize + slot_index * 8) as *const u64;
-                let slot = base.add(descriptor.first_thunk as usize + slot_index * 8) as *const *mut u8;
-                if !probe::readable(thunk as *const u8, 8) || !probe::readable(slot as *const u8, 8) {
-                    return None;
+            let entry = *thunk;
+            if entry == 0 {
+                break;
+            }
+            // The game imports this one **by ordinal** (XINPUT1_4 #2), so a name compare alone
+            // never matches — that is why this walk used to fall through to the exported
+            // function every time. Accept both spellings.
+            if entry & 0x8000_0000_0000_0000 != 0 {
+                if entry & 0xFFFF == XINPUT_GET_STATE_ORDINAL {
+                    return Ok(slot);
                 }
-                let entry = *thunk;
-                if entry == 0 {
-                    break;
-                }
-                // The game imports this one **by ordinal** (XINPUT1_4 #2), so a name compare
-                // alone never matches — that is why this walk used to fall through to the
-                // exported function every time. Accept both spellings.
-                if entry & 0x8000_0000_0000_0000 != 0 {
-                    if entry & 0xFFFF == XINPUT_GET_STATE_ORDINAL {
-                        return Some(slot);
-                    }
-                    continue;
-                }
-                let name_rva = entry as usize + 2;
-                if !in_module(name_rva) || !probe::readable(base.add(name_rva), 16) {
-                    continue;
-                }
-                if read_c_string(base.add(name_rva)) == "XInputGetState" {
-                    return Some(slot);
-                }
+                continue;
+            }
+            let name_rva = entry as usize & 0x7FFF_FFFF;
+            let name_rva = name_rva + 2; // skip the 2-byte hint
+            if !in_module(name_rva) || !probe::readable(base.add(name_rva), 16) {
+                continue;
+            }
+            if read_c_string(base.add(name_rva)) == "XInputGetState" {
+                return Ok(slot);
             }
         }
     }
-    None
+    Err(format!("no xinput entry among {seen:?}"))
 }
 
 unsafe fn read_c_string(ptr: *const u8) -> String {
