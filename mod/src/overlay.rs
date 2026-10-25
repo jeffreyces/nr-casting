@@ -199,9 +199,10 @@ impl Panel {
         crate::pointer::set_open(visible);
         if visible {
             self.refresh_owned();
-        } else {
-            crate::release_borrowed();
         }
+        // Closing does not touch game memory: the borrow is released on the next pad poll, which
+        // is the game's own thread. Writing it here would race the game's teardown of the
+        // character (a warp, a death, a load) and corrupt the heap.
     }
 
 

@@ -37,7 +37,7 @@ mod window;
 // The panel and the probe read these through the crate root; re-exporting keeps one obvious
 // name for each instead of a module path in every call site.
 pub(crate) use game::{
-    inventory_goods_ids, magic_slots, player, player_stats, release_borrowed, weapon_ids,
+    inventory_goods_ids, magic_slots, player, player_stats, forget_borrowed, weapon_ids,
     PLAYER_SPELL,
 };
 pub(crate) use logging::{debug_enabled, log};
@@ -205,7 +205,10 @@ fn run() {
                 log("world: character present");
             } else {
                 log("world: character gone (reload or quit to menu)");
-                release_borrowed();
+                // Nothing to put back: the character is being freed. Writing into it from this
+                // thread would corrupt memory the game still owns, and the crash would land
+                // somewhere unrelated (the load screen, the menu) minutes later.
+                forget_borrowed();
             }
         }
         // Build the spell catalogue as soon as the regulation is loaded, so the generated file

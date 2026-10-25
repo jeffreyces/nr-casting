@@ -23,6 +23,10 @@ struct Borrow {
     idx: usize,
     param_id: i32,
     charges: i32,
+    /// The spell we steered the entry at. Restoring is only correct while the entry still
+    /// holds it: if the game or another mod has since pointed the entry somewhere else, our
+    /// snapshot is stale and writing it back would clobber their value.
+    steered: i32,
 }
 
 static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
@@ -53,12 +57,27 @@ fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
             idx,
             param_id: entry.param_id,
             charges: entry.charges,
+            steered: 0,
         });
     }
     Some(idx)
 }
 
-/// Put back whatever `borrow_selected` overwrote. Cheap enough to call on every idle poll.
+/// Remember what `select_spell` wrote into the borrowed entry.
+fn remember_steered(spell: i32) {
+    if let Ok(mut slot) = BORROWED.lock() {
+        if let Some(borrow) = slot.as_mut() {
+            borrow.steered = spell;
+        }
+    }
+}
+
+/// Put back whatever `borrow_selected` overwrote.
+///
+/// **Only call this from the game's own threads** — the pad poll is the only caller. A timer or
+/// the panel thread must never write here: the character can be freed by a load, a warp or a
+/// death the moment the world goes away, and a write into that freed block corrupts the heap
+/// and crashes the game somewhere unrelated later. Teardown uses `forget_borrowed` instead.
 pub(crate) fn release_borrowed() {
     let snapshot = {
         let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
@@ -67,12 +86,26 @@ pub(crate) fn release_borrowed() {
     let Some(snapshot) = snapshot else {
         return;
     };
-    if let Some(magic) = magic_data() {
-        if snapshot.idx < magic.entries.len() {
-            magic.entries[snapshot.idx].param_id = snapshot.param_id;
-            magic.entries[snapshot.idx].charges = snapshot.charges;
-        }
+    let Some(magic) = magic_data() else {
+        return;
+    };
+    let Some(entry) = magic.entries.get_mut(snapshot.idx) else {
+        return;
+    };
+    // Only undo our own write. If the entry no longer holds the spell we steered, someone else
+    // (the game rebuilding the wheel, another selection mod) owns the value now.
+    if entry.param_id != snapshot.steered {
+        return;
     }
+    entry.param_id = snapshot.param_id;
+    entry.charges = snapshot.charges;
+}
+
+/// Drop the borrow without touching game memory. For a world that is going away: the object is
+/// being freed, so there is nothing left to restore and no thread we may write from.
+pub(crate) fn forget_borrowed() {
+    let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
+    *slot = None;
 }
 
 /// Does the selection already point at `spell`?
@@ -100,6 +133,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
         entry.charges = -1;
     }
     magic.selected_slot = idx as i32;
+    remember_steered(spell);
     // The menu's `selected_magic_item` is deliberately left alone: the cast reads
     // `EquipMagicData`, that field is a display cache (it sat at the "no item" sentinel while
     // casting worked fine), and writing it is one more piece of shared state to fight another
