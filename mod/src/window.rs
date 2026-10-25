@@ -604,7 +604,11 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 WM_KEYDOWN | WM_KEYUP => {
                     let vk = wparam.0 as u16;
                     if let Some(key) = map_key(vk) {
-                        app.input.keys.push((key, msg == WM_KEYDOWN));
+                        // Bounded: a stuck focus can deliver auto-repeat for as long as nobody
+                        // builds a frame, and this vector is only drained by one.
+                        if app.input.keys.len() < 256 {
+                            app.input.keys.push((key, msg == WM_KEYDOWN));
+                        }
                     }
                     if msg == WM_KEYDOWN && vk == 0x1B {
                         app.set_open(false);
@@ -732,9 +736,6 @@ pub fn start() {
         return;
     }
     std::thread::spawn(|| {
-        std::panic::set_hook(Box::new(|info| {
-            crate::log(&format!("panel: PANIC — {info}"));
-        }));
         match crate::pointer::install() {
             Ok(()) => crate::log("pointer: detours installed"),
             Err(e) => crate::log(&format!("pointer: FAILED to install detours: {e}")),
@@ -762,29 +763,49 @@ pub fn start() {
             // No-op while the panel is closed; releases the pointer's capture while it is open.
             crate::pointer::frame();
 
-            APP.with(|cell| {
-                let mut guard = cell.borrow_mut();
-                let Some(app) = guard.as_mut() else {
-                    return;
-                };
-                let minimized = unsafe { IsIconic(app.hwnd) }.0 != 0;
-                let down = unsafe { GetAsyncKeyState(app.hotkey) } < 0;
-                if down && !app.hotkey_down {
-                    let settled = app
-                        .last_toggle
-                        .map(|when| when.elapsed().as_millis() > 300)
-                        .unwrap_or(true);
-                    if settled {
-                        app.last_toggle = Some(Instant::now());
-                        let open = !app.shown;
-                        app.set_open(open);
+            // One bad frame must not take this thread down with it: the hotkey poll and the
+            // per-frame capture upkeep live here, so losing the thread leaves the panel
+            // unreachable and the pointer half-owned. The window procedure has its own
+            // boundary; this is the other edge.
+            let frame = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                APP.with(|cell| {
+                    let mut guard = cell.borrow_mut();
+                    let Some(app) = guard.as_mut() else {
+                        return;
+                    };
+                    let minimized = unsafe { IsIconic(app.hwnd) }.0 != 0;
+                    let down = unsafe { GetAsyncKeyState(app.hotkey) } < 0;
+                    if down && !app.hotkey_down {
+                        let settled = app
+                            .last_toggle
+                            .map(|when| when.elapsed().as_millis() > 300)
+                            .unwrap_or(true);
+                        if settled {
+                            app.last_toggle = Some(Instant::now());
+                            let open = !app.shown;
+                            app.set_open(open);
+                        }
                     }
-                }
-                app.hotkey_down = down;
-                if app.shown && !minimized {
-                    app.render();
-                }
-            });
+                    app.hotkey_down = down;
+                    if app.shown && !minimized {
+                        app.render();
+                    }
+                });
+            }));
+            if frame.is_err() {
+                crate::log(
+                    "panel: panic in the frame loop (swallowed) — closing; the next open rebuilds the device",
+                );
+                APP.with(|cell| {
+                    if let Ok(mut guard) = cell.try_borrow_mut() {
+                        if let Some(app) = guard.as_mut() {
+                            app.shown = false;
+                            app.gfx = None;
+                            app.model.panel.set_visible(false);
+                        }
+                    }
+                });
+            }
 
             std::thread::sleep(std::time::Duration::from_millis(16));
         }
