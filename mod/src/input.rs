@@ -26,6 +26,8 @@ const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
 const XINPUT_GAMEPAD_RIGHT_SHOULDER: u16 = 0x0200;
 const XINPUT_GAMEPAD_Y: u16 = 0x8000;
 const TRIGGER_THRESHOLD: u8 = 100;
+/// `XInputGetState` is ordinal 2 in `xinput1_4.dll`, and ELDEN RING imports it that way.
+const XINPUT_GET_STATE_ORDINAL: u64 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -133,8 +135,49 @@ fn hook_target(target: *mut u8) -> Result<(), String> {
     }
 }
 
-/// Is our jump still the one installed at `target`?
+extern "system" {
+    fn VirtualProtect(address: *mut u8, size: usize, new_protect: u32, old: *mut u32) -> i32;
+}
+
+/// Point the game's *own* import slot for `XInputGetState` at our detour.
 ///
+/// This is the safe way to take the pad back when another mod already claimed the exported
+/// function: an IAT entry is one aligned pointer, so the change is a single store and no
+/// instruction bytes are rewritten while the game may be executing them. The trampoline becomes
+/// whatever the slot held — the other mod's detour — so their hook keeps running inside ours.
+unsafe fn hook_import_slot() -> Result<(), String> {
+    const PAGE_READWRITE: u32 = 0x04;
+    let size = std::mem::size_of::<*mut u8>();
+    let Some(slot) = game_import_slot() else {
+        return Err("no XInputGetState entry in the game's import table".into());
+    };
+    // The import walk hands back a read-only view; writing the entry is the whole point here.
+    let slot = slot as *mut *mut u8;
+    // SAFETY: the slot address came from the import walk, which bounds-checked it.
+    if !probe::readable(slot as *const u8, size) {
+        return Err("import slot is unreadable".into());
+    }
+    let previous = *slot;
+    if previous.is_null() {
+        return Err("import slot is empty".into());
+    }
+    if previous == detour as *const () as *mut u8 {
+        return Ok(());
+    }
+    let mut old = 0u32;
+    let unlocked = VirtualProtect(slot as *mut u8, size, PAGE_READWRITE, &mut old) != 0;
+    // Trampoline first: a poll that lands between the two stores must never enter a detour whose
+    // trampoline is still null.
+    TRAMPOLINE.store(previous as *mut (), Ordering::Release);
+    *slot = detour as *const () as *mut u8;
+    if unlocked {
+        let _ = VirtualProtect(slot as *mut u8, size, old, &mut old);
+    }
+    HOOK_READY.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Is our jump still the one installed at `target`?
 /// This is the liveness test that matters: another hook installer (MinHook-based input mods)
 /// rewrites the same prologue bytes, which silently removes our patch and leaves the game
 /// calling their detour instead. Poll counters cannot tell "overwritten" from "the game has not
@@ -162,6 +205,7 @@ unsafe fn patch_is_ours(target: *mut u8) -> bool {
 pub(crate) fn watch_hook() {
     let mut attempts = 0;
     let mut warned = false;
+    let mut tried_import_slot = false;
     let mut last_polls = POLLS.load(Ordering::Relaxed);
     let mut idle_ticks = 0u32;
 
@@ -209,6 +253,27 @@ pub(crate) fn watch_hook() {
             );
             warned = true;
         }
+
+        // Prefer pointing the game's own import slot at our detour: that is one aligned pointer
+        // store, with no instruction bytes rewritten while the game may be running them. Only
+        // fall back to patching the export's prologue if the game turns out not to read the slot
+        // on each call.
+        if !tried_import_slot {
+            tried_import_slot = true;
+            match unsafe { hook_import_slot() } {
+                Ok(()) => {
+                    attempts += 1;
+                    log(
+                        "XInputGetState: another mod owns the export's prologue — routed the \
+                         game's import slot to our detour instead (no code patched, their hook \
+                         still runs inside ours)",
+                    );
+                    continue;
+                }
+                Err(e) => log(&format!("XInputGetState: import slot unusable ({e})")),
+            }
+        }
+
         // Capturing whatever is there now keeps a third-party hook in the chain.
         match hook_target(target) {
             Ok(()) => {
@@ -313,8 +378,13 @@ unsafe fn game_import_slot() -> Option<*const *mut u8> {
                 if entry == 0 {
                     break;
                 }
-                // High bit set means "imported by ordinal"; XInputGetState never is.
+                // The game imports this one **by ordinal** (XINPUT1_4 #2), so a name compare
+                // alone never matches — that is why this walk used to fall through to the
+                // exported function every time. Accept both spellings.
                 if entry & 0x8000_0000_0000_0000 != 0 {
+                    if entry & 0xFFFF == XINPUT_GET_STATE_ORDINAL {
+                        return Some(slot);
+                    }
                     continue;
                 }
                 let name_rva = entry as usize + 2;

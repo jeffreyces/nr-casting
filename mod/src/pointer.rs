@@ -96,6 +96,15 @@ unsafe fn mouse_payload(data: *const u8) -> bool {
     unsafe { *(data as *const u32) == RIM_TYPE_MOUSE }
 }
 
+/// Is `size` (a byte count the caller passed in) at least `needed` bytes?
+///
+/// These detours run inside another module's call, so the buffer behind the pointer is only as
+/// trustworthy as the caller. Reading the header of a zero-length or null buffer is an access
+/// violation in someone else's process — a crash with our name on it.
+unsafe fn buffer_at_least(size: *const u32, needed: u32) -> bool {
+    !size.is_null() && unsafe { *size } >= needed
+}
+
 unsafe extern "system" fn raw_data_detour(
     device: *mut u8,
     command: u32,
@@ -103,7 +112,12 @@ unsafe extern "system" fn raw_data_detour(
     size: *mut u32,
     header_size: u32,
 ) -> u32 {
-    if starving() && !data.is_null() && command == RID_INPUT && mouse_payload(data) {
+    if starving()
+        && !data.is_null()
+        && command == RID_INPUT
+        && buffer_at_least(size, 4)
+        && mouse_payload(data)
+    {
         return 0;
     }
     let tramp = RAW_DATA_TRAMP.load(Ordering::Acquire);
@@ -117,8 +131,12 @@ unsafe extern "system" fn raw_data_detour(
 
 unsafe extern "system" fn raw_buffer_detour(data: *mut u8, size: *mut u32, header: u32) -> u32 {
     // Each entry in the buffer is a `u32` byte count followed by the `RAWINPUT`, so the first
-    // header's `dwType` sits four bytes in.
-    if starving() && !data.is_null() && unsafe { *((data as *const u32).add(1)) } == RIM_TYPE_MOUSE {
+    // header's `dwType` sits four bytes in — but only if there is an entry at all.
+    if starving()
+        && !data.is_null()
+        && buffer_at_least(size, 8)
+        && unsafe { *((data as *const u32).add(1)) } == RIM_TYPE_MOUSE
+    {
         return 0;
     }
     let tramp = RAW_BUFFER_TRAMP.load(Ordering::Acquire);
