@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  # Needed to drop a cache entry that restored but is unusable (see the verify step).
+  actions: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,6 +19,10 @@ concurrency:
 
 env:
   CARGO_XWIN: v0.23.1
+  # The key alone decides whether the ~1.2 GB MSVC payload is reused, so it names the tool and
+  # the architecture it was fetched for. Bump the trailing revision when the pinned SDK/CRT
+  # implicitly changes, or to abandon an entry that turned out to be incomplete.
+  XWIN_CACHE_KEY: cargo-xwin-v0.23.1-linux-x86_64-v2
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
 
@@ -45,7 +51,24 @@ jobs:
           path: |
             ~/.cargo/bin/cargo-xwin
             ~/.cache/cargo-xwin
-          key: cargo-xwin-${{ env.CARGO_XWIN }}-${{ runner.os }}
+          key: ${{ env.XWIN_CACHE_KEY }}
+
+      # A cache entry can exist and still be useless: a run cancelled mid-download saves whatever
+      # was on disk, `cargo xwin cache xwin` then re-downloads, and the bad entry stays forever
+      # because a cache hit skips the save. Ask the payload's own completion marker (`DONE`, first
+      # line = architectures) instead of trusting the key.
+      - name: Verify the restored MSVC payload
+        id: xwin-verify
+        run: |
+          done="$HOME/.cache/cargo-xwin/xwin/DONE"
+          if [ -f "$done" ] && head -1 "$done" | grep -qw x86_64; then
+            echo "usable=true" >> "$GITHUB_OUTPUT"
+            echo "MSVC payload is complete ($(($(wc -l < "$done") - 1)) payloads, $(head -1 "$done"))"
+          else
+            echo "usable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::MSVC payload missing or incomplete — re-downloading and re-saving"
+            rm -rf "$HOME/.cache/cargo-xwin/xwin"
+          fi
 
       - name: Cache the Rust build
         uses: Swatinem/rust-cache@v2
@@ -71,15 +94,29 @@ jobs:
           clang --version | head -1
 
       # Its own step on purpose: a cold run spends most of its wall clock here, and inside the
-      # build step every slow download looks like a hung compile.
+      # build step every slow download looks like a hung compile. A complete payload is a no-op.
       - name: Fetch the MSVC CRT and SDK
+        id: xwin-fetch
         run: cargo xwin cache xwin
 
+      # `save` refuses a key that already exists, so an entry we just judged unusable has to go
+      # first. Best effort: if the token cannot delete, the build still proceeds and only the
+      # re-save is lost.
+      - name: Drop an unusable cache entry
+        if: steps.xwin-cache.outputs.cache-hit == 'true' && steps.xwin-verify.outputs.usable != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh cache delete "${{ env.XWIN_CACHE_KEY }}" --repo "${{ github.repository }}" --ref "${{ github.ref }}" || gh cache delete "${{ env.XWIN_CACHE_KEY }}" --repo "${{ github.repository }}"
+
+      # Save only what a *successful* fetch produced, and only when the entry in hand is not
+      # already the verified one — an unconditional save is how a cancelled run poisons the key.
       - name: Save cargo-xwin and the MSVC payload
-        if: always() && steps.xwin-cache.outputs.cache-hit != 'true'
+        if: always() && steps.xwin-fetch.outcome == 'success' && steps.xwin-verify.outputs.usable != 'true'
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          key: cargo-xwin-${{ env.CARGO_XWIN }}-${{ runner.os }}
+          key: ${{ env.XWIN_CACHE_KEY }}
           path: |
             ~/.cargo/bin/cargo-xwin
             ~/.cache/cargo-xwin
