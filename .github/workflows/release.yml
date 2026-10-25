@@ -52,6 +52,14 @@ jobs:
             ~/.cargo/bin/cargo-xwin
             ~/.cache/cargo-xwin
           key: ${{ env.XWIN_CACHE_KEY }}
+          # The revision in the key exists to abandon a bad entry, not to force a 1.2 GB
+          # download: fall back to the newest entry for the same tool and platform and let the
+          # verify step decide whether it is usable. Tag-scoped runs cannot see other tags'
+          # caches, so the default branch is what keeps this warm for releases.
+          restore-keys: |
+            cargo-xwin-${{ env.CARGO_XWIN }}-linux-x86_64-
+            cargo-xwin-${{ env.CARGO_XWIN }}-
+            cargo-xwin-
 
       # A cache entry can exist and still be useless: a run cancelled mid-download saves whatever
       # was on disk, `cargo xwin cache xwin` then re-downloads, and the bad entry stays forever
@@ -59,7 +67,10 @@ jobs:
       # line = architectures) instead of trusting the key.
       - name: Verify the restored MSVC payload
         id: xwin-verify
+        env:
+          MATCHED_KEY: ${{ steps.xwin-cache.outputs.cache-matched-key }}
         run: |
+          echo "restored cache key: ${MATCHED_KEY:-none}"
           done="$HOME/.cache/cargo-xwin/xwin/DONE"
           if [ -f "$done" ] && head -1 "$done" | grep -qw x86_64; then
             echo "usable=true" >> "$GITHUB_OUTPUT"
@@ -76,9 +87,11 @@ jobs:
           workspaces: mod
 
       # Prebuilt static musl binary: no `cargo install`, which would compile the tool itself.
+      # A restored cache can hold any version, so compare versions instead of checking existence.
       - name: Install cargo-xwin
         run: |
-          if ! command -v cargo-xwin >/dev/null; then
+          have=$(cargo-xwin --version 2>/dev/null | awk '{print $2}' | sed 's/^v//' || true)
+          if [ "$have" != "${CARGO_XWIN#v}" ]; then
             url="https://github.com/rust-cross/cargo-xwin/releases/download/${CARGO_XWIN}/cargo-xwin-${CARGO_XWIN}.x86_64-unknown-linux-musl.tar.gz"
             curl -sSL "$url" | tar -xz -C "$HOME/.cargo/bin"
             chmod +x "$HOME/.cargo/bin/cargo-xwin"
@@ -99,20 +112,26 @@ jobs:
         id: xwin-fetch
         run: cargo xwin cache xwin
 
-      # `save` refuses a key that already exists, so an entry we just judged unusable has to go
-      # first. Best effort: if the token cannot delete, the build still proceeds and only the
-      # re-save is lost.
+      # `cache-matched-key` is the entry that was *actually* restored: with restore-keys it can be
+      # an older key than the one we asked for, and deleting the primary key would leave the bad
+      # entry in place to be matched again on the next run.
       - name: Drop an unusable cache entry
-        if: steps.xwin-cache.outputs.cache-hit == 'true' && steps.xwin-verify.outputs.usable != 'true'
+        if: steps.xwin-verify.outputs.usable != 'true' && steps.xwin-cache.outputs.cache-matched-key != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh cache delete "${{ env.XWIN_CACHE_KEY }}" --repo "${{ github.repository }}" --ref "${{ github.ref }}" || gh cache delete "${{ env.XWIN_CACHE_KEY }}" --repo "${{ github.repository }}"
+          MATCHED_KEY: ${{ steps.xwin-cache.outputs.cache-matched-key }}
+        run: |
+          echo "dropping unusable entry: $MATCHED_KEY"
+          gh cache delete "$MATCHED_KEY" --repo "${{ github.repository }}" --ref "${{ github.ref }}" \
+            || gh cache delete "$MATCHED_KEY" --repo "${{ github.repository }}"
 
-      # Save only what a *successful* fetch produced, and only when the entry in hand is not
-      # already the verified one — an unconditional save is how a cancelled run poisons the key.
+      # Save what a *successful* fetch produced whenever there was no exact hit: an entry matched
+      # through restore-keys is promoted to the current key, so the next run is an exact hit, and
+      # a cold run seeds it. Skipping the save on a hit is what let a cancelled run's partial
+      # entry live forever.
       - name: Save cargo-xwin and the MSVC payload
-        if: always() && steps.xwin-fetch.outcome == 'success' && steps.xwin-verify.outputs.usable != 'true'
+        if: always() && steps.xwin-fetch.outcome == 'success' && steps.xwin-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
