@@ -253,7 +253,7 @@ pub(crate) fn watch_hook() {
             last_polls = polls;
             idle_ticks = 0;
         } else {
-            idle_ticks += 1;
+            idle_ticks = idle_ticks.saturating_add(1);
         }
 
         // Only a validated character makes "no polls" meaningful: the title screen and loading
@@ -261,6 +261,13 @@ pub(crate) fn watch_hook() {
         // needs the real player structures, so it gates on being in the world — the title
         // screen has a player object but never passes the probe.
         if idle_ticks < 2 || !crate::probe::validated() {
+            continue;
+        }
+
+        // Once the situation has been diagnosed, keep watching at a slower cadence: the check
+        // below walks the game's import table and allocates, and a session with no controller
+        // connected would otherwise do that every two seconds for hours.
+        if warned && idle_ticks % 15 != 0 {
             continue;
         }
 
