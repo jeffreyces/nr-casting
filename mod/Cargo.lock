@@ -335,7 +335,7 @@ checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
 
 [[package]]
 name = "nr_casting"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eldenring",
  "fromsoftware-shared",
@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "nr_casting_core"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "num_enum"
