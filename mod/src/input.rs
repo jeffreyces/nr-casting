@@ -4,7 +4,7 @@
 //! The rules themselves (which input means which slot, and which wins when several are held)
 //! live in `nr_casting_core::route` so they are tested; this module carries them out.
 
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use nr_casting_core::{Held, Route};
@@ -58,16 +58,8 @@ static TRAMPOLINE: std::sync::atomic::AtomicPtr<()> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
-/// Pad polls seen by our detour. Zero after the game is up means our hook is not in the path.
+/// Pad polls seen by our detour. Used to tell "the hook is dead" from "the game is not polling".
 static POLLS: AtomicU32 = AtomicU32::new(0);
-/// Highest poll count seen: proves the hook was live at least once, which distinguishes "another
-/// mod overwrote us" from "the game has not started polling yet".
-static PEAK_POLLS: AtomicU32 = AtomicU32::new(0);
-
-/// Address our detour currently sits on (the game's pad entry point).
-static HOOK_TARGET: AtomicUsize = AtomicUsize::new(0);
-/// Live `RawDetour`, kept so it can be disabled before re-targeting.
-static ACTIVE_DETOUR: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CAPTURE_KEY: AtomicU32 = AtomicU32::new(u32::MAX);
 /// When on, idle polls mirror the weapon's slot 1 into the selection so the game's
@@ -133,10 +125,10 @@ fn hook_target(target: *mut u8) -> Result<(), String> {
             .map_err(|e| format!("RawDetour::new: {e:?}"))?;
         raw.enable().map_err(|e| format!("enable: {e:?}"))?;
         TRAMPOLINE.store(raw.trampoline() as *const () as *mut (), Ordering::Release);
-        HOOK_TARGET.store(target as usize, Ordering::Release);
         HOOK_READY.store(true, Ordering::Relaxed);
-        // Leaked deliberately: the trampoline must outlive the process.
-        ACTIVE_DETOUR.store(Box::into_raw(Box::new(raw)) as *mut (), Ordering::Release);
+        // Leaked deliberately: the detour and its trampoline must outlive the process, and the
+        // displaced prologue has to stay captured for whoever we chained over.
+        std::mem::forget(raw);
         Ok(())
     }
 }
@@ -160,52 +152,69 @@ unsafe fn patch_is_ours(target: *mut u8) -> bool {
     destination as usize == detour as *const () as usize
 }
 
-/// Re-target the hook if another mod has since routed the game's polls elsewhere.
+/// Re-target the hook when another mod has taken the pad entry point away from us.
+///
+/// The old version re-patched whenever the prologue did not look like ours, on a 2-second
+/// timer, for the first four ticks — including while the game was starting and while polls
+/// were arriving normally. Rewriting a function's prologue while another thread is executing
+/// it is a crash, so the patch is now only touched when there is evidence it is needed: a live
+/// character, and no new polls for a dozen seconds.
 pub(crate) fn watch_hook() {
     let mut attempts = 0;
     let mut warned = false;
-    let mut ticks = 0u32;
+    let mut last_polls = POLLS.load(Ordering::Relaxed);
+    let mut idle_ticks = 0u32;
 
     loop {
         std::thread::sleep(Duration::from_secs(2));
-        ticks += 1;
-        // A loaded hook that never fires means somebody else intercepts the pad: the mod then
-        // loads, the panel opens, and the triggers silently stop casting. Give the game time to
-        // start polling (loading screens legitimately poll nothing) before saying so, once.
-        if !warned && ticks >= 12 && PEAK_POLLS.load(Ordering::Relaxed) == 0 {
-            log(
-                "input: no pad polls received — another mod is intercepting XInput, so the \
-                 trigger/ash rewriting cannot work. Remove or disable that mod's input DLL.",
-            );
-            warned = true;
-        }
-        // Another mod's hook installer can overwrite our patch bytes on the export (MinHook
-        // rewrites the same prologue). Nothing is logged by the OS when that happens: the hook
-        // simply stops firing. If polls stop arriving after the game is up, put our patch back.
-        if ticks >= 4 && attempts < 4 {
-            if let Ok(target) = unsafe { current_pad_target() } {
-                // Capturing whatever is there now keeps a third-party hook in the chain.
-                if !unsafe { patch_is_ours(target) } && hook_target(target).is_ok() {
-                    attempts += 1;
-                    log(&format!(
-                        "XInputGetState: our patch was replaced — re-installed over it at {target:p} (previous hook chained)"
-                    ));
-                }
-            }
-        }
         if !HOOK_READY.load(Ordering::Relaxed) || attempts >= 4 {
             return;
         }
-        let target = unsafe { current_pad_target() };
-        let Ok(target) = target else { continue };
-        if target as usize == HOOK_TARGET.load(Ordering::Acquire) {
+
+        let polls = POLLS.load(Ordering::Relaxed);
+        if polls != last_polls {
+            last_polls = polls;
+            idle_ticks = 0;
+        } else {
+            idle_ticks += 1;
+        }
+
+        // Only a live character makes "no polls" meaningful: the title screen and loading
+        // screens legitimately poll nothing, and re-patching there is pure risk. Two ticks of
+        // silence with a character up is already conclusive — a load frees the character, so
+        // the gate covers the one case where silence is normal.
+        if idle_ticks < 2 || crate::player().is_none() {
             continue;
         }
+
+        let Ok(target) = (unsafe { current_pad_target() }) else {
+            continue;
+        };
+
+        if unsafe { patch_is_ours(target) } {
+            if !warned {
+                log(
+                    "input: hooked, but the game is not polling XInputGetState — is a \
+                     controller connected? Casting via the triggers cannot work without one.",
+                );
+                warned = true;
+            }
+            continue;
+        }
+
+        if !warned {
+            log(
+                "input: no pad polls received — another mod is intercepting XInput, so the \
+                 trigger/ash rewriting cannot work until it is removed or disabled.",
+            );
+            warned = true;
+        }
+        // Capturing whatever is there now keeps a third-party hook in the chain.
         match hook_target(target) {
             Ok(()) => {
                 attempts += 1;
                 log(&format!(
-                    "XInputGetState: another mod moved the pad entry point — re-hooked at {target:p}"
+                    "XInputGetState: our patch was replaced — re-installed over it at {target:p} (previous hook chained)"
                 ));
             }
             Err(e) => {
@@ -346,9 +355,6 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     let ret = original(user, state);
     if ret == 0 && !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
         let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;
-        if n > PEAK_POLLS.load(Ordering::Relaxed) {
-            PEAK_POLLS.store(n, Ordering::Relaxed);
-        }
         if n == 1 || n.is_multiple_of(600) {
             debug!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe { (*state).gamepad.buttons });
         }
