@@ -334,3 +334,163 @@ not a slot
         assert_eq!(mouse_route(false, false, false, false), None);
     }
 }
+
+/// Format one crash line into `buf`, returning its length.
+///
+/// Lives here because it must be allocation-free (it runs in an exception handler) and because
+/// the format is worth a test: this is the one artifact a user's bug report will contain.
+///
+/// `access` is the (operation, target address) pair of an access violation: `0` reading,
+/// `1` writing, `8` executing.
+pub fn fault_line(
+    buf: &mut [u8],
+    ms: u64,
+    code: u32,
+    address: usize,
+    thread: u32,
+    module_base: usize,
+    offset: usize,
+    module: &str,
+    access: Option<(usize, usize)>,
+) -> usize {
+    let mut writer = Writer { buf, len: 0 };
+    writer.push(b"[");
+    writer.decimal(ms);
+    writer.push(b"] crash: exception 0x");
+    writer.hex(code as u64, 8);
+    writer.push(b" at 0x");
+    writer.hex(address as u64, 1);
+    if !module.is_empty() {
+        writer.push(b" in ");
+        writer.push(module.as_bytes());
+        writer.push(b" (base 0x");
+        writer.hex(module_base as u64, 1);
+        writer.push(b", offset 0x");
+        writer.hex(offset as u64, 1);
+        writer.push(b")");
+    }
+    writer.push(b" thread ");
+    writer.decimal(thread as u64);
+    if let Some((operation, target)) = access {
+        writer.push(match operation {
+            0 => b" reading 0x".as_slice(),
+            1 => b" writing 0x",
+            8 => b" executing 0x",
+            _ => b" accessing 0x",
+        });
+        writer.hex(target as u64, 1);
+    }
+    writer.push(b"\n");
+    writer.len
+}
+
+struct Writer<'a> {
+    buf: &'a mut [u8],
+    len: usize,
+}
+
+impl Writer<'_> {
+    fn push(&mut self, text: &[u8]) {
+        for byte in text {
+            if self.len < self.buf.len() {
+                self.buf[self.len] = *byte;
+                self.len += 1;
+            }
+        }
+    }
+
+    /// Lowercase hex, zero-padded to at least `digits`.
+    fn hex(&mut self, value: u64, digits: usize) {
+        const TABLE: &[u8; 16] = b"0123456789abcdef";
+        let mut started = false;
+        for shift in (0..16).rev() {
+            let digit = ((value >> (shift * 4)) & 0xF) as usize;
+            if digit != 0 || started || shift == 0 || shift < digits {
+                started = true;
+                self.push(&[TABLE[digit]]);
+            }
+        }
+    }
+
+    fn decimal(&mut self, value: u64) {
+        let mut digits = [0u8; 20];
+        let mut count = 0;
+        let mut value = value;
+        loop {
+            digits[count] = b'0' + (value % 10) as u8;
+            count += 1;
+            value /= 10;
+            if value == 0 {
+                break;
+            }
+        }
+        while count > 0 {
+            count -= 1;
+            let byte = digits[count];
+            self.push(&[byte]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod fault_tests {
+    use super::fault_line;
+
+    fn render(
+        code: u32,
+        address: usize,
+        thread: u32,
+        base: usize,
+        offset: usize,
+        module: &str,
+        access: Option<(usize, usize)>,
+    ) -> String {
+        let mut buf = [0u8; 512];
+        let len = fault_line(&mut buf, 1234, code, address, thread, base, offset, module, access);
+        String::from_utf8_lossy(&buf[..len]).to_string()
+    }
+
+    #[test]
+    fn names_the_module_and_offset() {
+        let line = render(
+            0xC000_0005,
+            0x1_4012_3456_7,
+            4321,
+            0x1_4000_0000,
+            0x123_4567,
+            "eldenring.exe",
+            None,
+        );
+        assert_eq!(
+            line,
+            "[1234] crash: exception 0xc0000005 at 0x1401234567 in eldenring.exe \
+             (base 0x140000000, offset 0x1234567) thread 4321\n"
+        );
+    }
+
+    #[test]
+    fn says_what_an_access_violation_was_doing() {
+        let line = render(
+            0xC000_0005,
+            0x6FFF_FA40_2690,
+            17,
+            0x6FFF_FA00_0000,
+            0x40_2690,
+            "recluse_input.dll",
+            Some((1, 0xDEAD_BEEF)),
+        );
+        assert!(line.contains(" writing 0xdeadbeef"), "{line}");
+        assert!(line.contains("in recluse_input.dll"), "{line}");
+    }
+
+    #[test]
+    fn survives_a_missing_module_and_a_short_buffer() {
+        let line = render(0xC000_0374, 0x1000, 1, 0, 0x1000, "", None);
+        assert_eq!(line, "[1234] crash: exception 0xc0000374 at 0x1000 thread 1\n");
+
+        let mut tiny = [0u8; 12];
+        let len = fault_line(&mut tiny, 7, 0xC000_0005, 0x140_0000_0000, 9, 0, 0, "a.dll", None);
+        assert_eq!(len, 12);
+        assert!(std::str::from_utf8(&tiny).is_ok());
+    }
+}

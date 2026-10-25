@@ -24,6 +24,7 @@
 //! rules), `config`, `params`, `pointer`, `probe`, `overlay` (panel model), `window` (panel host).
 
 mod config;
+mod crash;
 mod game;
 mod input;
 mod logging;
@@ -126,6 +127,18 @@ pub extern "system" fn DllMain(hinst: *mut u8, reason: u32, _reserved: *mut u8) 
 }
 
 fn run() {
+    // First, before any thread or hook exists: if anything faults from here on, the log says
+    // what faulted and where, instead of the user having to describe a crash.
+    crash::install();
+    // Panics are logged too, and the previous hook still runs: another mod may have installed
+    // one, and a panic must not become invisible just because we replaced its handler.
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("unnamed").to_string();
+        logging::try_log(&format!("panic on thread '{name}': {info}"));
+        previous_hook(info);
+    }));
     config::migrate_from_game_dir();
 
     // Derived files belong to one executable build. If the game changed, drop them before the
@@ -149,6 +162,7 @@ fn run() {
         "=== nr_casting loaded ({} opens the panel; hold {} + R1/R2/L1/L2 to bind)",
         cfg.hotkey_name, cfg.modifier_name
     ));
+    log("crash: exception observer installed (faults are logged with module and offset)");
     log(&format!(
         "config: hud_mirror={} debug_log={} files in {}",
         cfg.hud_mirror,
@@ -237,12 +251,13 @@ fn run() {
     }
 }
 
-/// Log the DLLs in this process that are neither Windows' nor ours.
+/// The DLLs in this process that are neither Windows' nor ours, with their load bases.
 ///
 /// Every compatibility report so far reduces to "which other DLL is loaded": proxy DLLs for
 /// frame generation, another overlay, a class-port mod. Naming them in the log turns that from
-/// a guessing game into a line somebody can paste into a bug report.
-fn foreign_modules() -> Option<Vec<String>> {
+/// a guessing game into a line somebody can paste into a bug report, and the base is what lets a
+/// `crash:` line ("in X.dll (base …, offset …)") be matched to a module.
+fn foreign_modules() -> Option<Vec<(String, usize)>> {
     extern "system" {
         fn GetCurrentProcess() -> *mut u8;
         fn K32EnumProcessModules(p: *mut u8, modules: *mut *mut u8, size: u32, needed: *mut u32)
@@ -267,7 +282,7 @@ fn foreign_modules() -> Option<Vec<String>> {
     let count = (needed as usize / std::mem::size_of::<*mut u8>()).min(modules.len());
 
     let own = config::dir().to_string_lossy().to_ascii_lowercase();
-    let mut foreign: Vec<String> = Vec::new();
+    let mut foreign: Vec<(String, usize)> = Vec::new();
     for module in modules.iter().take(count) {
         let mut buffer = [0u16; 1024];
         // SAFETY: handle from the enumeration; buffer is sized for MAX_PATH comfortably.
@@ -282,7 +297,10 @@ fn foreign_modules() -> Option<Vec<String>> {
             continue;
         }
         if let Some(name) = path.file_name() {
-            foreign.push(name.to_string_lossy().to_string());
+            foreign.push((
+                name.to_string_lossy().to_string(),
+                *module as usize,
+            ));
         }
     }
     foreign.sort();
@@ -292,7 +310,13 @@ fn foreign_modules() -> Option<Vec<String>> {
 
 fn log_foreign_modules() {
     match foreign_modules() {
-        Some(modules) if !modules.is_empty() => log(&format!("modules: {}", modules.join(", "))),
+        Some(modules) if !modules.is_empty() => {
+            let listing: Vec<String> = modules
+                .iter()
+                .map(|(name, base)| format!("{name}@{base:#x}"))
+                .collect();
+            log(&format!("modules: {}", listing.join(", ")));
+        }
         Some(_) => log("modules: no foreign DLLs loaded"),
         None => log("modules: enumeration failed"),
     }
