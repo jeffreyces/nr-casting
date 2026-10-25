@@ -294,16 +294,22 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 
 The mod logs what it found, in order, to `nr_casting/nr_casting_probe.log` beside the DLL (or
 `%APPDATA%\nr_casting\` if that folder is not writable — the log's second line, `files in:`,
-says which). Two lines answer most reports:
+says which). It writes that context on every launch, whether or not `debug_log` is on; debug only
+adds per-cast chatter. Three lines answer most reports:
 
 ```
-modules: amd_ags_x64.dll, d3d12.dll, dxgi.dll, erss-fg.dll, me3_mod_host.dll, ...
+modules: ersc.dll@0x180000000, d3d12.dll@0x6ffffa680000, eldenring.exe@0x140000000, ...
 files in: C:\mods\nr-casting\nr_casting
+crash: exception 0xc0000005 at 0x6ffffa4026a0 in recluse_input.dll (base 0x6ffffa000000, offset 0x4026a0) thread 7212 writing 0x18
 ```
 
-`modules` lists every DLL loaded besides Windows' own, so a proxy DLL, another overlay or a
-class-port mod shows up by name. If the panel never appears, look for `panel:` —
-`panel: no panel graphics; staying closed` or `panel: D3D11 device creation failed` mean the window
-could not get a device (casting is unaffected), and `panel: first frame presented` confirms it
-drew. If nothing loads at all, the profile path is
-the first suspect: the log will not exist.
+`modules` lists every DLL loaded besides Windows' own, with its load base, so a proxy DLL, another
+overlay or a class-port mod shows up by name — and a `crash:` line's `base`/`offset` points into
+exactly one of them. Faults are recorded automatically (the handler observes and lets the game's
+own handling continue, so a crash reporter still works), as are panics and the mod's own errors;
+you never have to turn debug on first.
+
+If the panel never appears, look for `panel:` — `panel: no panel graphics; staying closed` or
+`panel: D3D11 device creation failed` mean the window could not get a device (casting is
+unaffected), and `panel: first frame presented` confirms it drew. If nothing loads at all, the
+profile path is the first suspect: the log will not exist.
