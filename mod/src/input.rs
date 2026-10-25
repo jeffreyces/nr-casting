@@ -256,11 +256,11 @@ pub(crate) fn watch_hook() {
             idle_ticks += 1;
         }
 
-        // Only a live character makes "no polls" meaningful: the title screen and loading
-        // screens legitimately poll nothing, and re-patching there is pure risk. Two ticks of
-        // silence with a character up is already conclusive — a load frees the character, so
-        // the gate covers the one case where silence is normal.
-        if idle_ticks < 2 || crate::player().is_none() {
+        // Only a validated character makes "no polls" meaningful: the title screen and loading
+        // screens legitimately poll nothing, and re-patching there is pure risk. Validation
+        // needs the real player structures, so it gates on being in the world — the title
+        // screen has a player object but never passes the probe.
+        if idle_ticks < 2 || !crate::probe::validated() {
             continue;
         }
 
