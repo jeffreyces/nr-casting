@@ -50,7 +50,7 @@ use std::time::Duration;
 use eldenring::util::system::{wait_for_system_init, SystemInitError};
 use fromsoftware_shared::Program;
 
-use crate::input::{install_hook, watch_hook, HUD_MIRROR};
+use crate::input::{install_hook, watch_hook, HUD_MIRROR, PASSES, POLLS};
 use crate::logging::DEBUG_LOG;
 use crate::store::{describe_store, file_mtime, reload_store, seed_store, slots_path};
 
@@ -208,6 +208,8 @@ fn run() {
     let mut last_mtime = file_mtime();
     let mut catalogue_ready = false;
     let mut world_was_live = false;
+    let mut last_polls = 0u32;
+    let mut last_passes = 0u32;
     loop {
         probe::maybe_validate();
         // A reload destroys the character and builds a new one. Logging the edge is what tells
@@ -248,6 +250,20 @@ fn run() {
             last_mtime = m;
             reload_store();
             log(&format!("slots reloaded: {}", describe_store()));
+        }
+        // Only with debug_log on: how often the game actually polls, and how much of that the
+        // repeat gate threw away. This is the number to quote when judging the mod's CPU cost on
+        // someone else's machine.
+        if debug_enabled() {
+            let polls = POLLS.load(Ordering::Relaxed);
+            let passes = PASSES.load(Ordering::Relaxed);
+            let (dp, dq) = (polls.wrapping_sub(last_polls), passes.wrapping_sub(last_passes));
+            last_polls = polls;
+            last_passes = passes;
+            log(&format!(
+                "input: {dp} polls, {dq} full passes, {} skipped as repeats",
+                dp.saturating_sub(dq)
+            ));
         }
         std::thread::sleep(Duration::from_secs(30));
     }
