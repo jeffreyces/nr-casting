@@ -14,8 +14,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::game::{
-    release_borrowed, sample_player_selection, select_spell, selection_is, weapon_ids,
-    PLAYER_SPELL,
+    release_borrowed, sample_player_selection, sample_player_selection_now, select_spell,
+    selection_is, weapon_ids, PLAYER_SPELL,
 };
 use crate::logging::{debug, log};
 use crate::store::{store_get, store_set};
@@ -544,8 +544,8 @@ const VK_SHIFT: i32 = 0x10;
 const VK_CONTROL: i32 = 0x11;
 
 fn adjust(state: &mut XInputState) {
-    // One sample per poll keeps the panel's "selected" line and capture accurate without
-    // putting the side effect inside a getter.
+    // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
+    // every XInput poll and the read is a several-syscall pointer chase.
     sample_player_selection();
     let pad = &mut state.gamepad;
     let held = held_from(pad);
@@ -581,6 +581,9 @@ fn adjust(state: &mut XInputState) {
             slot,
             label,
         } => {
+            // Bind the spell selected *now*: the throttled sample can be up to 100 ms old and
+            // the player may have flicked the wheel since.
+            sample_player_selection_now();
             let Some((left_id, right_id)) = weapon_ids() else {
                 debug!("input: no weapon ids (player data unreadable)");
                 return;
