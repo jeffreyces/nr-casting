@@ -47,7 +47,7 @@ pub(crate) fn slots_path() -> std::path::PathBuf {
 ///
 /// The hash suffix matters: two names that differ only in punctuation or case would otherwise
 /// share a file, which is the bug this whole scheme exists to avoid.
-fn slug(name: &str) -> String {
+fn slug(name: &str, id: u32) -> (String, String) {
     let mut base = String::new();
     let mut last_dash = false;
     for ch in name.chars() {
@@ -66,18 +66,65 @@ fn slug(name: &str) -> String {
     if base.is_empty() {
         base.push_str("character");
     }
-    // FNV-1a over the raw name, four hex digits.
+    // FNV-1a over the name *and* the save-level id: two characters with the same name must not
+    // share a file either.
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in name.as_bytes() {
+    for byte in name.as_bytes().iter().chain(&id.to_le_bytes()) {
         hash ^= *byte as u32;
         hash = hash.wrapping_mul(0x0100_0193);
     }
-    format!("{base}-{hash:04x}")
+    (base.clone(), format!("{base}-{hash:04x}"))
+}
+
+/// Keep the store on the loaded character's file. Cheap enough for the 500 ms watcher: two
+/// fields of the player data and a string compare.
+pub(crate) fn sync_character() {
+    let Some((name, id)) = crate::game::character_key() else {
+        // Once per process: a world with no readable character is worth exactly one line.
+        static WARNED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            log("slots: character name unreadable; keeping the current file");
+        }
+        return;
+    };
+    set_character(&name, id);
+}
+
+/// Take over the only file that matches this character's name when the slug scheme changed.
+///
+/// The slug gained the save-level id, so a file written by the previous version has a different
+/// suffix. If exactly one file shares the name part, it is this character's — move it rather than
+/// starting empty and losing the assignments.
+fn adopt_previous_character_file(base: &str, target: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(config::dir()) else {
+        return;
+    };
+    let prefix = format!("nr_casting_slots_{base}-");
+    let mut found = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with(&prefix) && name.ends_with(".txt") && entry.path() != target {
+            if found.is_some() {
+                return; // ambiguous: more than one candidate, do not guess
+            }
+            found = Some(entry.path());
+        }
+    }
+    if let Some(previous) = found {
+        if std::fs::rename(&previous, target).is_ok() {
+            log(&format!(
+                "slots: took over {} for this character",
+                previous.file_name().unwrap_or_default().to_string_lossy()
+            ));
+        }
+    }
 }
 
 /// Switch the store to a character's file, creating it (and adopting the old shared file once).
-pub(crate) fn set_character(name: &str) {
-    let slug = slug(name);
+pub(crate) fn set_character(name: &str, id: u32) {
+    let (base, slug) = slug(name, id);
     {
         let Ok(current) = ACTIVE_SLUG.lock() else { return };
         if current.as_deref() == Some(slug.as_str()) {
@@ -101,6 +148,9 @@ pub(crate) fn set_character(name: &str) {
             }
         }
         if !path.exists() {
+            adopt_previous_character_file(&base, &path);
+        }
+        if !path.exists() {
             let _ = std::fs::write(&path, NR_DEFAULTS);
         }
     }
@@ -109,7 +159,10 @@ pub(crate) fn set_character(name: &str) {
         Err(_) => return,
     }
     reload_store();
-    log(&format!("slots: character {name} -> {}", slots_path().display()));
+    log(&format!(
+        "slots: character {name} (id {id}) -> {}",
+        slots_path().display()
+    ));
 }
 
 pub(crate) fn file_mtime() -> Option<std::time::SystemTime> {
