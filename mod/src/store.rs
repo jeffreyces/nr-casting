@@ -98,13 +98,15 @@ fn has_assignments(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Take over the only file that matches this character's name when the slug scheme changed.
+/// Take over the assignments from the one sibling file that matches this character's name.
 ///
 /// The slug gained the save-level id, so a file written by the previous version has a different
-/// suffix. If exactly one file shares the name part, it is this character's — move it rather than
-/// starting empty and losing the assignments.
+/// suffix. If exactly one sibling shares the name part and holds assignments, it is this
+/// character's: copy it over, leaving the original in place as a backup.
 fn adopt_previous_character_file(base: &str, target: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(config::dir()) else {
+    // The slots live in the data folder, which is a subfolder beside the DLL — not in `dir()`.
+    let Ok(entries) = std::fs::read_dir(config::data_dir()) else {
+        log("slots: could not list the data folder looking for a previous file");
         return;
     };
     let prefix = format!("nr_casting_slots_{base}-");
@@ -112,20 +114,30 @@ fn adopt_previous_character_file(base: &str, target: &std::path::Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        if name.starts_with(&prefix) && name.ends_with(".txt") && entry.path() != target {
-            if found.is_some() {
-                return; // ambiguous: more than one candidate, do not guess
-            }
-            found = Some(entry.path());
+        if !name.starts_with(&prefix) || !name.ends_with(".txt") {
+            continue;
         }
+        if entry.path() == target {
+            continue;
+        }
+        if found.is_some() {
+            log(&format!("slots: several files match {base}; not guessing"));
+            return;
+        }
+        found = Some(entry.path());
     }
-    if let Some(previous) = found {
-        if std::fs::rename(&previous, target).is_ok() {
-            log(&format!(
-                "slots: took over {} for this character",
-                previous.file_name().unwrap_or_default().to_string_lossy()
-            ));
-        }
+    let Some(previous) = found else {
+        return;
+    };
+    if !has_assignments(&previous) {
+        return;
+    }
+    match std::fs::copy(&previous, target) {
+        Ok(_) => log(&format!(
+            "slots: took over {} for this character",
+            previous.file_name().unwrap_or_default().to_string_lossy()
+        )),
+        Err(e) => log(&format!("slots: could not take over {}: {e}", previous.display())),
     }
 }
 
@@ -163,10 +175,10 @@ pub(crate) fn set_character(name: &str, id: u32) {
             }
         }
         if !path.exists() {
-            adopt_previous_character_file(&base, &path);
-        }
-        if !path.exists() {
             let _ = std::fs::write(&path, NR_DEFAULTS);
+        }
+        if !has_assignments(&path) {
+            adopt_previous_character_file(&base, &path);
         }
     }
     match ACTIVE_SLUG.lock() {
