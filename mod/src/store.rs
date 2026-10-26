@@ -272,6 +272,20 @@ fn save_store(map: &HashMap<i32, Category>) {
     }
 }
 
+/// Forget every assignment for the loaded character.
+///
+/// Needed because two characters can be indistinguishable to the game: same name, same save
+/// slot, same appearance. Nothing in the player data separates those, so the file is shared and
+/// this is the way out.
+pub(crate) fn clear_character() {
+    {
+        let mut map = store_lock();
+        map.clear();
+    }
+    save_store(&HashMap::new());
+    log(&format!("slots: cleared {}", slots_path().display()));
+}
+
 pub(crate) fn describe_store() -> String {
     let map = store_lock();
     let mut ids: Vec<&i32> = map.keys().collect();

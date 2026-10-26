@@ -204,7 +204,15 @@ because the second character may not meet the requirements of the first one's pi
 "owns and can cast" filter is only meaningful for the character you are playing.
 
 The panel's character line shows the name, so you can see which file is being edited. A new
-character starts with no assignments. On first run after upgrading, the old shared
+character starts with no assignments.
+
+Each file records the character it belongs to (`# character face=... id=... name=...`), so deleting
+a character and creating another with the same name is caught: the appearance buffer differs, the
+old file is set aside as `nr_casting_slots_<name>-<hash>-replaced-<stamp>.txt` and the new
+character starts empty. The one case nothing can separate is a character recreated with the same
+name, in the same save slot **and** the same appearance — the game exposes no per-character id, so
+those two share a file. `reset slots` in the panel clears the current character's assignments for
+exactly that situation. On first run after upgrading, the old shared
 `nr_casting_slots.txt` is adopted by whichever character loads first and then renamed to
 `nr_casting_slots.migrated.txt`, so nothing you had assigned is lost.
 
