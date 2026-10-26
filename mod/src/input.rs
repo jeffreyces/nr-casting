@@ -560,15 +560,41 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     let original: unsafe extern "system" fn(u32, *mut XInputState) -> u32 =
         std::mem::transmute(tramp);
     let ret = original(user, state);
-    if ret == 0 && !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
-        let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;
-        if n == 1 || n.is_multiple_of(600) {
-            debug!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe { (*state).gamepad.buttons });
+    if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
+        if ret == 0 {
+            let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;
+            if n == 1 || n.is_multiple_of(600) {
+                debug!(
+                    "detour: poll #{n} (user {user}, buttons={:#06x})",
+                    unsafe { (*state).gamepad.buttons }
+                );
+            }
+            adjust(&mut *state);
+        } else if let Some((right, slot, which)) = mouse_combo() {
+            // No controller: a failed read used to go straight back to the game, so mouse casting
+            // silently required a pad to be plugged in — our rewrite never ran. Hand back one
+            // synthetic connected report instead, carrying just the shoulder press the cast
+            // needs. Only while a click combination is actually held, so the game never thinks a
+            // pad is connected for longer than that.
+            let mock = &mut *state;
+            mock.packet_number = MOCK_PACKET.fetch_add(1, Ordering::Relaxed);
+            mock.gamepad = XInputGamepad::default();
+            if probe::validated() {
+                cast_slot(right, slot, which, &mut mock.gamepad);
+            }
+            if !MOCK_USED.swap(true, Ordering::Relaxed) {
+                crate::log("input: no controller — mouse casts are using a synthetic report");
+            }
+            return 0;
         }
-        adjust(&mut *state);
     }
     ret
 }
+
+/// Packet number for synthetic reports. The game only accepts a report whose packet number moved.
+static MOCK_PACKET: AtomicU32 = AtomicU32::new(1);
+/// Whether the no-controller mouse path has been announced in the log.
+static MOCK_USED: AtomicBool = AtomicBool::new(false);
 
 /// The six mouse combinations, in the same order as the pad's slots.
 ///
