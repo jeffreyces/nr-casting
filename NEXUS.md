@@ -17,15 +17,11 @@ not either.
 [size=5][b]Features[/b][/size]
 
 [list]
-[*][b]Six spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, plus a third on
-the Y chord ([b]Y+R2[/b], [b]Y+L2[/b]); two-handing a staff does nothing, so that input carries a
-spell instead.[/*]
-[*][b]Assignment without the panel[/b] — select the spell in the game's own menu, then hold the bind
-modifier and press the bumper or trigger you want it on. The panel is only a shortcut for this.[/*]
+[*][b]Eight spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, a third on
+[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]; two-handing a staff does
+nothing, so those inputs carry spells instead.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast.[/*]
-[*][b]No menu detours[/b] — bind without the panel: hold the bind key and press the input you want
-to assign the spell currently selected in the wheel.[/*]
 [*][b]Ash of war still works[/b] — hold R3 and press L2 and the trigger passes through untouched.[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
 live in a small text file next to the DLL.[/*]
@@ -46,8 +42,8 @@ can be uninstalled at any time and the game behaves exactly as it did before.[/*
 [*][b]Hold L3 + R1/R2/L1/L2[/b] — bind the spell currently selected in the wheel to that slot[/*]
 [/list]
 
-The panel hotkey and the bind key are both configurable in
-[code]nr_casting.ini[/code]
+The panel hotkey is configurable in [code]nr_casting.ini[/code]. Spells are assigned in the panel;
+there is no bind gesture on the pad.
 
 [line]
 
@@ -95,17 +91,17 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 [code][ui]
 hotkey = F8
 
-[input]
-bind_modifier = L3
-
-[display]
-hud_mirror = off
+[recluse]
+y_bumper = auto
+recluse_chr_ids = 8131
 
 [logging]
 debug_log = off[/code]
 
-[code]hud_mirror[/code]
-shows the right-hand slot 1 spell on the game's HUD, and locks the D-pad wheel while enabled.
+[code]y_bumper[/code]
+decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]: [code]auto[/code] takes them unless the Recluse mod is
+loaded and the character is a Recluse, [code]on[/code] always takes them, [code]off[/code] gives
+vanilla two-handing back.
 
 [line]
 

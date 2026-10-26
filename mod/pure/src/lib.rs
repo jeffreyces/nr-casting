@@ -47,12 +47,6 @@ pub enum Route {
     Idle,
     /// R3 + L2: give the trigger back to the game so the ash of war fires.
     AshOfWar,
-    /// The bind modifier plus an input: assign the wheel's selection instead of casting.
-    Capture {
-        right_hand: bool,
-        slot: usize,
-        label: &'static str,
-    },
     /// Y plus a trigger: the third slot.
     Chord {
         right_hand: bool,
@@ -69,36 +63,20 @@ pub enum Route {
 
 /// Decide what a poll means.
 ///
-/// Order is the contract and matches the DLL: the ash-of-war escape wins over everything,
-/// binding beats casting (holding the modifier must never also cast), and the Y chords are
+/// Order is the contract and matches the DLL: the ash-of-war escape wins over everything, and
+/// the Y chords are
 /// checked before the plain inputs because under Y the trigger means the third slot and the
 /// bumper the fourth.
 ///
 /// `y_bumper` is false when the Y+bumper chords belong to someone else — Recluse uses Y+R1 and
 /// Y+L1, so on a Recluse character (or with Recluse loaded) those reports must reach the game
 /// untouched. They come back as `Idle`, which the DLL treats as "do not rewrite this report".
-pub fn route(held: &Held, modifier: u16, y_bumper: bool) -> Route {
+pub fn route(held: &Held, y_bumper: bool) -> Route {
     if held.buttons & BTN_RIGHT_THUMB != 0 && held.left_pull {
         return Route::AshOfWar;
     }
     if !held.any() {
         return Route::Idle;
-    }
-    if modifier != 0 && held.buttons & modifier != 0 {
-        let (right_hand, slot, label) = if held.right_pull {
-            (true, 1, "R2")
-        } else if held.right_bump {
-            (true, 0, "R1")
-        } else if held.left_pull {
-            (false, 1, "L2")
-        } else {
-            (false, 0, "L1")
-        };
-        return Route::Capture {
-            right_hand,
-            slot,
-            label,
-        };
     }
     if held.buttons & BTN_Y != 0 {
         if held.right_pull {
@@ -244,6 +222,100 @@ pub fn format_slots(entries: &[(i32, Category)]) -> String {
     out
 }
 
+// ---- Raw input records ---------------------------------------------------------------
+//
+// ELDEN RING reads the mouse through raw input (`GetRawInputData`), so the keyboard/mouse path
+// has to understand the wire layout. These helpers keep that layout testable: they take bytes,
+// never a pointer, so the offsets can be proven on the host instead of only inside the game.
+
+/// `RAWINPUTHEADER` on x64: dwType, dwSize, hDevice, wParam.
+pub const RAW_HEADER: usize = 24;
+/// `RAWMOUSE.ulButtons` (dwType 0): after usFlags + padding.
+pub const RAW_MOUSE_BUTTONS_AT: usize = RAW_HEADER + 4;
+/// Shortest buffer a mouse record can be read from, and the same for a keyboard one.
+pub const RAW_MOUSE_LEN: usize = RAW_MOUSE_BUTTONS_AT + 4;
+pub const RAW_KEY_FLAGS_AT: usize = RAW_HEADER + 2;
+pub const RAW_KEY_VKEY_AT: usize = RAW_HEADER + 6;
+pub const RAW_KEY_LEN: usize = RAW_KEY_VKEY_AT + 2;
+pub const RAW_TYPE_MOUSE: u32 = 0;
+pub const RAW_TYPE_KEYBOARD: u32 = 1;
+pub const RI_MOUSE_LEFT_BUTTON_DOWN: u32 = 0x0001;
+pub const RI_MOUSE_LEFT_BUTTON_UP: u32 = 0x0002;
+pub const RI_MOUSE_RIGHT_BUTTON_DOWN: u32 = 0x0004;
+pub const RI_MOUSE_RIGHT_BUTTON_UP: u32 = 0x0008;
+pub const RI_KEY_BREAK: u16 = 0x0001;
+
+fn le_u16(bytes: &[u8], at: usize) -> Option<u16> {
+    bytes.get(at..at + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
+}
+
+fn le_u32(bytes: &[u8], at: usize) -> Option<u32> {
+    bytes
+        .get(at..at + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+/// `dwType` of a raw record, or `None` when the buffer cannot hold a header.
+pub fn raw_kind(record: &[u8]) -> Option<u32> {
+    le_u32(record, 0)
+}
+
+/// `dwSize` of a raw record — what the buffer walk and every field read rely on.
+pub fn raw_size(record: &[u8]) -> Option<usize> {
+    le_u32(record, 4).map(|n| n as usize)
+}
+
+/// Button edges of a mouse record.
+///
+/// Returns `None` for anything else, and in particular for a record whose `dwSize` or buffer is
+/// shorter than the struct it claims to be: this runs on the game's input thread, so a truncated
+/// record must never be read past its end.
+pub fn raw_mouse_buttons(record: &[u8]) -> Option<u32> {
+    if raw_kind(record)? != RAW_TYPE_MOUSE {
+        return None;
+    }
+    if raw_size(record)? < RAW_MOUSE_LEN || record.len() < RAW_MOUSE_LEN {
+        return None;
+    }
+    le_u32(record, RAW_MOUSE_BUTTONS_AT)
+}
+
+/// `(usFlags, usVKey)` of a keyboard record, with the same guards.
+pub fn raw_keyboard(record: &[u8]) -> Option<(u16, u16)> {
+    if raw_kind(record)? != RAW_TYPE_KEYBOARD {
+        return None;
+    }
+    if raw_size(record)? < RAW_KEY_LEN || record.len() < RAW_KEY_LEN {
+        return None;
+    }
+    let flags = le_u16(record, RAW_KEY_FLAGS_AT)?;
+    let vkey = le_u16(record, RAW_KEY_VKEY_AT)?;
+    Some((flags, vkey))
+}
+
+/// The three virtual keys that mean Shift (generic, left, right).
+pub fn is_shift_vkey(vkey: u16) -> bool {
+    matches!(vkey, 0x10 | 0xA0 | 0xA1)
+}
+
+/// Rewrite a Shift key-down record as a key-up, so the game never sees Shift held.
+///
+/// Returns whether the record was a Shift press and was changed; everything else, including a
+/// truncated record, is left untouched.
+pub fn raw_hide_shift(record: &mut [u8]) -> bool {
+    let Some((flags, vkey)) = raw_keyboard(record) else {
+        return false;
+    };
+    if !is_shift_vkey(vkey) || flags & RI_KEY_BREAK != 0 {
+        return false;
+    }
+    let Some(slot) = record.get_mut(RAW_KEY_FLAGS_AT..RAW_KEY_FLAGS_AT + 2) else {
+        return false;
+    };
+    slot.copy_from_slice(&(flags | RI_KEY_BREAK).to_le_bytes());
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,7 +330,6 @@ mod tests {
         }
     }
 
-    const MODIFIER: u16 = 0x0040; // L3
 
     #[test]
     fn parses_three_value_lines() {
@@ -309,52 +380,43 @@ not a slot
 
     #[test]
     fn idle_when_nothing_is_held() {
-        assert_eq!(route(&held(0, false, false, false, false), MODIFIER, true), Route::Idle);
+        assert_eq!(route(&held(0, false, false, false, false), true), Route::Idle);
     }
 
     #[test]
     fn plain_inputs_cast_their_own_slot() {
         assert_eq!(
-            route(&held(0, true, false, false, false), MODIFIER, true),
+            route(&held(0, true, false, false, false), true),
             Route::Cast { right_hand: true, slot: 1, label: "R2" }
         );
         assert_eq!(
-            route(&held(BTN_RIGHT_SHOULDER, false, false, true, false), MODIFIER, true),
+            route(&held(BTN_RIGHT_SHOULDER, false, false, true, false), true),
             Route::Cast { right_hand: true, slot: 0, label: "R1" }
         );
         assert_eq!(
-            route(&held(0, false, true, false, false), MODIFIER, true),
+            route(&held(0, false, true, false, false), true),
             Route::Cast { right_hand: false, slot: 1, label: "L2" }
         );
         assert_eq!(
-            route(&held(BTN_LEFT_SHOULDER, false, false, false, true), MODIFIER, true),
+            route(&held(BTN_LEFT_SHOULDER, false, false, false, true), true),
             Route::Cast { right_hand: false, slot: 0, label: "L1" }
         );
     }
 
     #[test]
     fn ash_of_war_wins_over_everything() {
-        let all = held(BTN_RIGHT_THUMB | BTN_Y | MODIFIER, true, true, true, true);
-        assert_eq!(route(&all, MODIFIER, true), Route::AshOfWar);
-    }
-
-    #[test]
-    fn modifier_binds_instead_of_casting() {
-        let held = held(MODIFIER | BTN_Y, true, false, false, false);
-        assert_eq!(
-            route(&held, MODIFIER, true),
-            Route::Capture { right_hand: true, slot: 1, label: "R2" }
-        );
+        let all = held(BTN_RIGHT_THUMB | BTN_Y, true, true, true, true);
+        assert_eq!(route(&all, true), Route::AshOfWar);
     }
 
     #[test]
     fn y_trigger_is_the_third_slot() {
         assert_eq!(
-            route(&held(BTN_Y, true, false, false, false), MODIFIER, true),
+            route(&held(BTN_Y, true, false, false, false), true),
             Route::Chord { right_hand: true, slot: 2, label: "Y+R2" }
         );
         assert_eq!(
-            route(&held(BTN_Y, false, true, false, false), MODIFIER, true),
+            route(&held(BTN_Y, false, true, false, false), true),
             Route::Chord { right_hand: false, slot: 2, label: "Y+L2" }
         );
     }
@@ -362,7 +424,7 @@ not a slot
     #[test]
     fn y_without_a_trigger_is_not_a_chord() {
         // Y on its own is two-handing; it must not be swallowed.
-        assert_eq!(route(&held(BTN_Y, false, false, false, false), MODIFIER, true), Route::Idle);
+        assert_eq!(route(&held(BTN_Y, false, false, false, false), true), Route::Idle);
     }
 
     #[test]
@@ -383,7 +445,7 @@ not a slot
     fn y_plus_bumper_is_the_fourth_slot_only_when_we_own_it() {
         let chord = |rb: bool, lb: bool| held(BTN_Y, false, false, rb, lb);
         assert_eq!(
-            route(&chord(true, false), MODIFIER, true),
+            route(&chord(true, false), true),
             Route::Chord {
                 right_hand: true,
                 slot: 3,
@@ -391,7 +453,7 @@ not a slot
             }
         );
         assert_eq!(
-            route(&chord(false, true), MODIFIER, true),
+            route(&chord(false, true), true),
             Route::Chord {
                 right_hand: false,
                 slot: 3,
@@ -399,15 +461,15 @@ not a slot
             }
         );
         // Recluse owns them on a Recluse character: the report must reach the game untouched.
-        assert_eq!(route(&chord(true, false), MODIFIER, false), Route::Idle);
-        assert_eq!(route(&chord(false, true), MODIFIER, false), Route::Idle);
+        assert_eq!(route(&chord(true, false), false), Route::Idle);
+        assert_eq!(route(&chord(false, true), false), Route::Idle);
     }
 
     #[test]
     fn the_y_trigger_chord_does_not_need_the_bumper_slot() {
         let held = held(BTN_Y, true, false, true, false);
         assert_eq!(
-            route(&held, MODIFIER, false),
+            route(&held, false),
             Route::Chord {
                 right_hand: true,
                 slot: 2,
@@ -591,4 +653,61 @@ mod fault_tests {
         assert!(std::str::from_utf8(&tiny).is_ok());
     }
 
+}
+
+#[cfg(test)]
+mod raw_tests {
+    use super::*;
+
+    /// Build a raw record the way `GetRawInputData` lays it out on x64.
+    fn record(kind: u32, size: usize, body: &[(usize, u8)]) -> Vec<u8> {
+        let mut bytes = vec![0u8; size.max(RAW_HEADER)];
+        bytes[0..4].copy_from_slice(&kind.to_le_bytes());
+        bytes[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+        for (at, byte) in body {
+            if *at < bytes.len() {
+                bytes[*at] = *byte;
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn reads_a_mouse_record_and_its_button_edges() {
+        let bytes = record(RAW_TYPE_MOUSE, RAW_MOUSE_LEN, &[(RAW_MOUSE_BUTTONS_AT, 0x01)]);
+        assert_eq!(raw_kind(&bytes), Some(RAW_TYPE_MOUSE));
+        assert_eq!(raw_size(&bytes), Some(RAW_MOUSE_LEN));
+        assert_eq!(raw_mouse_buttons(&bytes), Some(RI_MOUSE_LEFT_BUTTON_DOWN));
+    }
+
+    #[test]
+    fn refuses_records_that_are_not_mouse_or_are_truncated() {
+        let keyboard = record(RAW_TYPE_KEYBOARD, RAW_KEY_LEN, &[]);
+        assert_eq!(raw_mouse_buttons(&keyboard), None);
+        // Header says mouse, dwSize says 8: reading the buttons would run off the end.
+        let short = record(RAW_TYPE_MOUSE, 8, &[]);
+        assert_eq!(raw_mouse_buttons(&short), None);
+        // Short buffer as well as short dwSize.
+        assert_eq!(raw_mouse_buttons(&[0u8; 4]), None);
+        assert_eq!(raw_keyboard(&[0u8; 20]), None);
+    }
+
+    #[test]
+    fn reads_a_keyboard_record_and_hides_shift() {
+        let mut bytes = record(RAW_TYPE_KEYBOARD, RAW_KEY_LEN, &[(RAW_KEY_VKEY_AT, 0xA0)]);
+        assert_eq!(raw_keyboard(&bytes), Some((0, 0xA0)));
+        assert!(raw_hide_shift(&mut bytes));
+        assert_eq!(raw_keyboard(&bytes), Some((RI_KEY_BREAK, 0xA0)));
+        // Already released is not rewritten a second time.
+        assert!(!raw_hide_shift(&mut bytes));
+    }
+
+    #[test]
+    fn leaves_other_keys_and_truncated_records_alone() {
+        let mut other = record(RAW_TYPE_KEYBOARD, RAW_KEY_LEN, &[(RAW_KEY_VKEY_AT, 0x20)]);
+        assert!(!raw_hide_shift(&mut other));
+        assert_eq!(raw_keyboard(&other), Some((0, 0x20)));
+        let mut short = record(RAW_TYPE_KEYBOARD, 8, &[]);
+        assert!(!raw_hide_shift(&mut short));
+    }
 }

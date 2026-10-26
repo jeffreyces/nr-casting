@@ -13,8 +13,8 @@
 //! **Ash of war:** hold R3 while pressing L2 and the trigger is passed through unchanged, so
 //! the weapon skill fires exactly as it does without the mod.
 //!
-//! **Capture:** hold the bind modifier and press R1/R2/L1/L2 to write whatever spell is
-//! selected in game to that slot. Slots live in `nr_casting_slots.txt` beside the DLL:
+//! **Assignment:** done in the panel (F8). There is no bind gesture on the pad, so nothing can
+//! collide with a mod that already uses those chords. Slots live in `nr_casting_slots.txt`:
 //!
 //! ```text
 //! # weapon_param_id = bumper_spell, trigger_spell, y_chord_spell
@@ -28,7 +28,8 @@ mod config;
 mod crash;
 mod game;
 mod input;
-mod kbm;
+mod rawinput;
+mod stats;
 mod logging;
 mod overlay;
 mod params;
@@ -52,7 +53,7 @@ use std::time::Duration;
 use eldenring::util::system::{wait_for_system_init, SystemInitError};
 use fromsoftware_shared::Program;
 
-use crate::input::{install_hook, watch_hook, HUD_MIRROR, PASSES, POLLS};
+use crate::input::{install_hook, watch_hook};
 use crate::logging::DEBUG_LOG;
 use crate::store::{describe_store, file_mtime, reload_store, seed_store, slots_path};
 
@@ -134,7 +135,7 @@ fn run() {
     crash::install();
     // Read-only instrumentation: counts the game's own GetAsyncKeyState calls so the log can say
     // whether a keyboard/mouse cast can be presented there when no controller is connected.
-    kbm::install();
+    rawinput::install();
     // Panics are logged too, and the previous hook still runs: another mod may have installed
     // one, and a panic must not become invisible just because we replaced its handler.
     let previous_hook = std::panic::take_hook();
@@ -164,17 +165,16 @@ fn run() {
 
     let cfg = config::load();
     log(&format!(
-        "=== nr_casting loaded ({} opens the panel; hold {} + R1/R2/L1/L2 to bind)",
-        cfg.hotkey_name, cfg.modifier_name
+        "=== nr_casting loaded ({} opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)",
+        cfg.hotkey_name
     ));
     log("crash: exception observer installed (faults are logged with module and offset)");
     log(&format!(
-        "config: hud_mirror={} debug_log={} files in {}",
-        cfg.hud_mirror,
+        "config: debug_log={} y_bumper={} files in {}",
         cfg.debug_log,
+        cfg.y_bumper_name,
         config::dir().display()
     ));
-    HUD_MIRROR.store(cfg.hud_mirror, Ordering::Relaxed);
     DEBUG_LOG.store(cfg.debug_log, Ordering::Relaxed);
     if build_changed {
         log("build: executable changed — cleared the cached catalogue and previous log");
@@ -263,9 +263,9 @@ fn run() {
         // repeat gate threw away. This is the number to quote when judging the mod's CPU cost on
         // someone else's machine.
         if debug_enabled() {
-            let polls = POLLS.load(Ordering::Relaxed);
-            let passes = PASSES.load(Ordering::Relaxed);
-            let unplugged = input::UNPLUGGED.load(Ordering::Relaxed);
+            let polls = stats::pad_polls();
+            let passes = stats::passes();
+            let unplugged = stats::pad_unplugged_count();
             let (dp, dq) = (polls.wrapping_sub(last_polls), passes.wrapping_sub(last_passes));
             let du = unplugged.wrapping_sub(last_unplugged);
             last_polls = polls;
@@ -275,7 +275,7 @@ fn run() {
                 "input: {dp} polls, {dq} full passes, {} skipped as repeats, {du} with no controller",
                 dp.saturating_sub(dq)
             ));
-            log(&format!("kbm: {}", kbm::report()));
+            log(&format!("input: raw {}", stats::raw_report()));
         }
         std::thread::sleep(Duration::from_secs(30));
     }
@@ -336,6 +336,15 @@ fn foreign_modules() -> Option<Vec<(String, usize)>> {
     foreign.sort();
     foreign.dedup();
     Some(foreign)
+}
+
+/// Milliseconds since the epoch, low 32 bits. Interval tests use wrapping subtraction, so the
+/// truncation is harmless and the whole call is one `clock_gettime` (vDSO).
+pub(crate) fn millis() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u32)
+        .unwrap_or(0)
 }
 
 /// Whether another native mod that owns the Y+bumper chords is loaded.
