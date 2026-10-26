@@ -289,6 +289,13 @@ pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
 /// This is the key assignments are filed under: the same weapon on two characters must not share
 /// a set of spells, because the second character may not meet their requirements.
 pub(crate) fn character_name() -> Option<String> {
+    character_key().map(|(name, _)| name)
+}
+
+/// Name and save-level id of the loaded character.
+///
+/// The id is included because two characters can share a name; the store hashes both.
+pub(crate) fn character_key() -> Option<(String, u32)> {
     let pgd = game_data()?;
     let units: Vec<u16> = pgd
         .character_name
@@ -300,7 +307,7 @@ pub(crate) fn character_name() -> Option<String> {
         return None;
     }
     let name = String::from_utf16_lossy(&units).trim().to_string();
-    (!name.is_empty()).then_some(name)
+    (!name.is_empty()).then_some((name, pgd.character_id))
 }
 
 /// Ids that identify the loaded character, for deciding whether a class port owns a chord.

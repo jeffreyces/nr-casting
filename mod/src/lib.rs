@@ -227,9 +227,7 @@ fn run() {
                 log("world: character present");
                 // Assignments are per character: switch the store to this one's file before
                 // anything reads a slot.
-                if let Some(name) = game::character_name() {
-                    crate::store::set_character(&name);
-                }
+                crate::store::sync_character();
                 // A new character may be a class that owns the Y+bumper chords.
                 refresh_y_bumper();
             } else {

@@ -292,8 +292,10 @@ pub(crate) fn watch_hook() {
             return;
         }
         crate::probe::maybe_validate();
-        // Who owns Y+R1 / Y+L1 depends on the loaded character, and this is the first place that
-        // knows a load has settled. Two cached reads per tick.
+        // Both the chord decision and the slots file follow the loaded character. Reading the
+        // name here rather than only on the load edge is what catches a switch the edge missed
+        // and a name that was not readable the instant the world appeared.
+        crate::store::sync_character();
         crate::refresh_y_bumper();
         if !crate::probe::validated() {
             // Nothing to protect before the world exists: the title screen and loading screens
