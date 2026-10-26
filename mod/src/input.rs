@@ -26,6 +26,10 @@ const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
 const XINPUT_GAMEPAD_RIGHT_SHOULDER: u16 = 0x0200;
 const XINPUT_GAMEPAD_Y: u16 = 0x8000;
 const TRIGGER_THRESHOLD: u8 = 100;
+/// With Y held the trigger does not have to be a deliberate pull: the game's own two-hand chord
+/// fires well below our cast threshold, so a press still ramping through 40-90 would reach the
+/// game as Y+L2 (two-hand) before we ever saw it as a chord.
+const CHORD_TRIGGER_FLOOR: u8 = 20;
 /// `XInputGetState` is ordinal 2 in `xinput1_4.dll`, and ELDEN RING imports it that way.
 const XINPUT_GET_STATE_ORDINAL: u64 = 2;
 
@@ -732,10 +736,18 @@ fn adjust(state: &mut XInputState) {
 
 /// Read the pad into the shape the routing rules take.
 fn held_from(pad: &XInputGamepad) -> Held {
+    // While Y is held, treat any real trigger movement as the chord. The game's two-hand fires on
+    // a much lighter pull than our cast threshold, so waiting for 100 let the first frames of a
+    // press through as Y+L2 and the staff got two-handed.
+    let threshold = if pad.buttons & XINPUT_GAMEPAD_Y != 0 {
+        CHORD_TRIGGER_FLOOR
+    } else {
+        TRIGGER_THRESHOLD
+    };
     Held {
         buttons: pad.buttons,
-        right_pull: pad.right_trigger >= TRIGGER_THRESHOLD,
-        left_pull: pad.left_trigger >= TRIGGER_THRESHOLD,
+        right_pull: pad.right_trigger >= threshold,
+        left_pull: pad.left_trigger >= threshold,
         right_bump: pad.buttons & XINPUT_GAMEPAD_RIGHT_SHOULDER != 0,
         left_bump: pad.buttons & XINPUT_GAMEPAD_LEFT_SHOULDER != 0,
     }
