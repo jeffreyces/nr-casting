@@ -87,6 +87,9 @@ static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CAPTURE_KEY: AtomicU32 = AtomicU32::new(u32::MAX);
 /// True once the current Y chord has had its "Y released" frame. Cleared when the chord ends.
 static CHORD_RELEASED: AtomicBool = AtomicBool::new(false);
+/// Whether the previous report already had Y down. A press that brings Y and the button in the
+/// same report was never seen by the game as "Y held", so it needs no staged release.
+static Y_BEFORE: AtomicBool = AtomicBool::new(false);
 /// Last pad state we wrote to the debug log, packed buttons|rt|lt, so a held button logs once
 /// instead of 125 times a second.
 static LAST_PAD_LOG: AtomicU32 = AtomicU32::new(u32::MAX);
@@ -655,6 +658,23 @@ fn millis() -> u32 {
 }
 
 fn adjust(state: &mut XInputState) {
+    adjust_inner(state);
+    // Safety net. While the Y chords are ours, no report may carry Y together with a shoulder
+    // press: that pair is the game's two-hand command. If a chord slipped past every route rule
+    // above — a poll during re-validation, a binding that failed, a frame the game sampled early
+    // — the press must do nothing rather than swap the weapon into both hands.
+    if y_bumper() {
+        let pad = &mut state.gamepad;
+        let shoulders = XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        if pad.buttons & XINPUT_GAMEPAD_Y != 0 && pad.buttons & shoulders != 0 {
+            pad.right_trigger = 0;
+            pad.left_trigger = 0;
+            pad.buttons &= !(XINPUT_GAMEPAD_Y | shoulders);
+        }
+    }
+}
+
+fn adjust_inner(state: &mut XInputState) {
     let now = millis();
     let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
         || now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) >= POLL_INTERVAL_MS;
@@ -662,6 +682,7 @@ fn adjust(state: &mut XInputState) {
 
     let pad = &mut state.gamepad;
     let held = held_from(pad);
+    let y_before = Y_BEFORE.swap(held.buttons & XINPUT_GAMEPAD_Y != 0, Ordering::Relaxed);
     // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
     // function only carries out the answer. It is pure and cheap, so it runs on every poll.
     let route = nr_casting_core::route(&held, config::load().modifier, y_bumper());
@@ -672,7 +693,11 @@ fn adjust(state: &mut XInputState) {
     // seen Y let go, and the synthetic shoulder press reads as a plain cast. This is the one
     // window where quick presses used to two-hand the staff.
     if matches!(route, Route::Chord { .. }) {
-        if !CHORD_RELEASED.swap(true, Ordering::Relaxed) {
+        // One staged release per chord episode, and only when the game had already seen Y held:
+        // a press that brings both at once never lets it see Y alone, so swallowing its first
+        // report would only add latency (and could eat a short tap entirely).
+        let staged = CHORD_RELEASED.swap(true, Ordering::Relaxed);
+        if y_before && !staged {
             let which = match route {
                 Route::Chord { label, .. } => label,
                 _ => "",
