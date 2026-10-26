@@ -206,15 +206,22 @@ because the second character may not meet the requirements of the first one's pi
 The panel's character line shows the name, so you can see which file is being edited. A new
 character starts with no assignments.
 
-Each file records the character it belongs to (`# character face=... id=... name=...`), so deleting
-a character and creating another with the same name is caught: the appearance buffer differs, the
-old file is set aside as `nr_casting_slots_<name>-<hash>-replaced-<stamp>.txt` and the new
-character starts empty. The one case nothing can separate is a character recreated with the same
-name, in the same save slot **and** the same appearance — the game exposes no per-character id, so
-those two share a file. `reset slots` in the panel clears the current character's assignments for
-exactly that situation. On first run after upgrading, the old shared
-`nr_casting_slots.txt` is adopted by whichever character loads first and then renamed to
-`nr_casting_slots.migrated.txt`, so nothing you had assigned is lost.
+The identity is the character's **name plus save slot** and nothing else. That is deliberate: the
+game exposes no per-character id and no creation timestamp (`packed_time_stamp` reads 0, and
+`character_id` is the slot index), and the fields that do differ — level, stats, appearance —
+change while you play, so using them would orphan the file the first time you levelled up.
+
+Two consequences:
+
+- **Deleting a character and creating one with the same name reuses its file.** That is the
+  accepted trade for never losing assignments mid-play.
+- **Assignments a character cannot cast are dropped when it loads**, which is what makes the
+  shared-file case harmless: a fresh character never inherits spells its stats cannot use. The drop
+  is skipped while `show everything` is enabled, since that is planning mode and uncastable picks
+  are the point.
+
+`reset slots` in the panel clears the loaded character's assignments outright, for when you want a
+character to start from nothing.
 
 ## Recluse compatibility
 

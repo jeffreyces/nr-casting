@@ -292,38 +292,6 @@ pub(crate) fn character_name() -> Option<String> {
     character_key().map(|(name, _)| name)
 }
 
-/// A hash of the character's appearance buffer: stable while playing, different between two
-/// characters even when they share a name and a save slot.
-pub(crate) fn character_face_hash() -> Option<u32> {
-    let pgd = game_data()?;
-    let buffer = &pgd.face_data.face_data_buffer.buffer;
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in buffer {
-        hash ^= *byte as u32;
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    Some(hash)
-}
-
-/// The character's level.
-pub(crate) fn character_level() -> Option<u32> {
-    Some(game_data()?.level)
-}
-
-/// The network-side player id the game stores per character, and the event id.
-///
-/// Logged while working out whether either can identify a character that was deleted and
-/// recreated with the same name, slot and appearance.
-pub(crate) fn character_extra_ids() -> Option<(u32, i32)> {
-    let pgd = game_data()?;
-    Some((pgd.player_id, pgd.character_event_id))
-}
-
-/// The save-level timestamp the game stores for the character, for the log only.
-pub(crate) fn character_stamp() -> Option<u32> {
-    Some(game_data()?.packed_time_stamp)
-}
-
 /// Name and save-level id of the loaded character.
 ///
 /// The id is included because two characters can share a name; the store hashes both.

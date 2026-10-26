@@ -33,10 +33,6 @@ fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, Category>> {
 /// requirements met, so a shared file handed one character spells it could not cast.
 static ACTIVE_SLUG: Mutex<Option<String>> = Mutex::new(None);
 
-/// The `# character ...` line written into the file, so a deleted-and-recreated character with the
-/// same name and save slot can be told apart from the one whose assignments are in there.
-static MARKER: Mutex<Option<String>> = Mutex::new(None);
-
 /// Set once the pre-per-character file has been adopted by the first character that loaded.
 static MIGRATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -93,48 +89,6 @@ pub(crate) fn sync_character() {
         return;
     };
     set_character(&name, id);
-}
-
-/// What a slots file says about the character that owns it.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Identity {
-    face: u32,
-    level: u32,
-    int: u32,
-    fai: u32,
-    arc: u32,
-}
-
-/// The identity line for a slots file.
-fn marker_line(name: &str, id: u32, who: Identity) -> String {
-    format!(
-        "# character face={:08x} id={id} name={name} level={} int={} fai={} arc={}\n",
-        who.face, who.level, who.int, who.fai, who.arc
-    )
-}
-
-/// Read the identity recorded in an existing slots file.
-fn stored_identity(path: &std::path::Path) -> Option<Identity> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let line = text
-        .lines()
-        .find(|line| line.starts_with("# character face="))?;
-    let field = |key: &str| -> Option<u32> {
-        let rest = line.split_once(key)?.1;
-        let value = rest.split_whitespace().next()?;
-        if key == "face=" {
-            u32::from_str_radix(value, 16).ok()
-        } else {
-            value.parse().ok()
-        }
-    };
-    Some(Identity {
-        face: field("face=")?,
-        level: field("level=")?,
-        int: field("int=")?,
-        fai: field("fai=")?,
-        arc: field("arc=")?,
-    })
 }
 
 /// Whether a slots file holds at least one weapon line.
@@ -197,39 +151,6 @@ pub(crate) fn set_character(name: &str, id: u32) {
         }
     }
     let path = config::path(&format!("nr_casting_slots_{slug}.txt"));
-    let face = crate::game::character_face_hash().unwrap_or(0);
-    let stamp = crate::game::character_stamp().unwrap_or(0);
-    let (int, fai, arc) = crate::game::player_stats().unwrap_or((0, 0, 0));
-    let level = crate::game::character_level().unwrap_or(0);
-    let who = Identity {
-        face,
-        level,
-        int,
-        fai,
-        arc,
-    };
-    let mut rotated = false;
-    // Same name and save slot, different character: the player deleted one and made another. The
-    // old file is kept, and this character starts fresh instead of inheriting its spells.
-    if let Some(stored) = stored_identity(&path) {
-        if stored != who && face != 0 {
-            // Unique per rotation: the character's own stamp reads 0 in this build, so the
-            // clock is the only thing that can keep two rotations from colliding.
-            let seconds = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let aside =
-                config::path(&format!("nr_casting_slots_{slug}-replaced-{seconds}.txt"));
-            if std::fs::rename(&path, &aside).is_ok() {
-                rotated = true;
-                log(&format!(
-                    "slots: {name} is a different character than the one on file; kept that one as {}",
-                    aside.file_name().unwrap_or_default().to_string_lossy()
-                ));
-            }
-        }
-    }
     if !path.exists() {
         let legacy = config::path("nr_casting_slots.txt");
         // Only a legacy file that actually holds assignments is worth adopting: a header-only
@@ -256,7 +177,7 @@ pub(crate) fn set_character(name: &str, id: u32) {
         if !path.exists() {
             let _ = std::fs::write(&path, NR_DEFAULTS);
         }
-        if !rotated && !has_assignments(&path) {
+        if !has_assignments(&path) {
             adopt_previous_character_file(&base, &path);
         }
     }
@@ -264,21 +185,10 @@ pub(crate) fn set_character(name: &str, id: u32) {
         Ok(mut current) => *current = Some(slug),
         Err(_) => return,
     }
-    if let Ok(mut marker) = MARKER.lock() {
-        *marker = Some(marker_line(name, id, who));
-    }
-    // Record the identity in the file itself, so the next load can compare it.
-    if stored_identity(&path).is_none() {
-        if let Ok(existing) = std::fs::read_to_string(&path) {
-            let _ = std::fs::write(&path, format!("{}{existing}", marker_line(name, id, who)));
-        }
-    }
     reload_store();
     prune_uncastable();
-    let (player_id, event) = crate::game::character_extra_ids().unwrap_or((0, 0));
     log(&format!(
-        "slots: character {name} (id {id}, player {player_id}, event {event}, level {level}, \
-         int {int} fai {fai} arc {arc}, face {face:08x}) -> {}",
+        "slots: character {name} (id {id}) -> {}",
         slots_path().display()
     ));
 }
@@ -305,13 +215,7 @@ pub(crate) fn reload_store() {
 
 fn save_store(map: &HashMap<i32, Category>) {
     let entries: Vec<(i32, Category)> = map.iter().map(|(id, spells)| (*id, *spells)).collect();
-    let marker = MARKER
-        .lock()
-        .ok()
-        .and_then(|line| line.clone())
-        .unwrap_or_default();
-    let text = format!("{marker}{}", nr_casting_core::format_slots(&entries));
-    if let Err(e) = std::fs::write(slots_path(), text) {
+    if let Err(e) = std::fs::write(slots_path(), nr_casting_core::format_slots(&entries)) {
         log(&format!("slots: FAILED to write {}: {e}", slots_path().display()));
     }
 }
@@ -323,6 +227,10 @@ fn save_store(map: &HashMap<i32, Category>) {
 /// for a spell the character could not cast. Skipped when the params are not readable yet — an
 /// empty requirement list must never wipe assignments.
 fn prune_uncastable() {
+    // Planning mode lists and assigns spells the character cannot cast yet; do not undo that.
+    if crate::overlay::show_all() {
+        return;
+    }
     let (int, fai, arc) = match crate::game::player_stats() {
         // All zero means the read landed before the character existed: pruning on that would
         // wipe every assignment.
