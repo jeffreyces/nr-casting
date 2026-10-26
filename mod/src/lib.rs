@@ -13,16 +13,23 @@
 //! **Ash of war:** hold R3 while pressing L2 and the trigger is passed through unchanged, so
 //! the weapon skill fires exactly as it does without the mod.
 //!
+//! **Keyboard and mouse:** with no controller the game never polls XInput, so a click cannot be
+//! answered by rewriting a pad report. The mouse is read through raw input instead: the click
+//! steers the selection and the game's own click performs the cast. Shift is hidden from the game
+//! while it is used as a slot modifier, because the game binds Shift + click to the strong attack.
+//!
 //! **Assignment:** done in the panel (F8). There is no bind gesture on the pad, so nothing can
-//! collide with a mod that already uses those chords. Slots live in `nr_casting_slots.txt`:
+//! collide with a mod that already uses those chords. Assignments are per character, in
+//! `nr_casting_slots_<name>-<hash>.txt`:
 //!
 //! ```text
-//! # weapon_param_id = bumper_spell, trigger_spell, y_chord_spell
-//! 33240009 = 4710, 4200, -1
+//! # weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell
+//! 33240009 = 4710, 4200, -1, -1
 //! ```
 //!
-//! Layout: `logging` (file), `store` (assignments), `game` (reads), `input` (the hook and its
-//! rules), `config`, `params`, `pointer`, `probe`, `overlay` (panel model), `window` (panel host).
+//! Layout: `logging` (file), `store` (assignments), `game` (reads), `input` (the pad hook and its
+//! rules), `rawinput` (the keyboard/mouse hooks), `stats` (input counters), `config`, `params`,
+//! `pointer`, `probe`, `overlay` (panel model), `window` (panel host).
 
 mod config;
 mod crash;

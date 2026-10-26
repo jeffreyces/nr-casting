@@ -1,5 +1,5 @@
 [center][size=6][b]Two Spells Per Catalyst[/b][/size]
-[size=4]Six spells on two staves — with Elden Ring doing the casting[/size][/center]
+[size=4]Eight spells on two staves — with Elden Ring doing the casting[/size][/center]
 
 [line]
 
@@ -40,10 +40,10 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 
 [list]
 [*][b]F8[/b] — open/close the assignment panel[/*]
-[*][b]R1 / R2[/b] / [b]Y + R2 [/b]— cast slot 1 / slot 2 / slot 3 of the right-hand catalyst[/*]
-[*][b]L1 / L2[/b] / [b]Y + L2[/b] — cast slot 1 / slot 2 / slot 3 of the left-hand catalyst[/*]
+[*][b]R1 / R2 / Y + R2 / Y + R1[/b] — cast slots 1-4 of the right-hand catalyst[/*]
+[*][b]L1 / L2 / Y + L2 / Y + L1[/b] — cast slots 1-4 of the left-hand catalyst[/*]
 [*][b]R3 + L2[/b] — vanilla L2, for the weapon's ash of war[/*]
-[*][b]Hold L3 + R1/R2/L1/L2[/b] — bind the spell currently selected in the wheel to that slot[/*]
+[*][b]Mouse[/b] — click, shift + click, ctrl + click, alt + click (left or right button) for the same eight slots, with or without a controller[/*]
 [/list]
 
 The panel hotkey is configurable in [code]nr_casting.ini[/code]. Spells are assigned in the panel;

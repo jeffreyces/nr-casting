@@ -173,20 +173,23 @@ could not work at all on keyboard and mouse.
 | `on` (default) | the hotkey opens the panel window |
 | `off` | never opens; casting only |
 
-The window is created on the first keypress and destroyed on exit. It is topmost but entirely
-separate from the game — no swap-chain hook, no render-target grab — so another overlay or a class
-port's HUD keeps drawing while it is open. The trade is a second GPU device the first time you open
-it (a few hundred milliseconds), which is why it is lazy.
+The window is created on the first keypress and destroyed on exit. It is topmost and created as a
+tool window, so it never appears in the Windows alt-tab list or on the taskbar — switching away
+behaves as it would from the game, and Alt closes the panel so focus always lands back in Elden
+Ring. It is entirely separate from the game — no swap-chain hook, no render-target grab — so
+another overlay or a class port's HUD keeps drawing while it is open. The trade is a second GPU
+device the first time you open it (a few hundred milliseconds), which is why it is lazy.
 
 With the panel installed:
 
 - **The hotkey** opens the panel; while it is open the game's pointer is released and its
   mouse-look starved, and both are handed back when it closes.
-- **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L2 / Y+L1. **Right
-  column**: the right-hand weapon with R1 / R2 / Y+R2 / Y+R1. Each row shows its mouse binding
-  beside the pad one.
-  **Middle**: your INT/FAI/ARC, the spell currently selected in game, and search. A footer spells
-  out both mappings.
+- **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L1 / Y+L2. **Right
+  column**: the right-hand weapon with R1 / R2 / Y+R1 / Y+R2 (the fourth row first, matching
+  slot order). Each row shows its mouse binding beside the pad one.
+  **Middle**: the character whose assignments are being edited, your INT/FAI/ARC, the spell
+  currently selected in game, search, `refresh` and `reset slots`. A footer spells out both
+  mappings.
 - Dropdowns list only spells the character **owns** and **can cast** (requirements met).
   `show everything` bypasses both for planning a build.
 - **On a Recluse character** the fourth row is greyed out and labelled *passthrough*: the chord
