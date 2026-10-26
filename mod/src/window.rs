@@ -44,6 +44,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG,
     PM_REMOVE, SW_HIDE, SW_SHOW,
     WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_NCHITTEST,
+    WM_ACTIVATE,
     WS_THICKFRAME, MINMAXINFO,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE,
@@ -602,6 +603,15 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             match msg {
                 WM_CLOSE => {
                     app.set_open(false);
+                    Some(LRESULT(0))
+                }
+                // Alt-tab away and our topmost popup ends up under the game, which then holds a
+                // window the player cannot reach: the game looks locked. Losing activation
+                // closes the panel instead, so focus always goes back to the game.
+                WM_ACTIVATE => {
+                    if (wparam.0 & 0xFFFF) == 0 {
+                        app.set_open(false);
+                    }
                     Some(LRESULT(0))
                 }
                 WM_KEYDOWN | WM_KEYUP => {
