@@ -4,7 +4,7 @@
 //! The rules themselves (which input means which slot, and which wins when several are held)
 //! live in `nr_casting_core::route` so they are tested; this module carries them out.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use nr_casting_core::{Held, Route};
@@ -54,6 +54,12 @@ extern "system" {
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
 }
 
+/// The pad entry point we hooked. Cached so the watcher can ask "is my jump still there?" without
+/// walking the game's import table every tick.
+static HOOK_TARGET: AtomicUsize = AtomicUsize::new(0);
+/// The game's IAT entry, when we routed that instead of patching the export's prologue.
+static HOOK_SLOT: AtomicUsize = AtomicUsize::new(0);
+
 /// Trampoline to the original `XInputGetState` (retour 0.3's `static_detour!` needs
 /// nightly, so `RawDetour` + a hand-kept trampoline).
 static TRAMPOLINE: std::sync::atomic::AtomicPtr<()> =
@@ -91,6 +97,7 @@ pub(crate) fn install_hook() -> Result<*mut u8, String> {
         // so the change is atomic and touches no instruction bytes — and only then the export's
         // prologue.
         let target = current_pad_target()?;
+        HOOK_TARGET.store(target as usize, Ordering::Relaxed);
         match hook_import_slot() {
             Ok(_) => {
                 log(&format!(
@@ -209,15 +216,31 @@ unsafe fn hook_import_slot() -> Result<bool, String> {
     if unlocked {
         let _ = VirtualProtect(slot as *mut u8, size, old, &mut old);
     }
+    HOOK_SLOT.store(slot as usize, Ordering::Relaxed);
     HOOK_READY.store(true, Ordering::Relaxed);
     Ok(true)
 }
 
 /// Does the game's import slot already point at our detour?
 unsafe fn import_slot_is_ours() -> bool {
+    // Cached slot first: re-walking the import table is thousands of `VirtualQuery` calls on a
+    // packed-free image, and the watcher asks this every half second.
+    let cached = HOOK_SLOT.load(Ordering::Relaxed);
+    if cached != 0 {
+        let slot = cached as *const *mut u8;
+        if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>()) {
+            if *slot == detour as *const () as *mut u8 {
+                return true;
+            }
+        }
+    }
     match game_import_slot() {
         Ok(slot) if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>()) => {
-            *slot == detour as *const () as *mut u8
+            let ours = *slot == detour as *const () as *mut u8;
+            if ours {
+                HOOK_SLOT.store(slot as usize, Ordering::Relaxed);
+            }
+            ours
         }
         _ => false,
     }
@@ -282,8 +305,20 @@ pub(crate) fn watch_hook() {
             continue;
         }
 
-        let Ok(target) = (unsafe { current_pad_target() }) else {
-            continue;
+        // Ask the cached entry point, not the import table: `current_pad_target` walks the PE's
+        // import directory (thousands of `VirtualQuery` calls on an unpacked image) and this runs
+        // twice a second for the whole session.
+        let cached = HOOK_TARGET.load(Ordering::Relaxed);
+        let target = if cached != 0 {
+            cached as *mut u8
+        } else {
+            match unsafe { current_pad_target() } {
+                Ok(t) => {
+                    HOOK_TARGET.store(t as usize, Ordering::Relaxed);
+                    t
+                }
+                Err(_) => continue,
+            }
         };
 
         // The bytes decide, not the poll counter: "our jump is gone" is unambiguous, while "no
@@ -306,6 +341,13 @@ pub(crate) fn watch_hook() {
             );
             warned = true;
         }
+
+        // Not ours at the cached address: another mod may also have moved the entry point, so
+        // re-resolve before installing anything.
+        let Ok(target) = (unsafe { current_pad_target() }) else {
+            continue;
+        };
+        HOOK_TARGET.store(target as usize, Ordering::Relaxed);
 
         // Prefer pointing the game's own import slot at our detour: that is one aligned pointer
         // store, with no instruction bytes rewritten while the game may be running them. Only
