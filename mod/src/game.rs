@@ -3,7 +3,7 @@
 //! Every pointer here was produced by `probe`, which validates the structures first; the reads
 //! below trust that check and nothing else.
 
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use eldenring::cs::{ChrAsmSlot, WorldChrMan};
@@ -30,6 +30,9 @@ struct Borrow {
 }
 
 static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
+/// Non-blocking mirror of `BORROWED.is_some()` for the pad poll. The poll path runs on the game's
+/// input thread and must never queue behind the panel thread's lock.
+static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Steer the game's selection at `spell` through a spare magic entry.
 /// Point the game's *selected* entry at `spell`, remembering what was there so it can be
 /// restored as soon as the input is released.
@@ -59,6 +62,7 @@ fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
             charges: entry.charges,
             steered: 0,
         });
+        BORROW_ACTIVE.store(true, Ordering::Relaxed);
     }
     Some(idx)
 }
@@ -83,6 +87,7 @@ pub(crate) fn release_borrowed() {
         let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
         slot.take()
     };
+    BORROW_ACTIVE.store(false, Ordering::Relaxed);
     let Some(snapshot) = snapshot else {
         return;
     };
@@ -106,6 +111,7 @@ pub(crate) fn release_borrowed() {
 pub(crate) fn forget_borrowed() {
     let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
     *slot = None;
+    BORROW_ACTIVE.store(false, Ordering::Relaxed);
 }
 
 /// Does the selection already point at `spell`?
@@ -142,8 +148,30 @@ pub(crate) fn select_spell(spell: i32) -> bool {
 }
 
 /// Sample the spell the player has selected, i.e. anything that is not our scratch
-/// entry. Called from the poll path so capture always sees a fresh value.
+/// entry. Throttled: the poll path calls this once per XInput poll, and the read is three
+/// `VirtualQuery` calls down a pointer chain. 100 ms is far below what the panel's "selected"
+/// line can show, and `sample_player_selection_now` covers the one place that needs the exact
+/// value (binding).
 pub(crate) fn sample_player_selection() {
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    if now.saturating_sub(LAST.load(Ordering::Relaxed)) < 100 {
+        return;
+    }
+    LAST.store(now, Ordering::Relaxed);
+    sample_now();
+}
+
+/// Sample without the throttle. For binding: the spell captured must be the one selected at the
+/// press, not one from up to 100 ms ago.
+pub(crate) fn sample_player_selection_now() {
+    sample_now();
+}
+
+fn sample_now() {
     let Some(magic) = magic_data() else { return };
     let sel = magic.selected_slot;
     if sel < 0 {
@@ -154,7 +182,7 @@ pub(crate) fn sample_player_selection() {
         return;
     }
     // While a borrow is active the entry holds our steered spell, not the player's choice.
-    if BORROWED.lock().map(|b| b.is_some()).unwrap_or(false) {
+    if BORROW_ACTIVE.load(Ordering::Relaxed) {
         return;
     }
     let id = magic.entries[sel].param_id;
