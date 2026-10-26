@@ -81,6 +81,9 @@ static LAST_RUN_MS: AtomicU32 = AtomicU32::new(0);
 const POLL_INTERVAL_MS: u32 = 8;
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CAPTURE_KEY: AtomicU32 = AtomicU32::new(u32::MAX);
+/// Last pad state we wrote to the debug log, packed buttons|rt|lt, so a held button logs once
+/// instead of 125 times a second.
+static LAST_PAD_LOG: AtomicU32 = AtomicU32::new(u32::MAX);
 /// Last HUD-mirror pass, in milliseconds (see `idle`).
 static LAST_MIRROR_MS: AtomicU32 = AtomicU32::new(0);
 /// When on, idle polls mirror the weapon's slot 1 into the selection so the game's
@@ -620,35 +623,61 @@ fn millis() -> u32 {
 }
 
 fn adjust(state: &mut XInputState) {
-    // The game polls the pad several times per frame with the same report. Acting on a repeat is
-    // pure cost — three `VirtualQuery` calls, a mutex, and (idle) seven user32 calls — and on a
-    // slow CPU that is exactly the kind of per-poll work that turns 60 fps into 15. Do a full pass
-    // only when the pad state changed or 8 ms have gone by (mouse clicks arrive off-pad).
     let now = millis();
-    let unchanged = state.packet_number == LAST_PACKET.load(Ordering::Relaxed);
-    if unchanged && now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) < POLL_INTERVAL_MS {
+    let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
+        || now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) >= POLL_INTERVAL_MS;
+    LAST_PACKET.store(state.packet_number, Ordering::Relaxed);
+
+    let pad = &mut state.gamepad;
+    let held = held_from(pad);
+    // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
+    // function only carries out the answer. It is pure and cheap, so it runs on every poll.
+    let route = nr_casting_core::route(&held, config::load().modifier);
+
+    if !due {
+        // Every caller passes its own `XInputState`, so a repeated report still has to be
+        // rewritten in place: skipping it handed the game Y+R2 (the chord) and the staff got
+        // two-handed instead of a spell cast. Only the game-memory work below is worth gating.
+        if !probe::validated() {
+            return;
+        }
+        match route {
+            Route::Cast {
+                right_hand, slot, ..
+            }
+            | Route::Chord {
+                right_hand, slot, ..
+            } => {
+                if bound_spell(right_hand, slot) > 0 {
+                    rewrite_cast(pad, right_hand);
+                }
+            }
+            Route::AshOfWar => pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB,
+            // Binding must not also attack: swallow the same inputs the capturing pass did.
+            Route::Capture { .. } => swallow_spell_inputs(pad),
+            _ => {}
+        }
         return;
     }
-    LAST_PACKET.store(state.packet_number, Ordering::Relaxed);
+
     LAST_RUN_MS.store(now, Ordering::Relaxed);
     PASSES.fetch_add(1, Ordering::Relaxed);
 
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
     sample_player_selection();
-    let pad = &mut state.gamepad;
-    let held = held_from(pad);
 
-    if held.any() {
+    // Debug: log the pad on change, not on every pass — a held button at 125 passes a second
+    // would fill the 4 MiB log in half a minute.
+    let packed =
+        (held.buttons as u32) << 16 | (pad.right_trigger as u32) << 8 | pad.left_trigger as u32;
+    if packed != LAST_PAD_LOG.swap(packed, Ordering::Relaxed) {
         debug!(
             "pad: buttons={:#06x} rt={} lt={}",
             held.buttons, pad.right_trigger, pad.left_trigger
         );
     }
 
-    // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
-    // function only carries out the answer.
-    let route = nr_casting_core::route(&held, config::load().modifier);
     if route == Route::AshOfWar {
         pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
         release_borrowed();
@@ -778,16 +807,21 @@ fn swallow_spell_inputs(pad: &mut XInputGamepad) {
 /// Used by both the pad and the mouse. The trigger is always swallowed and a shoulder press
 /// substituted (that is what the game treats as a cast), and Y is cleared so the press reads as
 /// a plain cast rather than two-handing or a class port's skill chord.
-fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> bool {
+fn bound_spell(right: bool, slot: usize) -> i32 {
     let Some((left_id, right_id)) = weapon_ids() else {
-        return false;
+        return -1;
     };
     let weapon = if right { right_id } else { left_id };
-    let bound = store_get(weapon).map(|s| s.get(slot).copied().unwrap_or(-1)).unwrap_or(-1);
-    if bound <= 0 {
-        debug!("input: {which} has no bound spell");
-        return false;
-    }
+    store_get(weapon)
+        .map(|s| s.get(slot).copied().unwrap_or(-1))
+        .unwrap_or(-1)
+}
+
+/// Turn this report's trigger into the shoulder press the game casts on.
+///
+/// Pure pad edit, no game memory: it has to happen for *every* caller's report, including the
+/// repeats that skip the rest of `adjust`, or the game reads Y+R2 and two-hands the staff.
+fn rewrite_cast(pad: &mut XInputGamepad, right: bool) {
     pad.right_trigger = 0;
     pad.left_trigger = 0;
     pad.buttons &= !XINPUT_GAMEPAD_Y;
@@ -796,6 +830,15 @@ fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> 
     } else {
         pad.buttons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
     }
+}
+
+fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> bool {
+    let bound = bound_spell(right, slot);
+    if bound <= 0 {
+        debug!("input: {which} has no bound spell");
+        return false;
+    }
+    rewrite_cast(pad, right);
     if !select_spell(bound) {
         debug!("input: {which} bound to {bound} but magic data unreadable");
         return false;
