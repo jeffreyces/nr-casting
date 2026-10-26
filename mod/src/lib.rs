@@ -28,6 +28,7 @@ mod config;
 mod crash;
 mod game;
 mod input;
+mod kbm;
 mod logging;
 mod overlay;
 mod params;
@@ -131,6 +132,9 @@ fn run() {
     // First, before any thread or hook exists: if anything faults from here on, the log says
     // what faulted and where, instead of the user having to describe a crash.
     crash::install();
+    // Read-only instrumentation: counts the game's own GetAsyncKeyState calls so the log can say
+    // whether a keyboard/mouse cast can be presented there when no controller is connected.
+    kbm::install();
     // Panics are logged too, and the previous hook still runs: another mod may have installed
     // one, and a panic must not become invisible just because we replaced its handler.
     let previous_hook = std::panic::take_hook();
@@ -271,6 +275,7 @@ fn run() {
                 "input: {dp} polls, {dq} full passes, {} skipped as repeats, {du} with no controller",
                 dp.saturating_sub(dq)
             ));
+            log(&format!("kbm: {}", kbm::report()));
         }
         std::thread::sleep(Duration::from_secs(30));
     }

@@ -617,7 +617,8 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
     // Buttons first: no click means no routing, and this runs on every idle poll. Asking for the
     // foreground window and the cursor costs two more user32 calls (server round-trips under
     // Wine) that only matter once a click is actually down.
-    let down = |vk: i32| unsafe { GetAsyncKeyState(vk) } < 0;
+    // Ours: the counters in `kbm` exist to see what the *game* asks for.
+    let down = |vk: i32| crate::kbm::ours(|| unsafe { GetAsyncKeyState(vk) }) < 0;
     let primary = down(VK_LBUTTON);
     let secondary = down(VK_RBUTTON);
     if !primary && !secondary {
