@@ -62,8 +62,19 @@ static TRAMPOLINE: std::sync::atomic::AtomicPtr<()> =
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
 /// Pad polls seen by our detour. Used to tell "the hook is dead" from "the game is not polling".
 static POLLS: AtomicU32 = AtomicU32::new(0);
+/// The `packet_number` of the last report we acted on. XInput only bumps it when the pad state
+/// actually changes, so a repeated number means a repeated report — there is nothing new to route.
+static LAST_PACKET: AtomicU32 = AtomicU32::new(u32::MAX);
+/// Milliseconds of the last full poll pass (the mouse check still has to run on a timer, because
+/// clicks arrive independently of the pad).
+static LAST_RUN_MS: AtomicU32 = AtomicU32::new(0);
+/// Floor between full passes. 8 ms is faster than any pad or mouse report the game consumes, and
+/// it caps the per-poll work at ~125 Hz however often the game polls.
+const POLL_INTERVAL_MS: u32 = 8;
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CAPTURE_KEY: AtomicU32 = AtomicU32::new(u32::MAX);
+/// Last HUD-mirror pass, in milliseconds (see `idle`).
+static LAST_MIRROR_MS: AtomicU32 = AtomicU32::new(0);
 /// When on, idle polls mirror the weapon's slot 1 into the selection so the game's
 /// own spell HUD shows what is bound. Locks the D-pad wheel while on (see README).
 pub(crate) static HUD_MIRROR: AtomicBool = AtomicBool::new(false);
@@ -508,6 +519,15 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
     if UI_OPEN.load(Ordering::Relaxed) {
         return None;
     }
+    // Buttons first: no click means no routing, and this runs on every idle poll. Asking for the
+    // foreground window and the cursor costs two more user32 calls (server round-trips under
+    // Wine) that only matter once a click is actually down.
+    let down = |vk: i32| unsafe { GetAsyncKeyState(vk) } < 0;
+    let primary = down(VK_LBUTTON);
+    let secondary = down(VK_RBUTTON);
+    if !primary && !secondary {
+        return None;
+    }
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.0.is_null() {
@@ -529,10 +549,9 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
     if unsafe { GetCursorInfo(&mut cursor) }.is_ok() && cursor.flags.0 & CURSOR_SHOWING.0 != 0 {
         return None;
     }
-    let down = |vk: i32| unsafe { GetAsyncKeyState(vk) } < 0;
     nr_casting_core::mouse_route(
-        down(VK_LBUTTON),
-        down(VK_RBUTTON),
+        primary,
+        secondary,
         down(VK_SHIFT),
         down(VK_CONTROL),
     )
@@ -543,7 +562,28 @@ const VK_RBUTTON: i32 = 0x02;
 const VK_SHIFT: i32 = 0x10;
 const VK_CONTROL: i32 = 0x11;
 
+/// Milliseconds since the epoch, truncated to 32 bits. Interval tests use wrapping subtraction,
+/// so the truncation is harmless and the whole thing is one `clock_gettime` (vDSO) call.
+fn millis() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u32)
+        .unwrap_or(0)
+}
+
 fn adjust(state: &mut XInputState) {
+    // The game polls the pad several times per frame with the same report. Acting on a repeat is
+    // pure cost — three `VirtualQuery` calls, a mutex, and (idle) seven user32 calls — and on a
+    // slow CPU that is exactly the kind of per-poll work that turns 60 fps into 15. Do a full pass
+    // only when the pad state changed or 8 ms have gone by (mouse clicks arrive off-pad).
+    let now = millis();
+    let unchanged = state.packet_number == LAST_PACKET.load(Ordering::Relaxed);
+    if unchanged && now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) < POLL_INTERVAL_MS {
+        return;
+    }
+    LAST_PACKET.store(state.packet_number, Ordering::Relaxed);
+    LAST_RUN_MS.store(now, Ordering::Relaxed);
+
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
     sample_player_selection();
@@ -640,6 +680,13 @@ fn idle(pad: &mut XInputGamepad) {
     if !HUD_MIRROR.load(Ordering::Relaxed) || UI_OPEN.load(Ordering::Relaxed) {
         return;
     }
+    // Mirroring is a HUD convenience, not an input path: 30 Hz is plenty, and each pass is a
+    // weapon read plus a selection compare (three `VirtualQuery` calls each) on the poll thread.
+    let now = millis();
+    if now.wrapping_sub(LAST_MIRROR_MS.load(Ordering::Relaxed)) < 33 {
+        return;
+    }
+    LAST_MIRROR_MS.store(now, Ordering::Relaxed);
     let Some((left_id, right_id)) = weapon_ids() else {
         return;
     };
