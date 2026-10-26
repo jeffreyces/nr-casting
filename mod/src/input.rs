@@ -659,19 +659,29 @@ fn millis() -> u32 {
 
 fn adjust(state: &mut XInputState) {
     adjust_inner(state);
-    // Safety net. While the Y chords are ours, no report may carry Y together with a shoulder
-    // press: that pair is the game's two-hand command. If a chord slipped past every route rule
-    // above — a poll during re-validation, a binding that failed, a frame the game sampled early
-    // — the press must do nothing rather than swap the weapon into both hands.
-    if y_bumper() {
-        let pad = &mut state.gamepad;
-        let shoulders = XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
-        if pad.buttons & XINPUT_GAMEPAD_Y != 0 && pad.buttons & shoulders != 0 {
-            pad.right_trigger = 0;
-            pad.left_trigger = 0;
-            pad.buttons &= !(XINPUT_GAMEPAD_Y | shoulders);
-        }
+    let pad = &mut state.gamepad;
+    if !y_bumper() || pad.buttons & XINPUT_GAMEPAD_Y == 0 {
+        return;
     }
+    // While any Y chord is bound, the game must never see Y at all. Its two-hand is a *latch*:
+    // it remembers Y being held and fires on the shoulder press that follows, which is why a
+    // fresh Y+button right after a cast could still swap weapons even though the report we hand
+    // over has no Y in it. Hiding Y for the whole hold removes the latch, and the worst case
+    // becomes a press that does nothing.
+    let shoulders = XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
+    if pad.buttons & shoulders != 0 || chords_in_use() {
+        pad.buttons &= !XINPUT_GAMEPAD_Y;
+    }
+}
+
+/// Whether a Y chord is bound on either hand's weapon right now.
+///
+/// Only asked while Y is down, and it is two store lookups per hand, so the cost never reaches a
+/// poll that isn't already handling a chord.
+fn chords_in_use() -> bool {
+    (2..nr_casting_core::SLOTS).any(|slot| {
+        bound_spell(true, slot) > 0 || bound_spell(false, slot) > 0
+    })
 }
 
 fn adjust_inner(state: &mut XInputState) {

@@ -40,7 +40,7 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, LoadCursorW, IDC_ARROW, WS_EX_TOPMOST, WS_POPUP, DispatchMessageW, GetClientRect, IsIconic, PeekMessageW,
+    CreateWindowExW, DefWindowProcW, LoadCursorW, IDC_ARROW, WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_POPUP, DispatchMessageW, GetClientRect, IsIconic, PeekMessageW,
     GetForegroundWindow, RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG,
     PM_REMOVE, SW_HIDE, SW_SHOW,
     WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_NCHITTEST,
@@ -76,12 +76,12 @@ struct Slot {
 const SLOTS: [Slot; 8] = [
     Slot { label: "L1", mouse: "RMB", weapon_slot: 0, right_hand: false },
     Slot { label: "L2", mouse: "Shift+RMB", weapon_slot: 1, right_hand: false },
-    Slot { label: "Y+L2", mouse: "Ctrl+RMB", weapon_slot: 2, right_hand: false },
     Slot { label: "Y+L1", mouse: "Alt+RMB", weapon_slot: 3, right_hand: false },
+    Slot { label: "Y+L2", mouse: "Ctrl+RMB", weapon_slot: 2, right_hand: false },
     Slot { label: "R1", mouse: "LMB", weapon_slot: 0, right_hand: true },
     Slot { label: "R2", mouse: "Shift+LMB", weapon_slot: 1, right_hand: true },
-    Slot { label: "Y+R2", mouse: "Ctrl+LMB", weapon_slot: 2, right_hand: true },
     Slot { label: "Y+R1", mouse: "Alt+LMB", weapon_slot: 3, right_hand: true },
+    Slot { label: "Y+R2", mouse: "Ctrl+LMB", weapon_slot: 2, right_hand: true },
 ];
 
 /// Everything the panel shows, refreshed when it opens.
@@ -390,6 +390,7 @@ impl App {
                     "left",
                     &model.panel,
                     &candidates,
+                    crate::input::y_bumper(),
                 ) {
                     assign = Some(choice);
                 }
@@ -429,6 +430,7 @@ impl App {
                     "right",
                     &model.panel,
                     &candidates,
+                    crate::input::y_bumper(),
                 ) {
                     assign = Some(choice);
                 }
@@ -522,6 +524,7 @@ fn hand_column(
     prefix: &str,
     panel: &Panel,
     candidates: &[(i32, String)],
+    y_bumper: bool,
 ) -> Option<(usize, i32)> {
     ui.text(heading);
     ui.text(if weapon > 0 {
@@ -545,10 +548,22 @@ fn hand_column(
         ui.text(slot.label);
         ui.same_line();
         ui.text_disabled(slot.mouse);
-        if let Some(picked) = slot_combo(ui, &format!("##{prefix}{index}"), preview, current, candidates)
-        {
-            chosen = Some((index, picked));
-        }
+        // The fourth slot is Recluse's on a Recluse character: show the row, grey it out, and say
+        // why, so nobody spends time wondering why Y+R1 does nothing.
+        let off_for_recluse = !y_bumper && slot.weapon_slot == 3;
+        ui.disabled(off_for_recluse, || {
+            if off_for_recluse {
+                ui.text_disabled(if current > 0 {
+                    format!("{preview}  (Recluse class: off)")
+                } else {
+                    "(Recluse class: off)".to_string()
+                });
+            } else if let Some(picked) =
+                slot_combo(ui, &format!("##{prefix}{index}"), preview, current, candidates)
+            {
+                chosen = Some((index, picked));
+            }
+        });
     }
     chosen
 }
@@ -725,7 +740,9 @@ fn create_window() -> Option<HWND> {
         };
         RegisterClassW(&class);
         CreateWindowExW(
-            WS_EX_TOPMOST,
+            // WS_EX_TOOLWINDOW keeps the panel out of the alt-tab list and the taskbar, so it
+            // reads as part of the game rather than as a second application window.
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             PCWSTR(class_name.as_ptr()),
             PCWSTR(title.as_ptr()),
             WS_POPUP | WS_THICKFRAME,
