@@ -3,7 +3,7 @@
 //! Every pointer here was produced by `probe`, which validates the structures first; the reads
 //! below trust that check and nothing else.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use eldenring::cs::{ChrAsmSlot, WorldChrMan};
@@ -33,6 +33,21 @@ static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
 /// Non-blocking mirror of `BORROWED.is_some()` for the pad poll. The poll path runs on the game's
 /// input thread and must never queue behind the panel thread's lock.
 static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Cached game pointers, in `usize` form so they can live in atomics.
+///
+/// The chain (WorldChrMan -> main_player -> PlayerGameData -> EquipMagicData) is cheap to walk;
+/// what is not cheap is the `VirtualQuery` in front of every hop, and this runs on the thread the
+/// game polls the pad from — dozens of times a second. `CHAR` is compared against the game's own
+/// current player on every access, so a reload invalidates it immediately; `PGD`/`MAGIC` are
+/// re-resolved once a second and always re-verified before a write.
+static CHAR: AtomicUsize = AtomicUsize::new(0);
+static PGD: AtomicUsize = AtomicUsize::new(0);
+static MAGIC: AtomicUsize = AtomicUsize::new(0);
+/// When the cached pointers were last checked for readability.
+static CHAR_CHECKED: AtomicU32 = AtomicU32::new(0);
+/// How often to re-verify the cached pointers even when nothing changed.
+const RECHECK_MS: u32 = 1000;
 /// Steer the game's selection at `spell` through a spare magic entry.
 /// Point the game's *selected* entry at `spell`, remembering what was there so it can be
 /// restored as soon as the input is released.
@@ -96,7 +111,8 @@ pub(crate) fn release_borrowed() {
     let Some(snapshot) = snapshot else {
         return;
     };
-    let Some(magic) = magic_data() else {
+    // A restore is a write: verify the pointer now rather than trust the one-second cache.
+    let Some(magic) = magic_data_verified() else {
         return;
     };
     let Some(entry) = magic.entries.get_mut(snapshot.idx) else {
@@ -130,7 +146,7 @@ pub(crate) fn selection_is(spell: i32) -> bool {
 }
 
 pub(crate) fn select_spell(spell: i32) -> bool {
-    let Some(magic) = magic_data() else {
+    let Some(magic) = magic_data_verified() else {
         return false;
     };
     let Some(idx) = borrow_selected(magic) else {
@@ -197,25 +213,69 @@ fn sample_now() {
 }
 
 pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
-    let wcm = unsafe { WorldChrMan::instance() }.ok()?;
-    let owned = wcm.main_player.as_ref()?;
-    let ptr = owned.as_ptr();
-    // The pointer having a value does not mean the character exists any more: a reload frees
-    // it. Anything unreadable is treated exactly like "no player".
-    if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::PlayerIns>()) {
+    let Some(raw) = raw_player() else { return None };
+    let cached = CHAR.load(Ordering::Relaxed);
+    let due = now_ms().wrapping_sub(CHAR_CHECKED.load(Ordering::Relaxed)) >= RECHECK_MS;
+    if cached == raw && !due {
+        return Some(unsafe { &*(raw as *const eldenring::cs::PlayerIns) });
+    }
+    // Either the character changed or the periodic sanity check is due. This is the whole point
+    // of the cache: a `VirtualQuery` per second instead of one per read, on the thread the game
+    // polls the pad from.
+    if !probe::readable(raw as *const u8, std::mem::size_of::<eldenring::cs::PlayerIns>()) {
+        forget_pointers();
         return None;
     }
-    Some(unsafe { &*ptr })
+    // Whatever the reason we got here, the sub-objects are re-resolved on next use: a new
+    // character has new ones, and on the periodic check they are exactly what we want to
+    // re-verify.
+    PGD.store(0, Ordering::Relaxed);
+    MAGIC.store(0, Ordering::Relaxed);
+    CHAR.store(raw, Ordering::Relaxed);
+    CHAR_CHECKED.store(now_ms(), Ordering::Relaxed);
+    Some(unsafe { &*(raw as *const eldenring::cs::PlayerIns) })
+}
+
+/// Milliseconds since the epoch, low 32 bits (wrapping compares are fine).
+fn now_ms() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u32)
+        .unwrap_or(0)
+}
+
+/// The character the game currently considers the player, without validating the object.
+/// Cheap: two reads through the game's own singleton.
+fn raw_player() -> Option<usize> {
+    let wcm = unsafe { WorldChrMan::instance() }.ok()?;
+    let owned = wcm.main_player.as_ref()?;
+    let ptr = owned.as_ptr() as usize;
+    (ptr != 0).then_some(ptr)
+}
+
+/// Drop every cached game pointer: unreadable memory, or a world that is going away.
+pub(crate) fn forget_pointers() {
+    CHAR.store(0, Ordering::Relaxed);
+    PGD.store(0, Ordering::Relaxed);
+    MAGIC.store(0, Ordering::Relaxed);
+    CHAR_CHECKED.store(0, Ordering::Relaxed);
 }
 
 /// The player's game data, guarded the same way. Every accessor below goes through this.
 fn game_data() -> Option<&'static mut eldenring::cs::PlayerGameData> {
     let player = player()?;
+    let cached = PGD.load(Ordering::Relaxed);
+    if cached != 0 {
+        // Verified when it was cached; `player()` clears it once a second so a reload cannot
+        // leave this pointing at a freed block for longer than that.
+        return Some(unsafe { &mut *(cached as *mut eldenring::cs::PlayerGameData) });
+    }
     let ptr = player.player_game_data.as_ptr();
     if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::PlayerGameData>()) {
         return None;
     }
-    // SAFETY: readable, owned by PlayerIns, and re-derived on every call.
+    PGD.store(ptr as usize, Ordering::Relaxed);
+    // SAFETY: readable, owned by PlayerIns.
     Some(unsafe { &mut *ptr })
 }
 
@@ -259,13 +319,35 @@ pub(crate) fn magic_slots() -> Option<(usize, i32)> {
 
 fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
     let pgd = game_data()?;
+    let cached = MAGIC.load(Ordering::Relaxed);
+    if cached != 0 {
+        return Some(unsafe { &mut *(cached as *mut eldenring::cs::EquipMagicData) });
+    }
     let ptr = pgd.equipment.equip_magic_data.as_ptr();
     // OwnedPtr derefs without a check; during a teardown this is exactly the pointer that can be
     // released while it still looks valid.
     if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::EquipMagicData>()) {
         return None;
     }
-    // SAFETY: readable, owned by the player's game data, re-derived on every call.
+    MAGIC.store(ptr as usize, Ordering::Relaxed);
+    // SAFETY: readable, owned by the player's game data.
     Some(unsafe { &mut *ptr })
+}
+
+/// The magic data, re-verified immediately before it is written.
+///
+/// Reads go through the cache; writes do not take that chance. A cast is rare, so paying the
+/// `VirtualQuery` there costs nothing, and it closes the window where the cached pointer could
+/// have outlived the object between the one-second checks.
+fn magic_data_verified() -> Option<&'static mut eldenring::cs::EquipMagicData> {
+    let magic = magic_data()?;
+    if !probe::readable(
+        magic as *const eldenring::cs::EquipMagicData as *const u8,
+        std::mem::size_of::<eldenring::cs::EquipMagicData>(),
+    ) {
+        MAGIC.store(0, Ordering::Relaxed);
+        return None;
+    }
+    Some(magic)
 }
 

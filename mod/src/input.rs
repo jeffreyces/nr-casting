@@ -254,10 +254,14 @@ pub(crate) fn watch_hook() {
     let mut idle_ticks = 0u32;
 
     loop {
-        std::thread::sleep(Duration::from_secs(2));
+        // 1 s, and validate from here. Recovery below is gated on a validated character, and the
+        // telemetry loop only asks every 30 s — waiting for that tick is what made the pad feel
+        // dead for the first half-minute when another mod displaced our hook at world load.
+        std::thread::sleep(Duration::from_secs(1));
         if !HOOK_READY.load(Ordering::Relaxed) || attempts >= 4 {
             return;
         }
+        crate::probe::maybe_validate();
 
         let polls = POLLS.load(Ordering::Relaxed);
         if polls != last_polls {
@@ -271,14 +275,14 @@ pub(crate) fn watch_hook() {
         // screens legitimately poll nothing, and re-patching there is pure risk. Validation
         // needs the real player structures, so it gates on being in the world — the title
         // screen has a player object but never passes the probe.
-        if idle_ticks < 2 || !crate::probe::validated() {
+        if !crate::probe::validated() || idle_ticks < 2 {
             continue;
         }
 
-        // Once the situation has been diagnosed, keep watching at a slower cadence: the check
-        // below walks the game's import table and allocates, and a session with no controller
-        // connected would otherwise do that every two seconds for hours.
-        if warned && idle_ticks % 15 != 0 {
+        // Back off between attempts (2 s, then 5, 8, 11): the check below walks the game's import
+        // table and allocates, and a session with no controller connected must not do that every
+        // second for hours.
+        if idle_ticks < 2 + attempts * 3 {
             continue;
         }
 
@@ -336,7 +340,8 @@ pub(crate) fn watch_hook() {
             Ok(()) => {
                 attempts += 1;
                 log(&format!(
-                    "XInputGetState: our patch was replaced — re-installed over it at {target:p} (previous hook chained)"
+                    "XInputGetState: our patch was replaced — re-installed over it at {target:p} \
+                     after {idle_ticks}s without polls (previous hook chained)"
                 ));
             }
             Err(e) => {
