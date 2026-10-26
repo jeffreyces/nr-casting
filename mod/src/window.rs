@@ -131,8 +131,11 @@ impl Model {
         let stats = crate::player_stats()
             .map(|(int, fai, arc)| format!("INT {int}   FAI {fai}   ARC {arc}"))
             .unwrap_or_else(|| "stats unavailable".to_string());
+        // The character name is the key the assignments are filed under, so showing it says
+        // which file the panel is editing.
+        let who = crate::character_name().unwrap_or_else(|| "no character".to_string());
         self.status = format!(
-            "{stats}       {listed}/{} spells listed",
+            "{who}\n{stats}       {listed}/{} spells listed",
             self.panel.spell_count()
         );
     }

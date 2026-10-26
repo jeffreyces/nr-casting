@@ -284,6 +284,25 @@ pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
     ))
 }
 
+/// The loaded character's name, as the game stores it (UTF-16, 16 characters).
+///
+/// This is the key assignments are filed under: the same weapon on two characters must not share
+/// a set of spells, because the second character may not meet their requirements.
+pub(crate) fn character_name() -> Option<String> {
+    let pgd = game_data()?;
+    let units: Vec<u16> = pgd
+        .character_name
+        .iter()
+        .take_while(|unit| **unit != 0)
+        .copied()
+        .collect();
+    if units.is_empty() {
+        return None;
+    }
+    let name = String::from_utf16_lossy(&units).trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
 /// Ids that identify the loaded character, for deciding whether a class port owns a chord.
 ///
 /// `(character_event_id, character_id)`: the event id is the character template the save was

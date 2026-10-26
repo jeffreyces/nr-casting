@@ -23,10 +23,14 @@ nothing, so those inputs carry spells instead.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast.[/*]
 [*][b]Ash of war still works[/b] — hold R3 and press L2 and the trigger passes through untouched.[/*]
+[*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
+two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
-live in a small text file next to the DLL.[/*]
+live in a small text file next to the DLL, one per character.[/*]
 [*][b]Safe to remove[/b] — no save file is ever written and nothing persists in memory, so the mod
 can be uninstalled at any time and the game behaves exactly as it did before.[/*]
+[*][b]Coexists with Recluse[/b] — that port uses Y+R1 / Y+L1 (and its 4 / 5 keys) for its own
+actions; on a Recluse character those inputs go to it instead of casting the fourth spell.[/*]
 [*][b]Offline only[/b] — built for me3 with online play disabled, so EAC never loads.[/*]
 [/list]
 
