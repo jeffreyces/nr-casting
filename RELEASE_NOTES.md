@@ -1,102 +1,81 @@
-# v0.2.1 — crashes that can be reported, and three ways the mod could cause them
+# v0.2.2 — eight spells, keyboard and mouse, and assignments that follow the character
 
-This release is about the one line that matters in a bug report. A field report described the game
-crashing "randomly": as me3 launched it, at the main menu, or while loading into the world. Three
-of those paths were ours — all of them writes or patches landing at a moment the game was not
-expecting — and the mod could not have told you which one, because a fault left no trace unless
-debug logging happened to be on. Both are fixed: the causes are gone, and a fault is now recorded
-automatically with the module and offset that faulted.
+This release is about who owns an input and which character owns an assignment. The mod now casts
+from a pad *or* from keyboard and mouse with no controller attached, carries a fourth spell per
+catalyst on **Y+R1 / Y+L1**, and files its assignments per character instead of per weapon — so the
+same staff on two characters no longer shares one set of spells.
+
+It also stops fighting Recluse: that port uses Y+R1 / Y+L1 (and its `4` / `5` keys) for its own
+actions, and on a Recluse character those inputs now go to it.
 
 Offline only, as before: me3 does not load EAC, no save file is written, and nothing in the game's
 files is redistributed.
 
 ## Highlights
 
-- **A crash now writes itself down.** A vectored exception handler records the exception, the
-  faulting address, the DLL that owns it, the offset inside that DLL, the thread, and — for an
-  access violation — whether it was reading, writing or executing and which address it touched.
-  It never handles the exception (`EXCEPTION_CONTINUE_SEARCH`), so the game's own handling, a
-  debugger and any crash reporter behave exactly as before. No debug flag required.
-- **The mod no longer writes game memory from its own threads.** Restoring a borrowed spell slot on
-  the heartbeat or from the panel is what turned a reload or a warp into a heap corruption that
-  surfaced later, somewhere unrelated.
-- **The pad hook is taken back without rewriting a running function.** When another input mod owns
-  the export's prologue, the game's own import slot is pointed at our detour instead: one aligned
-  pointer store, no instruction bytes touched, and the displaced value becomes our trampoline so
-  the other mod's hook still runs.
-
-## Fixed
-
-- `fix(reload): never write game memory from a timer or the panel thread` — `release_borrowed` ran
-  on the heartbeat ("character gone") and on the panel thread ("panel closed"), writing into the
-  very `EquipMagicData` a load, a warp or a death is freeing. `VirtualQuery` proves a page is
-  committed, not that the character still owns it; the write landed in freed heap and the crash
-  arrived minutes later in unrelated code. Restoration is now the pad poll's job only (the game's
-  own thread), teardown drops the snapshot, and the panel touches no game memory at all. The
-  restore also checks the entry still holds the spell we steered before putting the original back,
-  so it can no longer clobber a value the game or another selection mod wrote.
-- `harden(hooks): take the pad through the import slot, guard the raw-input reads` — the panel's
-  frame loop had no panic boundary (only the window procedure did), so one bad frame killed the
-  thread that owns the hotkey *and* the per-frame capture upkeep; it is caught, logged, closed,
-  and the next open rebuilds the device. The raw-input detours dereferenced the caller's buffer
-  without checking the size it reported. Input queues are bounded.
-- `refactor(input): find the pad's import slot, and say why when it cannot` — the import walk only
-  matched imports by name, and the game imports `XInputGetState` by **ordinal** (`XINPUT1_4` #2),
-  so it never found the slot and every install fell back to patching the export. It now accepts
-  the ordinal and reports what the walk saw. Under Proton the walk cannot work at all — the PE
-  header is intact on disk (`e_lfanew 0x168`) but garbled in memory (`0x45d33ac0`) — so the log
-  says which route ran instead of failing silently.
-- `perf(input): stop walking the import table every two seconds when idle` — with no controller
-  connected the watcher re-walked the import table forever; it now re-checks every 30 seconds.
+- **Eight spells across two catalysts.** Y + R2 / Y + L2 carry the third slot and Y + R1 / Y + L1
+  the fourth. Y never reaches the game while a chord is bound, so its two-hand latch cannot fire
+  mid-fight — the trade is that two-handing is unavailable until `y_bumper = off`.
+- **Keyboard and mouse, with or without a controller.** With no pad connected ELDEN RING stops
+  polling XInput entirely, so a click cannot be answered by rewriting a pad report. The mouse is
+  read through raw input instead: the click steers the selected spell and the game's own click
+  performs the cast.
+- **Assignments are per character.** `nr_casting_slots_<name>-<hash>.txt` per character, and any
+  assignment a character cannot cast is dropped when it loads.
+- **Coexists with Recluse.** Y+R1 / Y+L1 on the pad are left untouched on a Recluse character, and
+  an Alt + click is translated into the port's own `4` / `5` key rather than being swallowed.
 
 ## Added
 
-- `feat(logging): always record a crash, with the module and offset that faulted` — the fault
-  observer above; allocation-free (it runs on a stack that is already broken), never blocks
-  (`try_lock`: the fault may be inside the logger), capped at eight lines, and ignores the codes
-  that are normal noise (breakpoints, C++ throws, `OutputDebugString`, and the thread-name
-  exception Wine raises constantly). Panics are logged with thread and location, and the previous
-  hook still runs, so another mod's handler is not silently replaced.
-- The `modules:` startup line now carries each module's load base
-  (`ersc.dll@0x180000000, d3d12.dll@0x6ffffa680000, …`), which is what maps a `crash:` line back
-  to a DLL.
+- `feat(input): a fourth spell per hand on Y+R1 / Y+L1, gated on Recluse` — `y_bumper = auto`
+  takes the chords unless the Recluse mod is loaded *and* the character is a Recluse; `on` always
+  takes them, `off` gives vanilla two-handing back. A Recluse character is recognised by
+  `recluse_chr_ids` or by an equipped catalyst that is missing from the vanilla weapon table.
+- `feat(input): mouse casting with no controller, via raw input` — `GetAsyncKeyState` showed 3038
+  calls per 30 s with zero for LMB/RMB, while `GetRawInputData` carried the button edges, so raw
+  input is the layer the mod drives.
+- `feat(store): keep assignments per character` — the store switches file on every character load,
+  from the 500 ms watcher as well as the load edge.
+- `feat(panel): reset slots` and `feat(panel): remember planning mode across sessions` — a clear
+  for the loaded character, and `show_all` persisted in the ini.
+- The panel's character line names the character whose file is being edited; on a Recluse character
+  the fourth row is greyed out and labelled *passthrough to its 4 / 5 key*.
 
 ## Changed
 
-- The previous writer of the panel's panic hook is gone: `std::panic::set_hook` replaced any other
-  mod's handler and relabelled every panic in the process as ours. Panics are now logged and the
-  chain is preserved.
+- **The bind gesture is gone**, on pad and on mouse. Assignment happens in the panel only: a
+  hold-a-modifier chord collided with class ports and could not exist on keyboard and mouse.
+  `bind_modifier` is removed from the ini.
+- **The HUD mirror is always on**; `hud_mirror` is removed. The right-hand catalyst's first slot is
+  mirrored onto the game's own wheel, so the game shows what R1 will cast.
+- **Mouse modifiers** are click (slot 1), shift (slot 2), ctrl (slot 3) and alt (slot 4), left or
+  right button. Shift is hidden from the game while it is used this way, because the game binds
+  Shift + click to the strong attack.
+- **The panel is a tool window**: no alt-tab entry, no taskbar icon, and Alt closes it so focus
+  always lands back in the game.
 
-## Tests
+## Fixed
 
-- 17 host-side unit tests (up from 14): the existing slot-file and routing suites, plus three over
-  the crash-line format — module and offset, the access-violation verb and target, and a truncated
-  buffer that must not overrun.
+- `fix(input): rewrite the pad on every report, not only the sampled one` — the repeat gate skipped
+  the report rewrite too, so skipped reports handed the game Y+trigger and two-handed the staff.
+- `fix(input): release Y for one report before the synthetic shoulder press`, then
+  `fix(input): hide Y from the game while a chord is bound` — the game latches "Y held" and fires
+  the swap on the next shoulder press, so clearing Y in one report was not enough.
+- `fix(input): make a chord safe before the game-memory gate` — a chord polled while pointers were
+  being re-validated (right after a cast or a load) went through unchanged.
+- `fix(input): never let an empty Y chord reach the game as a two-hand`.
+- `fix(input): mouse casts work with no controller connected`, `fix(input): hand the Alt chords to
+  Recluse instead of dropping them`.
+- `perf(game): cache the character pointers`, `perf(input): stop walking the import table twice a
+  second`, `fix(input): make the first seconds after a load work` — the pointer chase, the import
+  walk and the post-load dead period are gone.
 
 ## Upgrading
 
-Replace the DLL. Nothing else changes: `nr_casting.ini`, `nr_casting_slots.txt` and the profile are
-read as before, and assignments keep working.
-
-If you are coming from v0.1.0, also read the v0.2.0 notes: the panel is a real window now,
-`overlay = auto` is read as `on`, and each catalyst has three slots.
-
-## Compatibility
-
-me3 (including the ME3 Manager), frame-generation and upscaling proxies, class ports with their own
-HUDs, other overlay mods, and Seamless Co-op loaded as a me3 native — verified with Seamless Co-op
-2.0.1, the Recluse port and this DLL in one process, through world loads and quit-to-menu. Direct
-conflict remains with mods that write the game's magic selection. Online play is not supported.
-
-## Reporting a crash
-
-Attach these lines from `nr_casting\nr_casting_probe.log` (or `%APPDATA%\nr_casting\`, whichever
-the `files in:` line names):
-
-```
-modules: ...
-crash: exception 0xc0000005 at 0x… in <dll> (base 0x…, offset 0x…) thread … writing 0x…
-```
-
-The first says what was loaded and where; the second says which of those DLLs faulted and where
-inside it.
+- `nr_casting.ini` loses `bind_modifier` and `hud_mirror`, and gains `show_all` and the `[recluse]`
+  section. Existing files keep working; unknown keys are ignored.
+- The old shared `nr_casting_slots.txt` is adopted by the first character that loads and renamed to
+  `nr_casting_slots.migrated.txt`. Every later character starts empty.
+- Two characters with the same name **in the same save slot** share a file — the game exposes no
+  per-character id, and `packed_time_stamp` reads 0. What a character cannot cast is dropped on
+  load, and `reset slots` clears everything for it.
