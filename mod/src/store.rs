@@ -91,6 +91,13 @@ pub(crate) fn sync_character() {
     set_character(&name, id);
 }
 
+/// Whether a slots file holds at least one weapon line.
+fn has_assignments(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path)
+        .map(|text| !nr_casting_core::parse_slots(&text).is_empty())
+        .unwrap_or(false)
+}
+
 /// Take over the only file that matches this character's name when the slug scheme changed.
 ///
 /// The slug gained the save-level id, so a file written by the previous version has a different
@@ -134,14 +141,22 @@ pub(crate) fn set_character(name: &str, id: u32) {
     let path = config::path(&format!("nr_casting_slots_{slug}.txt"));
     if !path.exists() {
         let legacy = config::path("nr_casting_slots.txt");
+        // Only a legacy file that actually holds assignments is worth adopting: a header-only
+        // file is what a previous version seeded on startup.
         let adopt = legacy.exists()
+            && has_assignments(&legacy)
             && !MIGRATED.swap(true, std::sync::atomic::Ordering::Relaxed);
         if adopt {
             // One-time: the character that loads first after upgrading keeps the assignments
             // that used to be shared. Every later character starts empty on purpose.
             match std::fs::copy(&legacy, &path) {
                 Ok(_) => {
-                    let _ = std::fs::rename(&legacy, config::path("nr_casting_slots.migrated.txt"));
+                    // Keep exactly one record of the adopted file: never overwrite a previous
+                    // migration, or the original assignments would be lost for good.
+                    let archive = config::path("nr_casting_slots.migrated.txt");
+                    if !archive.exists() {
+                        let _ = std::fs::rename(&legacy, archive);
+                    }
                     log(&format!("slots: adopted the shared file for {name}"));
                 }
                 Err(e) => log(&format!("slots: could not adopt the shared file: {e}")),
@@ -170,11 +185,8 @@ pub(crate) fn file_mtime() -> Option<std::time::SystemTime> {
 }
 
 pub(crate) fn seed_store() {
-    if !slots_path().exists() {
-        // Empty on purpose: a release must not ship somebody else's weapons.
-        let _ = std::fs::write(slots_path(), NR_DEFAULTS);
-        log("created default slots file");
-    }
+    // Deliberately creates nothing: a missing file means "no assignments yet", and writing an
+    // empty one here would be adopted by the first character as if it were the old shared file.
     reload_store();
 }
 
