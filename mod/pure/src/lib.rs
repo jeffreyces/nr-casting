@@ -228,6 +228,43 @@ pub fn format_slots(entries: &[(i32, Category)]) -> String {
     out
 }
 
+// ---- Character files -------------------------------------------------------------------
+//
+// Assignments are per character, and the file name is derived from the character's name and save
+// slot. That derivation is the thing that decides which assignments a character sees, so it lives
+// here where it can be tested rather than inside the DLL.
+
+/// Filename-safe, collision-resistant parts for a character: `(base, slug)`.
+///
+/// The hash covers the name *and* the save slot, so two characters that normalise to the same
+/// base — `Test 2`, `test-2`, `TEST_2` — still get separate files.
+pub fn character_slug(name: &str, slot: u32) -> (String, String) {
+    let mut base = String::new();
+    let mut last_dash = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            base.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash && !base.is_empty() {
+            base.push('-');
+            last_dash = true;
+        }
+    }
+    while base.ends_with('-') {
+        base.pop();
+    }
+    base.truncate(24);
+    if base.is_empty() {
+        base.push_str("character");
+    }
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in name.as_bytes().iter().chain(&slot.to_le_bytes()) {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    (base.clone(), format!("{base}-{hash:04x}"))
+}
+
 // ---- Raw input records ---------------------------------------------------------------
 //
 // ELDEN RING reads the mouse through raw input (`GetRawInputData`), so the keyboard/mouse path
@@ -709,6 +746,26 @@ mod raw_tests {
         assert_eq!(raw_kind(&bytes), Some(RAW_TYPE_MOUSE));
         assert_eq!(raw_size(&bytes), Some(RAW_MOUSE_LEN));
         assert_eq!(raw_mouse_buttons(&bytes), Some(RI_MOUSE_LEFT_BUTTON_DOWN));
+    }
+
+    #[test]
+    fn character_slugs_separate_names_and_slots() {
+        let (base, slug) = character_slug("Warlock", 1);
+        assert_eq!(base, "warlock");
+        assert!(slug.starts_with("warlock-"), "{slug}");
+        // Same name, other slot: a different file.
+        assert_ne!(slug, character_slug("Warlock", 0).1);
+        // Names that normalise identically still differ.
+        assert_eq!(character_slug("Test 2", 0).0, character_slug("test-2", 0).0);
+        assert_ne!(character_slug("Test 2", 0).1, character_slug("test-2", 0).1);
+        // Empty or symbol-only names still produce something usable.
+        let (base, slug) = character_slug("  ", 3);
+        assert_eq!(base, "character");
+        assert!(slug.starts_with("character-"));
+        // Long names are capped, and the base never ends in a dash.
+        let (base, _) = character_slug(&"a".repeat(64), 0);
+        assert_eq!(base.len(), 24);
+        assert!(!character_slug("Test!", 0).0.ends_with('-'));
     }
 
     #[test]
