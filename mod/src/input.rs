@@ -653,11 +653,18 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
     if unsafe { GetCursorInfo(&mut cursor) }.is_ok() && cursor.flags.0 & CURSOR_SHOWING.0 != 0 {
         return None;
     }
-    nr_casting_core::mouse_route(primary, secondary, down(VK_CONTROL), down(VK_MENU))
+    nr_casting_core::mouse_route(
+        primary,
+        secondary,
+        down(VK_SHIFT),
+        down(VK_CONTROL),
+        down(VK_MENU),
+    )
 }
 
 const VK_LBUTTON: i32 = 0x01;
 const VK_RBUTTON: i32 = 0x02;
+const VK_SHIFT: i32 = 0x10;
 const VK_CONTROL: i32 = 0x11;
 const VK_MENU: i32 = 0x12;
 
