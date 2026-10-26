@@ -40,6 +40,23 @@ pub struct Config {
     pub hud_mirror: bool,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
+    /// Who owns the Y+bumper chords (Y+R1 / Y+L1, the fourth slot).
+    pub y_bumper: YBumper,
+    pub y_bumper_name: String,
+    /// Character ids that mean "this character is a Recluse". Matched against the player's
+    /// character event id and character id. 8131 is the Recluse port's character model.
+    pub recluse_ids: Vec<i32>,
+}
+
+/// Who gets Y+R1 / Y+L1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YBumper {
+    /// Ours unless the Recluse mod is loaded and this character is a Recluse.
+    Auto,
+    /// Always ours, even on a Recluse character.
+    On,
+    /// Never ours; leave the chords to the game and to Recluse.
+    Off,
 }
 
 impl Default for Config {
@@ -52,6 +69,9 @@ impl Default for Config {
             overlay: true,
             hud_mirror: false,
             debug_log: false,
+            y_bumper: YBumper::Auto,
+            y_bumper_name: "auto".to_string(),
+            recluse_ids: vec![8131],
         }
     }
 }
@@ -226,7 +246,7 @@ pub fn load() -> &'static Config {
         };
         if !file.exists() {
             let defaults = "\
-; nr-casting — three spells per catalyst (bumper, trigger, Y + trigger)
+; nr-casting — four spells per catalyst (bumper, trigger, Y + trigger, Y + bumper)
 [ui]
 ; Open the assignment panel on the hotkey. Set this to off for casting only — no window at all.
 overlay = on
@@ -242,6 +262,15 @@ bind_modifier = L3
 ; Mirror slot 1 onto the game's HUD while the panel is closed.
 ; The D-pad wheel is locked while this is on, so turn it off to bind spells.
 hud_mirror = off
+
+[recluse]
+; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
+; auto = ours unless the Recluse mod is loaded and this character is a Recluse
+; on   = always ours (even on a Recluse character)
+; off  = never ours
+y_bumper = auto
+; Character ids that count as a Recluse: the port's character model is c8131.
+recluse_chr_ids = 8131
 
 [logging]
 ; Log every cast, not just captures and errors.
@@ -302,6 +331,38 @@ debug_log = off
                     }
                     "hud_mirror" => config.hud_mirror = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
+                    "y_bumper" => match value.to_ascii_lowercase().as_str() {
+                        "on" | "true" | "yes" => {
+                            config.y_bumper = YBumper::On;
+                            config.y_bumper_name = "on".to_string();
+                        }
+                        "off" | "false" | "no" => {
+                            config.y_bumper = YBumper::Off;
+                            config.y_bumper_name = "off".to_string();
+                        }
+                        "auto" => {
+                            config.y_bumper = YBumper::Auto;
+                            config.y_bumper_name = "auto".to_string();
+                        }
+                        _ => crate::log(&format!(
+                            "config: y_bumper = {value:?} is not auto/on/off; keeping {}",
+                            config.y_bumper_name
+                        )),
+                    },
+                    "recluse_chr_ids" => {
+                        let ids: Vec<i32> = value
+                            .split(',')
+                            .filter_map(|part| part.trim().parse::<i32>().ok())
+                            .collect();
+                        if ids.is_empty() {
+                            crate::log(&format!(
+                                "config: recluse_chr_ids = {value:?} has no numbers; keeping {:?}",
+                                config.recluse_ids
+                            ));
+                        } else {
+                            config.recluse_ids = ids;
+                        }
+                    }
                     _ => {}
                 }
             }

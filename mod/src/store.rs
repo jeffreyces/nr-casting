@@ -78,7 +78,7 @@ pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
     // interleave and save out of order.
     let snapshot = {
         let mut map = store_lock();
-        let entry = map.entry(weapon).or_insert([-1, -1, -1]);
+        let entry = map.entry(weapon).or_insert([-1; nr_casting_core::SLOTS]);
         if slot < entry.len() {
             entry[slot] = spell;
         }

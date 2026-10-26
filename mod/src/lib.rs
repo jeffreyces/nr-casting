@@ -1,4 +1,5 @@
-//! Three spells per catalyst: the bumper and trigger of each hand, plus a third on the Y chord.
+//! Up to four spells per catalyst: the bumper and trigger of each hand, a third on the Y+trigger
+//! chord, and a fourth on the Y+bumper chord when Recluse is not using it.
 //!
 //! Elden Ring already casts on **R1 and L1** with a catalyst in that hand (it casts the
 //! *selected* spell). **R2** (heavy attack) and **L2** (ash of war) do not cast, so those two
@@ -219,6 +220,8 @@ fn run() {
             world_was_live = world_live;
             if world_live {
                 log("world: character present");
+                // A new character may be a class that owns the Y+bumper chords.
+                refresh_y_bumper();
             } else {
                 log("world: character gone (reload or quit to menu)");
                 // Nothing to put back: the character is being freed. Writing into it from this
@@ -324,6 +327,58 @@ fn foreign_modules() -> Option<Vec<(String, usize)>> {
     foreign.sort();
     foreign.dedup();
     Some(foreign)
+}
+
+/// Whether another native mod that owns the Y+bumper chords is loaded.
+///
+/// Recluse ships `recluse_input.dll` / `recluse_ui.dll` and uses Y+R1 / Y+L1 itself. The module
+/// list is fixed for the life of the process (me3 loads every native before the game starts), so
+/// this is resolved once: enumerating 512 modules and their names is not something to do on a
+/// poll.
+pub(crate) fn recluse_loaded() -> bool {
+    static LOADED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *LOADED.get_or_init(|| {
+        matches!(foreign_modules(), Some(modules) if modules.iter().any(|(name, _)| {
+            name.to_ascii_lowercase().contains("recluse")
+        }))
+    })
+}
+
+/// The last (event id, chr id) pair we acted on, packed. Written from the watcher thread only.
+static CHARACTER_IDS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// Work out who owns Y+R1 / Y+L1 for the character that is loaded right now.
+///
+/// Called from the hook watcher, which is the only place that knows a character load has
+/// finished. Cheap enough for 2 Hz: the character read is the cached pointer plus a compare, and
+/// the module list is a `OnceLock`.
+pub(crate) fn refresh_y_bumper() {
+    use std::sync::atomic::Ordering;
+    let cfg = config::load();
+    let loaded = recluse_loaded();
+    let ids = game::character_ids();
+    let is_recluse = match ids {
+        Some((event_id, chr_id)) => cfg
+            .recluse_ids
+            .iter()
+            .any(|id| *id == event_id || (*id as u32) == chr_id),
+        None => false,
+    };
+    if let Some((event_id, chr_id)) = ids {
+        let packed = (event_id as u32 as u64) << 32 | chr_id as u64;
+        if CHARACTER_IDS.swap(packed, Ordering::Relaxed) != packed && cfg.debug_log {
+            log(&format!(
+                "world: character ids event={event_id} chr={chr_id} (recluse mod: {loaded})"
+            ));
+        }
+    }
+    let allowed = match cfg.y_bumper {
+        config::YBumper::On => true,
+        config::YBumper::Off => false,
+        config::YBumper::Auto => !(loaded && is_recluse),
+    };
+    input::set_y_bumper(allowed);
 }
 
 fn log_foreign_modules() {

@@ -296,6 +296,9 @@ pub(crate) fn watch_hook() {
             return;
         }
         crate::probe::maybe_validate();
+        // Who owns Y+R1 / Y+L1 depends on the loaded character, and this is the first place that
+        // knows a load has settled. Two cached reads per tick.
+        crate::refresh_y_bumper();
         if !crate::probe::validated() {
             // Nothing to protect before the world exists: the title screen and loading screens
             // legitimately poll nothing, and re-patching there is pure risk.
@@ -611,6 +614,7 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
         secondary,
         down(VK_SHIFT),
         down(VK_CONTROL),
+        down(VK_MENU),
     )
 }
 
@@ -618,6 +622,28 @@ const VK_LBUTTON: i32 = 0x01;
 const VK_RBUTTON: i32 = 0x02;
 const VK_SHIFT: i32 = 0x10;
 const VK_CONTROL: i32 = 0x11;
+const VK_MENU: i32 = 0x12;
+
+/// Whether the Y+bumper chords (Y+R1, Y+L1, the fourth slot) are ours this session.
+///
+/// Recluse uses exactly those two chords, so the answer is decided per character and cached: it
+/// changes on a character load, not on a poll, and `route` reads it on every poll.
+static Y_BUMPER: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn y_bumper() -> bool {
+    Y_BUMPER.load(Ordering::Relaxed)
+}
+
+/// Record whether the fourth slot's chords belong to us, logging only when it changes.
+pub(crate) fn set_y_bumper(allowed: bool) {
+    if Y_BUMPER.swap(allowed, Ordering::Relaxed) != allowed {
+        crate::log(if allowed {
+            "input: Y+R1 / Y+L1 are ours (4 spells per hand)"
+        } else {
+            "input: Y+R1 / Y+L1 left to Recluse (3 spells per hand)"
+        });
+    }
+}
 
 /// Milliseconds since the epoch, truncated to 32 bits. Interval tests use wrapping subtraction,
 /// so the truncation is harmless and the whole thing is one `clock_gettime` (vDSO) call.
@@ -638,7 +664,7 @@ fn adjust(state: &mut XInputState) {
     let held = held_from(pad);
     // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
     // function only carries out the answer. It is pure and cheap, so it runs on every poll.
-    let route = nr_casting_core::route(&held, config::load().modifier);
+    let route = nr_casting_core::route(&held, config::load().modifier, y_bumper());
 
     // A Y chord must not look like Y + RB to the game. The game decides "two-hand" from a Y press
     // and a shoulder press close together in time, not necessarily from one report, so the first
