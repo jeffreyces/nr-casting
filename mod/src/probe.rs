@@ -49,7 +49,10 @@ pub fn maybe_validate() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    if now.saturating_sub(LAST.load(O::Relaxed)) < 2000 {
+    // 250 ms, not 2 s: this is gated on a button press or a mouse cast, and the player pressing
+    // R2 ten frames after a load should cast. The title screen legitimately fails the probe, so
+    // the failure path is kept free of file writes (see `validate_player`).
+    if now.saturating_sub(LAST.load(O::Relaxed)) < 250 {
         return;
     }
     LAST.store(now, O::Relaxed);
@@ -214,15 +217,26 @@ pub fn validate_player() {
             STATE.store(VALIDATED, Ordering::Relaxed);
             results.push("probe = PASSED — steering enabled".to_string());
             crate::log("probe: structure validation passed");
+            write_map(&results);
         }
         Some(reason) => {
             STATE.store(FAILED, Ordering::Relaxed);
             results.push(format!("probe = FAILED — {reason}"));
             results.push("probe = steering disabled; the game is untouched".to_string());
-            crate::log(&format!("probe FAILED: {reason} — steering disabled"));
+            // Retries are frequent (250 ms) while the title screen and loading screens fail this
+            // check, so only speak and rewrite the map when the reason is new. Otherwise every
+            // retry would be a log line and two file writes.
+            static LAST_REASON: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+            let mut last = LAST_REASON.lock().unwrap_or_else(|e| e.into_inner());
+            let changed = last.as_deref() != Some(reason.as_str());
+            if changed {
+                *last = Some(reason.clone());
+                drop(last);
+                crate::log(&format!("probe FAILED: {reason} — steering disabled"));
+                write_map(&results);
+            }
         }
     }
-    write_map(&results);
 }
 
 #[repr(C)]

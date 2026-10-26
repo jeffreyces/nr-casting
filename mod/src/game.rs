@@ -83,6 +83,11 @@ fn remember_steered(spell: i32) {
 /// death the moment the world goes away, and a write into that freed block corrupts the heap
 /// and crashes the game somewhere unrelated later. Teardown uses `forget_borrowed` instead.
 pub(crate) fn release_borrowed() {
+    // Cheap gate for the common case: no cast in flight, no need to take the lock at all. This is
+    // called from every idle poll.
+    if !BORROW_ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
     let snapshot = {
         let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
         slot.take()
