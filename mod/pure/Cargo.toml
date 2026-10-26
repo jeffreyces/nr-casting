@@ -1,6 +1,6 @@
 [package]
 name = "nr_casting_core"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Pure logic for nr_casting: slot-file parsing and input routing. No Win32, so it tests on the host."
 publish = false
