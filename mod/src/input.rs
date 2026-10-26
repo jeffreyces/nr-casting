@@ -61,7 +61,9 @@ static TRAMPOLINE: std::sync::atomic::AtomicPtr<()> =
 
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
 /// Pad polls seen by our detour. Used to tell "the hook is dead" from "the game is not polling".
-static POLLS: AtomicU32 = AtomicU32::new(0);
+pub(crate) static POLLS: AtomicU32 = AtomicU32::new(0);
+/// Polls that were not skipped as repeats — the work the gate saved. Reported when debug_log is on.
+pub(crate) static PASSES: AtomicU32 = AtomicU32::new(0);
 /// The `packet_number` of the last report we acted on. XInput only bumps it when the pad state
 /// actually changes, so a repeated number means a repeated report — there is nothing new to route.
 static LAST_PACKET: AtomicU32 = AtomicU32::new(u32::MAX);
@@ -254,35 +256,29 @@ pub(crate) fn watch_hook() {
     let mut idle_ticks = 0u32;
 
     loop {
-        // 1 s, and validate from here. Recovery below is gated on a validated character, and the
-        // telemetry loop only asks every 30 s — waiting for that tick is what made the pad feel
-        // dead for the first half-minute when another mod displaced our hook at world load.
-        std::thread::sleep(Duration::from_secs(1));
-        if !HOOK_READY.load(Ordering::Relaxed) || attempts >= 4 {
+        // Half a second per tick: recovery is gated on a validated character (the telemetry loop
+        // only asks every 30 s), and a displacement detected by bytes should not wait for a poll
+        // gap to be measured in seconds.
+        std::thread::sleep(Duration::from_millis(500));
+        if !HOOK_READY.load(Ordering::Relaxed) || attempts >= 8 {
             return;
         }
         crate::probe::maybe_validate();
+        if !crate::probe::validated() {
+            // Nothing to protect before the world exists: the title screen and loading screens
+            // legitimately poll nothing, and re-patching there is pure risk.
+            continue;
+        }
 
         let polls = POLLS.load(Ordering::Relaxed);
         if polls != last_polls {
             last_polls = polls;
             idle_ticks = 0;
-        } else {
-            idle_ticks = idle_ticks.saturating_add(1);
-        }
-
-        // Only a validated character makes "no polls" meaningful: the title screen and loading
-        // screens legitimately poll nothing, and re-patching there is pure risk. Validation
-        // needs the real player structures, so it gates on being in the world — the title
-        // screen has a player object but never passes the probe.
-        if !crate::probe::validated() || idle_ticks < 2 {
+            attempts = 0; // a working hook resets the churn budget
             continue;
         }
-
-        // Back off between attempts (2 s, then 5, 8, 11): the check below walks the game's import
-        // table and allocates, and a session with no controller connected must not do that every
-        // second for hours.
-        if idle_ticks < 2 + attempts * 3 {
+        idle_ticks = idle_ticks.saturating_add(1);
+        if idle_ticks < 2 {
             continue;
         }
 
@@ -290,6 +286,8 @@ pub(crate) fn watch_hook() {
             continue;
         };
 
+        // The bytes decide, not the poll counter: "our jump is gone" is unambiguous, while "no
+        // polls" also happens in menus, cutscenes and with no controller connected.
         if unsafe { patch_is_ours(target) } || unsafe { import_slot_is_ours() } {
             if !warned {
                 log(
@@ -318,6 +316,7 @@ pub(crate) fn watch_hook() {
             match unsafe { hook_import_slot() } {
                 Ok(true) => {
                     attempts += 1;
+                    idle_ticks = 0;
                     log(
                         "XInputGetState: another mod owns the export's prologue — routed the \
                          game's import slot to our detour instead (no code patched, their hook \
@@ -339,13 +338,15 @@ pub(crate) fn watch_hook() {
         match hook_target(target) {
             Ok(()) => {
                 attempts += 1;
+                idle_ticks = 0;
                 log(&format!(
                     "XInputGetState: our patch was replaced — re-installed over it at {target:p} \
-                     after {idle_ticks}s without polls (previous hook chained)"
+                     (previous hook chained)"
                 ));
             }
             Err(e) => {
                 attempts += 1;
+                idle_ticks = 0;
                 log(&format!("XInputGetState: re-hook failed at {target:p}: {e}"));
             }
         }
@@ -588,6 +589,7 @@ fn adjust(state: &mut XInputState) {
     }
     LAST_PACKET.store(state.packet_number, Ordering::Relaxed);
     LAST_RUN_MS.store(now, Ordering::Relaxed);
+    PASSES.fetch_add(1, Ordering::Relaxed);
 
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
