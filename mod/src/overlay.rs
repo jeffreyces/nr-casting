@@ -102,7 +102,11 @@ impl Panel {
             by_id,
             weapons: load_weapon_names(),
             filter: String::new(),
-            show_all: false,
+            show_all: {
+                let show = crate::config::load().show_all;
+                SHOW_ALL.store(show, std::sync::atomic::Ordering::Relaxed);
+                show
+            },
             owned: HashSet::new(),
             owned_known: false,
             live_applied: false,
@@ -259,8 +263,13 @@ impl Panel {
     }
 
     pub fn set_show_all(&mut self, show: bool) {
+        if self.show_all == show {
+            return;
+        }
         self.show_all = show;
         SHOW_ALL.store(show, std::sync::atomic::Ordering::Relaxed);
+        // Planning mode survives a restart: the player toggled it on purpose.
+        crate::config::save_show_all(show);
     }
 
     pub fn spell_name(&self, id: i32) -> String {

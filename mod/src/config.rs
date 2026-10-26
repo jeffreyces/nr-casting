@@ -35,6 +35,8 @@ pub struct Config {
     pub overlay: bool,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
+    /// Panel planning mode: list spells the character cannot cast yet. Persisted when toggled.
+    pub show_all: bool,
     /// Who owns the Y+bumper chords (Y+R1 / Y+L1, the fourth slot).
     pub y_bumper: YBumper,
     pub y_bumper_name: String,
@@ -61,6 +63,7 @@ impl Default for Config {
             hotkey_name: "F8".to_string(),
             overlay: true,
             debug_log: false,
+            show_all: false,
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
             recluse_ids: vec![8131],
@@ -210,21 +213,53 @@ fn truthy(value: &str) -> bool {
 
 /// Parse the ini, writing a documented default file if it is missing. Unknown keys are
 /// ignored; malformed values fall back to the default and are logged.
+/// The ini the loader will use: beside the DLL when it exists, otherwise the data folder.
+fn ini_file() -> PathBuf {
+    let beside_dll = dir().join("nr_casting.ini");
+    if beside_dll.exists() {
+        return beside_dll;
+    }
+    let in_data = path("nr_casting.ini");
+    if in_data.exists() {
+        in_data
+    } else {
+        beside_dll
+    }
+}
+
+/// Remember the panel's planning-mode toggle across sessions.
+///
+/// The value is only read at startup, so this writes the ini rather than mutating the loaded
+/// `Config`; everything else about the file (comments, other keys) is preserved.
+pub fn save_show_all(show: bool) {
+    let file = ini_file();
+    let value = if show { "on" } else { "off" };
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut written = false;
+    for line in text.lines() {
+        let bare = line.split([';', '#']).next().unwrap_or("").trim();
+        if !written && bare.to_ascii_lowercase().starts_with("show_all") && bare.contains('=') {
+            out.push_str(&format!("show_all = {value}\n"));
+            written = true;
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if !written {
+        out.push_str(&format!("show_all = {value}\n"));
+    }
+    if let Err(e) = std::fs::write(&file, out) {
+        crate::log(&format!("config: could not save show_all: {e}"));
+    }
+}
+
 pub fn load() -> &'static Config {
     CONFIG.get_or_init(|| {
         // The ini ships with the package beside the DLL; a copy in the data folder is only
         // used if that one is missing, so editing the shipped file always takes effect.
-        let beside_dll = dir().join("nr_casting.ini");
-        let file = if beside_dll.exists() {
-            beside_dll
-        } else {
-            let in_data = path("nr_casting.ini");
-            if in_data.exists() {
-                in_data
-            } else {
-                beside_dll
-            }
-        };
+        let file = ini_file();
         if !file.exists() {
             let defaults = "\
 ; nr-casting — four spells per catalyst (bumper, trigger, Y + trigger, Y + bumper)
@@ -233,6 +268,8 @@ pub fn load() -> &'static Config {
 overlay = on
 ; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
 hotkey = F8
+; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
+show_all = off
 
 [recluse]
 ; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
@@ -292,6 +329,7 @@ debug_log = off
                         }
                     }
                     "debug_log" => config.debug_log = truthy(value),
+                    "show_all" => config.show_all = truthy(value),
                     "y_bumper" => match value.to_ascii_lowercase().as_str() {
                         "on" | "true" | "yes" => {
                             config.y_bumper = YBumper::On;

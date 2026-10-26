@@ -148,6 +148,7 @@ Two Manager behaviours are worth knowing:
 [ui]
 overlay = on             ; on | off — the panel window (casting works either way)
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
+show_all = off           ; list spells the character cannot cast yet (planning mode)
 
 [recluse]
 y_bumper = auto          ; auto | on | off — who gets Y+R1 / Y+L1
@@ -218,7 +219,7 @@ Two consequences:
 - **Assignments a character cannot cast are dropped when it loads**, which is what makes the
   shared-file case harmless: a fresh character never inherits spells its stats cannot use. The drop
   is skipped while `show everything` is enabled, since that is planning mode and uncastable picks
-  are the point.
+  are the point. That toggle is saved to the ini (`show_all`), so planning mode survives a restart.
 
 `reset slots` in the panel clears the loaded character's assignments outright, for when you want a
 character to start from nothing.

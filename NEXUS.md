@@ -94,6 +94,7 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 
 [code][ui]
 hotkey = F8
+show_all = off
 
 [recluse]
 y_bumper = auto
