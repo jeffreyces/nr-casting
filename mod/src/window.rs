@@ -412,6 +412,12 @@ impl App {
                 if ui.button("refresh") {
                     model.reload();
                 }
+                // Two characters with the same name, slot and appearance cannot be told apart, so
+                // the file is shared; this clears it for the one that is loaded.
+                if ui.button("reset slots") {
+                    crate::store::clear_character();
+                    model.reload();
+                }
                 let mut close = false;
                 if ui.button("close") {
                     close = true;
