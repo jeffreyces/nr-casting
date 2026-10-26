@@ -12,11 +12,12 @@
 //! `nr_casting_core` so it can be tested on the host.
 
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows::Win32::UI::Input::KeyboardAndMouse::{keybd_event, GetAsyncKeyState, KEYEVENTF_KEYUP};
 
 use nr_casting_core::{
-    raw_hide_shift, raw_kind, raw_keyboard, raw_mouse_buttons, raw_size, is_shift_vkey,
-    RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_DOWN, RAW_TYPE_KEYBOARD, RAW_TYPE_MOUSE,
+    is_shift_vkey, raw_hide_shift, raw_kind, raw_keyboard, raw_mouse_buttons, raw_set_mouse_buttons,
+    raw_size, RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN,
+    RI_MOUSE_RIGHT_BUTTON_UP, RAW_TYPE_KEYBOARD, RAW_TYPE_MOUSE,
 };
 
 use crate::stats;
@@ -70,6 +71,49 @@ fn pad_alive() -> bool {
 
 fn key_down(vk: i32) -> bool {
     ours(|| unsafe { GetAsyncKeyState(vk) }) < 0
+}
+
+/// The class port's own keyboard slots: 4 and 5, which its Y+R1 / Y+L1 chords map to.
+const RECLUSE_KEY_4: u8 = 0x34;
+const RECLUSE_KEY_5: u8 = 0x35;
+
+/// Hand an Alt chord to the class port when the fourth slot is not ours.
+///
+/// Letting the click through is not enough: the game ignores Alt, so it would perform a plain
+/// attack instead, and the port only listens for its own keys. The click is therefore swallowed
+/// (so the game does not also attack) and the port's key is pressed in its place — 4 for the
+/// right hand, 5 for the left. Returns whether the record was consumed.
+unsafe fn hand_off_to_recluse(record: &mut [u8]) -> bool {
+    if crate::input::y_bumper() || !key_down(VK_MENU) {
+        return false;
+    }
+    let Some(buttons) = raw_mouse_buttons(record) else {
+        return false;
+    };
+    let mut remaining = buttons;
+    let mut press: Option<(u8, bool)> = None;
+    for (down, up, key) in [
+        (RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RECLUSE_KEY_4),
+        (RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, RECLUSE_KEY_5),
+    ] {
+        if buttons & down != 0 {
+            remaining &= !down;
+            press = Some((key, false));
+        }
+        if buttons & up != 0 {
+            remaining &= !up;
+            press = Some((key, true));
+        }
+    }
+    let Some((key, released)) = press else {
+        return false;
+    };
+    if !raw_set_mouse_buttons(record, remaining) {
+        return false;
+    }
+    keybd_event(key, 0, if released { KEYEVENTF_KEYUP } else { Default::default() }, 0);
+    stats::handoff();
+    true
 }
 
 /// Steer the selected spell for a click the game is about to process.
@@ -187,8 +231,10 @@ fn visit_record(record: &mut [u8]) {
             if let Some(buttons) = raw_mouse_buttons(record) {
                 stats::mouse_buttons(buttons);
             }
-            // Safe: `raw_mouse_buttons` already rejected anything truncated.
-            unsafe { steer_click(record) };
+            // A chord that belongs to a class port is handed over instead of steered.
+            if !unsafe { hand_off_to_recluse(record) } {
+                unsafe { steer_click(record) };
+            }
         }
         Some(RAW_TYPE_KEYBOARD) => {
             if raw_keyboard(record).is_some() && !pad_alive() && raw_hide_shift(record) {

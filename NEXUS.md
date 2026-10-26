@@ -100,8 +100,8 @@ debug_log = off[/code]
 
 [code]y_bumper[/code]
 decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]: [code]auto[/code] takes them unless the Recluse mod is
-loaded and the character is a Recluse — there they pass through to the class port's own
-[b]4[/b] / [b]5[/b] keys — [code]on[/code] always takes them, [code]off[/code] gives vanilla
+loaded and the character is a Recluse — there the chord goes to the class port's own
+[b]4[/b] / [b]5[/b] keys (the pad report is left alone; an Alt click is translated into that key) — [code]on[/code] always takes them, [code]off[/code] gives vanilla
 two-handing back.
 
 [line]

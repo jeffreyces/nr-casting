@@ -21,6 +21,8 @@ static BUTTON_RECORDS: AtomicU32 = AtomicU32::new(0);
 /// Casts steered from a raw mouse click, and the last slot announced.
 static STEERED: AtomicU32 = AtomicU32::new(0);
 static STEERED_SLOT: AtomicU32 = AtomicU32::new(u32::MAX);
+/// Alt chords handed to the class port as its own key presses.
+static HANDOFF: AtomicU32 = AtomicU32::new(0);
 /// Shift presses rewritten as releases.
 static SHIFT_HIDDEN: AtomicU32 = AtomicU32::new(0);
 /// Key-state queries from the game, and how many were for the mouse buttons (the question the
@@ -86,6 +88,10 @@ pub(crate) fn steered(which: &str, slot: usize) {
     }
 }
 
+pub(crate) fn handoff() {
+    HANDOFF.fetch_add(1, Ordering::Relaxed);
+}
+
 pub(crate) fn shift_hidden() {
     SHIFT_HIDDEN.fetch_add(1, Ordering::Relaxed);
 }
@@ -104,7 +110,7 @@ pub(crate) fn key_poll(vk: i32) {
 pub(crate) fn raw_report() -> String {
     format!(
         "{} key polls (LMB {}, RMB {}); raw input: {} calls, {} buffer, {} mouse records, \
-         {} with buttons; {} casts steered, {} shift presses hidden",
+         {} with buttons; {} casts steered, {} handed to Recluse, {} shift presses hidden",
         KEY_POLLS.swap(0, Ordering::Relaxed),
         KEY_LMB.swap(0, Ordering::Relaxed),
         KEY_RMB.swap(0, Ordering::Relaxed),
@@ -113,6 +119,7 @@ pub(crate) fn raw_report() -> String {
         MOUSE_RECORDS.swap(0, Ordering::Relaxed),
         BUTTON_RECORDS.swap(0, Ordering::Relaxed),
         STEERED.swap(0, Ordering::Relaxed),
+        HANDOFF.swap(0, Ordering::Relaxed),
         SHIFT_HIDDEN.swap(0, Ordering::Relaxed),
     )
 }

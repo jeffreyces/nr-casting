@@ -189,8 +189,10 @@ With the panel installed:
 - Dropdowns list only spells the character **owns** and **can cast** (requirements met).
   `show everything` bypasses both for planning a build.
 - **On a Recluse character** the fourth row is greyed out and labelled *passthrough*: the chord
-  is handed to the class port, which binds it to its own `4` (Alt + left click, Y+R1) and `5`
-  (Alt + right click, Y+L1) keys.
+  goes to the class port, which binds it to its own `4` (Y+R1) and `5` (Y+L1) keys. With a
+  controller the pad report is simply left alone, so the port sees Y+R1 / Y+L1 itself; on
+  keyboard and mouse the Alt click is swallowed and `4` / `5` is pressed in its place — passing
+  the click through would only make the game perform a plain attack, since it ignores Alt.
 - **The HUD mirror is always on**: the right-hand weapon's first slot is mirrored onto the game's
   own spell wheel, so the game shows what R1 will cast.
 
