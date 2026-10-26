@@ -305,6 +305,11 @@ pub(crate) fn character_face_hash() -> Option<u32> {
     Some(hash)
 }
 
+/// The character's level.
+pub(crate) fn character_level() -> Option<u32> {
+    Some(game_data()?.level)
+}
+
 /// The network-side player id the game stores per character, and the event id.
 ///
 /// Logged while working out whether either can identify a character that was deleted and
