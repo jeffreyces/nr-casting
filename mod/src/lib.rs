@@ -211,6 +211,7 @@ fn run() {
     let mut world_was_live = false;
     let mut last_polls = 0u32;
     let mut last_passes = 0u32;
+    let mut last_unplugged = 0u32;
     loop {
         probe::maybe_validate();
         // A reload destroys the character and builds a new one. Logging the edge is what tells
@@ -260,11 +261,14 @@ fn run() {
         if debug_enabled() {
             let polls = POLLS.load(Ordering::Relaxed);
             let passes = PASSES.load(Ordering::Relaxed);
+            let unplugged = input::UNPLUGGED.load(Ordering::Relaxed);
             let (dp, dq) = (polls.wrapping_sub(last_polls), passes.wrapping_sub(last_passes));
+            let du = unplugged.wrapping_sub(last_unplugged);
             last_polls = polls;
             last_passes = passes;
+            last_unplugged = unplugged;
             log(&format!(
-                "input: {dp} polls, {dq} full passes, {} skipped as repeats",
+                "input: {dp} polls, {dq} full passes, {} skipped as repeats, {du} with no controller",
                 dp.saturating_sub(dq)
             ));
         }

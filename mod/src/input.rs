@@ -72,6 +72,9 @@ static TRAMPOLINE: std::sync::atomic::AtomicPtr<()> =
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
 /// Pad polls seen by our detour. Used to tell "the hook is dead" from "the game is not polling".
 pub(crate) static POLLS: AtomicU32 = AtomicU32::new(0);
+/// Polls where XInput said "no controller". Non-zero means the game still asks for the pad with
+/// nothing plugged in — which is what lets mouse casting keep working without one.
+pub(crate) static UNPLUGGED: AtomicU32 = AtomicU32::new(0);
 /// Polls that were not skipped as repeats — the work the gate saved. Reported when debug_log is on.
 pub(crate) static PASSES: AtomicU32 = AtomicU32::new(0);
 /// The `packet_number` of the last report we acted on. XInput only bumps it when the pad state
@@ -560,6 +563,9 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     let original: unsafe extern "system" fn(u32, *mut XInputState) -> u32 =
         std::mem::transmute(tramp);
     let ret = original(user, state);
+    if ret != 0 {
+        UNPLUGGED.fetch_add(1, Ordering::Relaxed);
+    }
     if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
         if ret == 0 {
             let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;

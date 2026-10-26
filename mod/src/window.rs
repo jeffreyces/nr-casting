@@ -44,7 +44,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG,
     PM_REMOVE, SW_HIDE, SW_SHOW,
     WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_NCHITTEST,
-    WM_ACTIVATE,
+    WM_ACTIVATE, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WS_THICKFRAME, MINMAXINFO,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE,
@@ -629,16 +629,24 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     }
                     Some(LRESULT(0))
                 }
-                WM_KEYDOWN | WM_KEYUP => {
+                WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
                     let vk = wparam.0 as u16;
+                    // Alt alone closes the panel before Windows builds its alt-tab list. The
+                    // panel is topmost, so otherwise the first alt-tab target is the game again
+                    // and the user can never reach another application. Closing here hands focus
+                    // back to the game first, so alt-tab behaves exactly as it would from the game.
+                    if vk == 0x12 && (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
+                        app.set_open(false);
+                        return Some(LRESULT(0));
+                    }
                     if let Some(key) = map_key(vk) {
                         // Bounded: a stuck focus can deliver auto-repeat for as long as nobody
                         // builds a frame, and this vector is only drained by one.
                         if app.input.keys.len() < 256 {
-                            app.input.keys.push((key, msg == WM_KEYDOWN));
+                            app.input.keys.push((key, msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN));
                         }
                     }
-                    if msg == WM_KEYDOWN && vk == 0x1B {
+                    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && vk == 0x1B {
                         app.set_open(false);
                     }
                     Some(LRESULT(0))
