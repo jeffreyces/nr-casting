@@ -553,11 +553,10 @@ fn hand_column(
         let off_for_recluse = !y_bumper && slot.weapon_slot == 3;
         ui.disabled(off_for_recluse, || {
             if off_for_recluse {
-                ui.text_disabled(if current > 0 {
-                    format!("{preview}  (Recluse class: off)")
-                } else {
-                    "(Recluse class: off)".to_string()
-                });
+                // Not "off": the chords still work on a Recluse, they just belong to the class
+                // port, which binds them to its own 4 and 5 keys.
+                let key = if slot.right_hand { "4" } else { "5" };
+                ui.text_disabled(format!("(Recluse class: passthrough to its {key} key)"));
             } else if let Some(picked) =
                 slot_combo(ui, &format!("##{prefix}{index}"), preview, current, candidates)
             {
