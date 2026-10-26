@@ -236,7 +236,8 @@ hotkey = F8
 
 [recluse]
 ; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
-; auto = ours unless the Recluse mod is loaded and this character is a Recluse
+; auto = ours unless the Recluse mod is loaded and this character is a Recluse,
+;        in which case the chords pass through to the class port (its 4 / 5 keys)
 ; on   = always ours (even on a Recluse character)
 ; off  = never ours
 y_bumper = auto

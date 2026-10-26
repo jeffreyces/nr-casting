@@ -649,6 +649,7 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
         down(VK_SHIFT),
         down(VK_CONTROL),
         down(VK_MENU),
+        y_bumper(),
     )
 }
 

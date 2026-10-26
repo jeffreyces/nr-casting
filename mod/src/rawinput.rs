@@ -86,9 +86,14 @@ unsafe fn steer_click(record: &[u8]) {
     if !left && !right || pad_alive() {
         return;
     }
-    if let Some((right_hand, slot, which)) =
-        nr_casting_core::mouse_route(left, right, key_down(VK_SHIFT), key_down(VK_CONTROL), key_down(VK_MENU))
-    {
+    if let Some((right_hand, slot, which)) = nr_casting_core::mouse_route(
+        left,
+        right,
+        key_down(VK_SHIFT),
+        key_down(VK_CONTROL),
+        key_down(VK_MENU),
+        crate::input::y_bumper(),
+    ) {
         if crate::input::steer_mouse(right_hand, slot) {
             stats::steered(which, slot);
         }

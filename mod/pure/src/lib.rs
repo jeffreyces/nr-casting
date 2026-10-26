@@ -144,12 +144,18 @@ pub fn mouse_route(
     shift: bool,
     ctrl: bool,
     alt: bool,
+    y_bumper: bool,
 ) -> Option<(bool, usize, &'static str)> {
     let hand = match (left, right) {
         (true, false) => true,
         (false, true) => false,
         _ => return None,
     };
+    // Alt carries the fourth slot, which is Recluse's on a Recluse character. Returning `None`
+    // leaves the click alone: the class port's own binding (its 4 and 5 keys) sees it instead.
+    if alt && !shift && !ctrl && !y_bumper {
+        return None;
+    }
     Some(match (shift, ctrl, alt) {
         (true, false, false) => (hand, 1, if hand { "shift + LMB" } else { "shift + RMB" }),
         (false, true, false) => (hand, 2, if hand { "ctrl + LMB" } else { "ctrl + RMB" }),
@@ -429,16 +435,24 @@ not a slot
 
     #[test]
     fn mouse_mapping_matches_the_pad() {
-        assert_eq!(mouse_route(true, false, false, false, false), Some((true, 0, "LMB")));
-        assert_eq!(mouse_route(false, true, false, false, false), Some((false, 0, "RMB")));
-        assert_eq!(mouse_route(true, false, false, true, false), Some((true, 2, "ctrl + LMB")));
-        assert_eq!(mouse_route(false, true, false, true, false), Some((false, 2, "ctrl + RMB")));
-        assert_eq!(mouse_route(true, false, false, false, true), Some((true, 3, "alt + LMB")));
-        assert_eq!(mouse_route(false, true, false, false, true), Some((false, 3, "alt + RMB")));
-        assert_eq!(mouse_route(true, false, true, false, false), Some((true, 1, "shift + LMB")));
-        assert_eq!(mouse_route(false, true, true, false, false), Some((false, 1, "shift + RMB")));
-        assert_eq!(mouse_route(true, true, false, false, false), None);
-        assert_eq!(mouse_route(false, false, false, false, false), None);
+        assert_eq!(mouse_route(true, false, false, false, false, true), Some((true, 0, "LMB")));
+        assert_eq!(mouse_route(false, true, false, false, false, true), Some((false, 0, "RMB")));
+        assert_eq!(mouse_route(true, false, false, true, false, true), Some((true, 2, "ctrl + LMB")));
+        assert_eq!(mouse_route(false, true, false, true, false, true), Some((false, 2, "ctrl + RMB")));
+        assert_eq!(mouse_route(true, false, false, false, true, true), Some((true, 3, "alt + LMB")));
+        assert_eq!(mouse_route(false, true, false, false, true, true), Some((false, 3, "alt + RMB")));
+        assert_eq!(mouse_route(true, false, true, false, false, true), Some((true, 1, "shift + LMB")));
+        assert_eq!(mouse_route(false, true, true, false, false, true), Some((false, 1, "shift + RMB")));
+        assert_eq!(mouse_route(true, true, false, false, false, true), None);
+        assert_eq!(mouse_route(false, false, false, false, false, true), None);
+        // On a Recluse character the Alt chords belong to the class port: nothing to steer.
+        assert_eq!(mouse_route(true, false, false, false, true, false), None);
+        assert_eq!(mouse_route(false, true, false, false, true, false), None);
+        // Every other combination is still ours there.
+        assert_eq!(
+            mouse_route(true, false, false, true, false, false),
+            Some((true, 2, "ctrl + LMB"))
+        );
     }
 
     #[test]

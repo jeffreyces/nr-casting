@@ -58,8 +58,8 @@ two-hand latch cannot fire mid-fight; `y_bumper = off` (see below) gives vanilla
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which uses
 Y+R1 / Y+L1 itself. `y_bumper = auto` takes those chords **unless** the Recluse mod is loaded and
-the character is a Recluse, so eight spells everywhere else and the class port keeps its own chords
-on its own character.
+the character is a Recluse, where they pass straight through to the class port instead — eight
+spells everywhere else, its own chords on its own character.
 
 The mouse uses the same eight slots with no separate configuration: the game performs the attack
 from its own click and the mod steers the selection first, exactly as it does for a pad press.
@@ -188,8 +188,9 @@ With the panel installed:
   out both mappings.
 - Dropdowns list only spells the character **owns** and **can cast** (requirements met).
   `show everything` bypasses both for planning a build.
-- **On a Recluse character** the fourth row is greyed out and labelled, because those chords
-  belong to the class port there.
+- **On a Recluse character** the fourth row is greyed out and labelled *passthrough*: the chord
+  is handed to the class port, which binds it to its own `4` (Alt + left click, Y+R1) and `5`
+  (Alt + right click, Y+L1) keys.
 - **The HUD mirror is always on**: the right-hand weapon's first slot is mirrored onto the game's
   own spell wheel, so the game shows what R1 will cast.
 
