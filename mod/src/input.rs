@@ -692,10 +692,8 @@ fn adjust(state: &mut XInputState) {
     if !due {
         // Every caller passes its own `XInputState`, so a repeated report still has to be
         // rewritten in place: skipping it handed the game Y+R2 (the chord) and the staff got
-        // two-handed instead of a spell cast. Only the game-memory work below is worth gating.
-        if !probe::validated() {
-            return;
-        }
+        // two-handed instead of a spell cast. This is pad-only work, so it happens before any
+        // game-memory check: a world that is not readable yet must not let a chord through.
         match route {
             Route::Cast {
                 right_hand, slot, ..
@@ -747,6 +745,20 @@ fn adjust(state: &mut XInputState) {
     if route == Route::Idle {
         idle(pad);
         return;
+    }
+
+    // Make the report safe before asking whether the world is readable: a chord that reaches the
+    // game while pointers are being re-validated is a two-hand, and the pad edit needs no game
+    // memory at all.
+    if let Route::Chord {
+        right_hand, slot, ..
+    } = route
+    {
+        if bound_spell(right_hand, slot) > 0 {
+            rewrite_cast(pad, right_hand);
+        } else {
+            swallow_chord(pad);
+        }
     }
 
     probe::maybe_validate();
