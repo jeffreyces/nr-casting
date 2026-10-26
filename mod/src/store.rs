@@ -95,21 +95,46 @@ pub(crate) fn sync_character() {
     set_character(&name, id);
 }
 
-/// The identity line for a slots file.
-fn marker_line(name: &str, id: u32, face: u32) -> String {
-    format!("# character face={face:08x} id={id} name={name}\n")
+/// What a slots file says about the character that owns it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Identity {
+    face: u32,
+    level: u32,
+    int: u32,
+    fai: u32,
+    arc: u32,
 }
 
-/// The face hash recorded in an existing slots file, if it has one.
-fn stored_face(path: &std::path::Path) -> Option<u32> {
+/// The identity line for a slots file.
+fn marker_line(name: &str, id: u32, who: Identity) -> String {
+    format!(
+        "# character face={:08x} id={id} name={name} level={} int={} fai={} arc={}\n",
+        who.face, who.level, who.int, who.fai, who.arc
+    )
+}
+
+/// Read the identity recorded in an existing slots file.
+fn stored_identity(path: &std::path::Path) -> Option<Identity> {
     let text = std::fs::read_to_string(path).ok()?;
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("# character face=") {
-            let hex = rest.split_whitespace().next()?;
-            return u32::from_str_radix(hex, 16).ok();
+    let line = text
+        .lines()
+        .find(|line| line.starts_with("# character face="))?;
+    let field = |key: &str| -> Option<u32> {
+        let rest = line.split_once(key)?.1;
+        let value = rest.split_whitespace().next()?;
+        if key == "face=" {
+            u32::from_str_radix(value, 16).ok()
+        } else {
+            value.parse().ok()
         }
-    }
-    None
+    };
+    Some(Identity {
+        face: field("face=")?,
+        level: field("level=")?,
+        int: field("int=")?,
+        fai: field("fai=")?,
+        arc: field("arc=")?,
+    })
 }
 
 /// Whether a slots file holds at least one weapon line.
@@ -174,11 +199,20 @@ pub(crate) fn set_character(name: &str, id: u32) {
     let path = config::path(&format!("nr_casting_slots_{slug}.txt"));
     let face = crate::game::character_face_hash().unwrap_or(0);
     let stamp = crate::game::character_stamp().unwrap_or(0);
+    let (int, fai, arc) = crate::game::player_stats().unwrap_or((0, 0, 0));
+    let level = crate::game::character_level().unwrap_or(0);
+    let who = Identity {
+        face,
+        level,
+        int,
+        fai,
+        arc,
+    };
     let mut rotated = false;
     // Same name and save slot, different character: the player deleted one and made another. The
     // old file is kept, and this character starts fresh instead of inheriting its spells.
-    if let Some(stored) = stored_face(&path) {
-        if stored != face && face != 0 {
+    if let Some(stored) = stored_identity(&path) {
+        if stored != who && face != 0 {
             let aside = config::path(&format!("nr_casting_slots_{slug}-replaced-{stamp:08x}.txt"));
             if std::fs::rename(&path, &aside).is_ok() {
                 rotated = true;
@@ -224,18 +258,20 @@ pub(crate) fn set_character(name: &str, id: u32) {
         Err(_) => return,
     }
     if let Ok(mut marker) = MARKER.lock() {
-        *marker = Some(marker_line(name, id, face));
+        *marker = Some(marker_line(name, id, who));
     }
-    // Record the identity in the file itself, so the next load can compare.
-    if stored_face(&path).is_none() {
+    // Record the identity in the file itself, so the next load can compare it.
+    if stored_identity(&path).is_none() {
         if let Ok(existing) = std::fs::read_to_string(&path) {
-            let _ = std::fs::write(&path, format!("{}{existing}", marker_line(name, id, face)));
+            let _ = std::fs::write(&path, format!("{}{existing}", marker_line(name, id, who)));
         }
     }
     reload_store();
+    prune_uncastable();
     let (player_id, event) = crate::game::character_extra_ids().unwrap_or((0, 0));
     log(&format!(
-        "slots: character {name} (id {id}, player {player_id}, event {event}, stamp {stamp:08x}, face {face:08x}) -> {}",
+        "slots: character {name} (id {id}, player {player_id}, event {event}, level {level}, \
+         int {int} fai {fai} arc {arc}, face {face:08x}) -> {}",
         slots_path().display()
     ));
 }
@@ -270,6 +306,52 @@ fn save_store(map: &HashMap<i32, Category>) {
     let text = format!("{marker}{}", nr_casting_core::format_slots(&entries));
     if let Err(e) = std::fs::write(slots_path(), text) {
         log(&format!("slots: FAILED to write {}: {e}", slots_path().display()));
+    }
+}
+
+/// Drop assignments whose spell the loaded character's stats cannot cast.
+///
+/// A file can be shared by two characters the game cannot tell apart (same name, same slot, same
+/// appearance). This is the guarantee that survives even then: nothing on file is ever presented
+/// for a spell the character could not cast. Skipped when the params are not readable yet — an
+/// empty requirement list must never wipe assignments.
+fn prune_uncastable() {
+    let (int, fai, arc) = match crate::game::player_stats() {
+        // All zero means the read landed before the character existed: pruning on that would
+        // wipe every assignment.
+        Some((0, 0, 0)) | None => return,
+        Some(stats) => stats,
+    };
+    let spells = crate::params::live_spells();
+    if spells.is_empty() {
+        return;
+    }
+    let requirements: HashMap<i32, (u32, u32, u32)> = spells
+        .iter()
+        .map(|spell| (spell.id, (spell.int, spell.fai, spell.arc)))
+        .collect();
+    let dropped = {
+        let mut map = store_lock();
+        let mut dropped = 0usize;
+        for (_, slots) in map.iter_mut() {
+            for slot in slots.iter_mut() {
+                let Some((need_int, need_fai, need_arc)) = requirements.get(slot) else {
+                    continue;
+                };
+                if *slot > 0 && (*need_int > int || *need_fai > fai || *need_arc > arc) {
+                    *slot = -1;
+                    dropped += 1;
+                }
+            }
+        }
+        dropped
+    };
+    if dropped > 0 {
+        let snapshot: HashMap<i32, Category> = store_lock().clone();
+        save_store(&snapshot);
+        log(&format!(
+            "slots: dropped {dropped} assignment(s) this character cannot cast"
+        ));
     }
 }
 
