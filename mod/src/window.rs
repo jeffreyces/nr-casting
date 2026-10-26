@@ -114,7 +114,7 @@ impl Model {
             panel: Panel::new(),
             weapons: (0, 0),
             search: String::new(),
-            show_all: false,
+            show_all: crate::config::load().show_all,
             status: "waiting for the player...".to_string(),
             candidates: Rc::new(Vec::new()),
             candidates_key: String::new(),
