@@ -38,8 +38,8 @@ mod window;
 // The panel and the probe read these through the crate root; re-exporting keeps one obvious
 // name for each instead of a module path in every call site.
 pub(crate) use game::{
-    inventory_goods_ids, magic_slots, player, player_stats, forget_borrowed, weapon_ids,
-    PLAYER_SPELL,
+    inventory_goods_ids, magic_slots, player, player_stats, forget_borrowed, forget_pointers,
+    weapon_ids, PLAYER_SPELL,
 };
 pub(crate) use logging::{debug_enabled, log};
 pub(crate) use store::{store_get, store_set};
@@ -223,6 +223,8 @@ fn run() {
                 // thread would corrupt memory the game still owns, and the crash would land
                 // somewhere unrelated (the load screen, the menu) minutes later.
                 forget_borrowed();
+                // The cached pointers belong to that character, too.
+                forget_pointers();
             }
         }
         // Build the spell catalogue as soon as the regulation is loaded, so the generated file
