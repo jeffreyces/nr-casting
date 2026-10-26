@@ -26,6 +26,46 @@ static CTRL: AtomicU32 = AtomicU32::new(0);
 static ALT: AtomicU32 = AtomicU32::new(0);
 static TRAMPOLINE: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 
+/// Raw-input counters: the other place a game can read the mouse from.
+static RAW_DATA_CALLS: AtomicU32 = AtomicU32::new(0);
+static RAW_BUFFER_CALLS: AtomicU32 = AtomicU32::new(0);
+static RAW_MOUSE_ENTRIES: AtomicU32 = AtomicU32::new(0);
+static RAW_BUTTON_EVENTS: AtomicU32 = AtomicU32::new(0);
+static RAW_TRAMP_DATA: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+static RAW_TRAMP_BUFFER: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+
+/// `GetRawInputData` / `GetRawInputBuffer` signatures, and the little of `RAWINPUT` needed to
+/// count mouse buttons.
+type RawInputDataFn = unsafe extern "system" fn(*mut u8, u32, *mut u8, *mut u32, u32) -> isize;
+type RawInputBufferFn = unsafe extern "system" fn(*mut u8, *mut u32, u32) -> u32;
+
+const RID_INPUT: u32 = 0x1000_0003;
+/// `RAWINPUTHEADER` on x64: dwType, dwSize, hDevice, wParam.
+const HEADER_SIZE: usize = 24;
+/// `RAWMOUSE.ulButtons` sits after usFlags (u16) + padding + itself.
+const MOUSE_BUTTONS_OFFSET: usize = 4;
+const RI_MOUSE_LEFT_BUTTON_DOWN: u32 = 0x0001;
+const RI_MOUSE_LEFT_BUTTON_UP: u32 = 0x0002;
+const RI_MOUSE_RIGHT_BUTTON_DOWN: u32 = 0x0004;
+const RI_MOUSE_RIGHT_BUTTON_UP: u32 = 0x0008;
+
+/// Count the button edges in one `RAWINPUT` record.
+unsafe fn count_buttons(record: *const u8) {
+    let kind = *(record as *const u32);
+    if kind != 0 {
+        return; // 0 = mouse, 1 = keyboard, 2 = HID
+    }
+    RAW_MOUSE_ENTRIES.fetch_add(1, Ordering::Relaxed);
+    let buttons = *(record.add(HEADER_SIZE + MOUSE_BUTTONS_OFFSET) as *const u32);
+    let mask = RI_MOUSE_LEFT_BUTTON_DOWN
+        | RI_MOUSE_LEFT_BUTTON_UP
+        | RI_MOUSE_RIGHT_BUTTON_DOWN
+        | RI_MOUSE_RIGHT_BUTTON_UP;
+    if buttons & mask != 0 {
+        RAW_BUTTON_EVENTS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 thread_local! {
     /// Set while our own code asks for key state, so the mod's own probes are not counted as the
     /// game's. Without it, `mouse_combo` alone would make the counters look alive.
@@ -68,6 +108,55 @@ pub(crate) fn ours<R>(f: impl FnOnce() -> R) -> R {
     })
 }
 
+/// `GetRawInputData` detour: count, then hand the call through untouched.
+unsafe extern "system" fn raw_data_detour(
+    hraw: *mut u8,
+    command: u32,
+    data: *mut u8,
+    size: *mut u32,
+    header_size: u32,
+) -> isize {
+    let tramp = RAW_TRAMP_DATA.load(Ordering::Acquire);
+    if tramp.is_null() {
+        return 0;
+    }
+    let original: RawInputDataFn = std::mem::transmute(tramp);
+    let out = original(hraw, command, data, size, header_size);
+    if command == RID_INPUT && !data.is_null() && out as usize > HEADER_SIZE {
+        RAW_DATA_CALLS.fetch_add(1, Ordering::Relaxed);
+        count_buttons(data);
+    }
+    out
+}
+
+/// `GetRawInputBuffer` detour: count every record in the buffer, then pass it back.
+unsafe extern "system" fn raw_buffer_detour(
+    data: *mut u8,
+    size: *mut u32,
+    header_size: u32,
+) -> u32 {
+    let tramp = RAW_TRAMP_BUFFER.load(Ordering::Acquire);
+    if tramp.is_null() {
+        return 0;
+    }
+    let original: RawInputBufferFn = std::mem::transmute(tramp);
+    let count = original(data, size, header_size);
+    if !data.is_null() && count > 0 {
+        RAW_BUFFER_CALLS.fetch_add(1, Ordering::Relaxed);
+        let mut record = data;
+        for _ in 0..count {
+            let record_size = *(record.add(4) as *const u32) as usize;
+            if record_size < HEADER_SIZE {
+                break;
+            }
+            count_buttons(record);
+            // Records are padded to 8 bytes each.
+            record = record.add((record_size + 7) & !7);
+        }
+    }
+    count
+}
+
 /// Hook `GetAsyncKeyState` read-only. Never fails the mod: if it cannot be installed, the counters
 /// simply stay at zero and the log says so.
 pub(crate) fn install() {
@@ -86,26 +175,63 @@ pub(crate) fn install() {
             Ok(raw) => {
                 if let Err(e) = raw.enable() {
                     crate::log(&format!("kbm: enable failed: {e:?}"));
-                    return;
+                } else {
+                    TRAMPOLINE.store(raw.trampoline() as *const () as *mut (), Ordering::Release);
+                    std::mem::forget(raw);
+                    crate::log("kbm: watching GetAsyncKeyState (read-only)");
                 }
-                TRAMPOLINE.store(raw.trampoline() as *const () as *mut (), Ordering::Release);
-                std::mem::forget(raw);
-                crate::log("kbm: watching GetAsyncKeyState (read-only)");
             }
             Err(e) => crate::log(&format!("kbm: RawDetour failed: {e:?}")),
         }
+        hook_read_only(
+            GetProcAddress(module, b"GetRawInputData\0".as_ptr()),
+            raw_data_detour as *const (),
+            &RAW_TRAMP_DATA,
+            "GetRawInputData",
+        );
+        hook_read_only(
+            GetProcAddress(module, b"GetRawInputBuffer\0".as_ptr()),
+            raw_buffer_detour as *const (),
+            &RAW_TRAMP_BUFFER,
+            "GetRawInputBuffer",
+        );
+    }
+}
+
+/// Install one pass-through detour, logging either way.
+fn hook_read_only(target: *mut u8, detour: *const (), tramp: &AtomicPtr<()>, name: &str) {
+    if target.is_null() {
+        crate::log(&format!("kbm: {name} not found"));
+        return;
+    }
+    match unsafe { retour::RawDetour::new(target as *const (), detour) } {
+        Ok(raw) => {
+            if let Err(e) = unsafe { raw.enable() } {
+                crate::log(&format!("kbm: {name} enable failed: {e:?}"));
+                return;
+            }
+            tramp.store(raw.trampoline() as *const () as *mut (), Ordering::Release);
+            std::mem::forget(raw);
+            crate::log(&format!("kbm: watching {name} (read-only)"));
+        }
+        Err(e) => crate::log(&format!("kbm: {name} RawDetour failed: {e:?}")),
     }
 }
 
 /// One line for the heartbeat: what the game asked for since the last call.
 pub(crate) fn report() -> String {
     format!(
-        "{} key polls (LMB {}, RMB {}, shift {}, ctrl {}, alt {})",
+        "{} key polls (LMB {}, RMB {}, shift {}, ctrl {}, alt {}); raw input: {} data, {} buffer, \
+         {} mouse records, {} button events",
         TOTAL.swap(0, Ordering::Relaxed),
         LMB.swap(0, Ordering::Relaxed),
         RMB.swap(0, Ordering::Relaxed),
         SHIFT.swap(0, Ordering::Relaxed),
         CTRL.swap(0, Ordering::Relaxed),
-        ALT.swap(0, Ordering::Relaxed)
+        ALT.swap(0, Ordering::Relaxed),
+        RAW_DATA_CALLS.swap(0, Ordering::Relaxed),
+        RAW_BUFFER_CALLS.swap(0, Ordering::Relaxed),
+        RAW_MOUSE_ENTRIES.swap(0, Ordering::Relaxed),
+        RAW_BUTTON_EVENTS.swap(0, Ordering::Relaxed),
     )
 }
