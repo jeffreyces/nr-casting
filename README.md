@@ -24,7 +24,7 @@ game's data is edited.
   the cast is the game's own.
 - **Offline only.** Launch through me3 with online play disabled so EAC never loads. Saves are
   never touched.
-- No data edits: assignments live in `nr_casting/nr_casting_slots.txt` beside the DLL, and nothing in
+- No data edits: assignments live in `nr_casting/nr_casting_slots_<character>.txt` beside the DLL, and nothing in
   `regulation.bin` is modified.
 - **Non-destructive.** No save file is ever written and no game data is modified. While casting, the
   mod borrows the spell slot the game already has selected and restores it as soon as the input is
@@ -114,7 +114,7 @@ Files from older builds (beside the DLL, or beside `eldenring.exe`) are moved in
 | file | what it is | created by |
 |---|---|---|
 | `nr_casting/nr_casting_catalogue.txt` | spell catalogue read from the running game | mod, first launch |
-| `nr_casting/nr_casting_slots.txt` | weapon → four spell ids | mod, when you assign in the panel |
+| `nr_casting/nr_casting_slots_<character>.txt` | weapon → four spell ids, per character | mod, when you assign in the panel |
 | `nr_casting/nr_casting_build.txt` | executable fingerprint the catalogue belongs to | mod |
 | `nr_casting/nr_casting_probe.log` | log, rotated at 4 MiB | mod |
 | `nr_casting/nr_casting_offsets.txt` | resolved RVA table + validation results | mod |
@@ -138,7 +138,7 @@ Two Manager behaviours are worth knowing:
 
 - **`start_online` is a profile field.** me3 keeps matchmaking off by default; if you turn that
   option on in the Manager, the game runs online and this mod is not supported there.
-- **Updating a mod replaces its folder**, so `nr_casting.ini` and `nr_casting_slots.txt` go with
+- **Updating a mod replaces its folder**, so `nr_casting.ini` and the `nr_casting_slots_*.txt` files go with
   it. Copy them somewhere safe before updating, or keep the assignments in a folder you point me3
   at yourself.
 
@@ -195,6 +195,50 @@ With the panel installed:
   the click through would only make the game perform a plain attack, since it ignores Alt.
 - **The HUD mirror is always on**: the right-hand weapon's first slot is mirrored onto the game's
   own spell wheel, so the game shows what R1 will cast.
+
+## Assignments are per character
+
+Spells are filed under the character's name, not just the weapon: `nr_casting_slots_<character>.txt`.
+The same catalyst on two characters therefore keeps two different sets of spells, which matters
+because the second character may not meet the requirements of the first one's picks — the panel's
+"owns and can cast" filter is only meaningful for the character you are playing.
+
+The panel's character line shows the name, so you can see which file is being edited. A new
+character starts with no assignments. On first run after upgrading, the old shared
+`nr_casting_slots.txt` is adopted by whichever character loads first and then renamed to
+`nr_casting_slots.migrated.txt`, so nothing you had assigned is lost.
+
+## Recluse compatibility
+
+[Recluse](https://www.nexusmods.com/eldenring/mods/11410) uses **Y+R1 / Y+L1** on the pad and
+**4 / 5** on the keyboard for its own actions. Those are the same inputs this mod would use for the
+fourth spell, so ownership is decided per character:
+
+| Input | Recluse installed, normal character | Recluse installed, Recluse character |
+|---|---|---|
+| Y+R1 (pad) | cast slot 4 | pad report left untouched — the port's own Y+R1 |
+| Y+L1 (pad) | cast slot 4 (left hand) | pad report left untouched — the port's own Y+L1 |
+| Alt + left click | cast slot 4 | click swallowed, the port's `4` key is pressed |
+| Alt + right click | cast slot 4 (left hand) | click swallowed, the port's `5` key is pressed |
+| Everything else | nr-casting | nr-casting |
+
+A click cannot simply be passed through on keyboard and mouse: the game ignores Alt, so it would
+perform a plain attack. Instead the click is removed from the report and the port's key is sent in
+its place. With a controller there is nothing to translate — the port reads the pad itself.
+
+A character counts as a Recluse when the `recluse_input.dll` / `recluse_ui.dll` modules are loaded
+**and** either the character id matches `recluse_chr_ids` (default `8131`) or an equipped catalyst
+is missing from the vanilla weapon table, which is how the class port's own catalysts are
+recognised.
+
+```ini
+[recluse]
+y_bumper = auto          ; auto | on | off
+recluse_chr_ids = 8131
+```
+
+`auto` is the table above; `on` claims the chords even on a Recluse character (the class port then
+loses them); `off` never claims them, which gives vanilla two-handing back on every character.
 
 ## Repository layout
 

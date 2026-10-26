@@ -41,8 +41,8 @@ mod window;
 // The panel and the probe read these through the crate root; re-exporting keeps one obvious
 // name for each instead of a module path in every call site.
 pub(crate) use game::{
-    inventory_goods_ids, magic_slots, player, player_stats, forget_borrowed, forget_pointers,
-    weapon_ids, PLAYER_SPELL,
+    character_name, inventory_goods_ids, magic_slots, player, player_stats, forget_borrowed,
+    forget_pointers, weapon_ids, PLAYER_SPELL,
 };
 pub(crate) use logging::{debug_enabled, log};
 pub(crate) use store::{store_get, store_set};
@@ -225,6 +225,11 @@ fn run() {
             world_was_live = world_live;
             if world_live {
                 log("world: character present");
+                // Assignments are per character: switch the store to this one's file before
+                // anything reads a slot.
+                if let Some(name) = game::character_name() {
+                    crate::store::set_character(&name);
+                }
                 // A new character may be a class that owns the Y+bumper chords.
                 refresh_y_bumper();
             } else {
