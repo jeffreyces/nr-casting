@@ -62,6 +62,17 @@ impl Spell {
     }
 }
 
+/// Whether the panel is listing spells the character cannot cast (planning mode).
+///
+/// Mirrored here because the slot store needs it too: unloading assignments a character cannot
+/// cast must not fight with a player who is deliberately planning a build.
+static SHOW_ALL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether planning mode is on: assignments are then left alone by the requirement check.
+pub(crate) fn show_all() -> bool {
+    SHOW_ALL.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct Panel {
     visible: bool,
     spells: Vec<Spell>,
@@ -249,6 +260,7 @@ impl Panel {
 
     pub fn set_show_all(&mut self, show: bool) {
         self.show_all = show;
+        SHOW_ALL.store(show, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn spell_name(&self, id: i32) -> String {
