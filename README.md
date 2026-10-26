@@ -2,12 +2,18 @@
 
 **R1/R2** cast the right-hand weapon's first two spells and **L1/L2** the left-hand weapon's,
 while leaving Elden Ring's own cast path intact — real FP costs, animations, i-frames and
-requirements. Holding **Y** turns each trigger into a third slot (**Y+R2**, **Y+L2**), so two
-staves carry six spells.
+requirements. Holding **Y** adds two more: **Y+R2 / Y+L2** for the third slot and **Y+R1 / Y+L1**
+for the fourth, so two staves carry eight spells.
 
 It reproduces Nightreign's casting layout — one spell on the bumper, one on the trigger, per staff —
-using only Elden Ring's data. The Y chord is the one addition: two-handing a staff does nothing, so
-that input is spent on a spell instead.
+using only Elden Ring's data. The Y chords are the addition: two-handing a staff does nothing, so
+those inputs are spent on spells instead.
+
+The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which
+uses Y+R1 / Y+L1 itself. `y_bumper = auto` (the default) takes those chords **unless** the Recluse
+mod is loaded *and* the character is a Recluse, so you get eight spells everywhere else and the
+class port keeps its own chords on its own character. `on` claims them regardless, `off` leaves
+them to the game.
 
 Assignment happens in game: press the panel hotkey, pick a slot, choose a spell. Nothing in the
 game's data is edited.
@@ -174,8 +180,9 @@ With the panel installed:
 
 - **The hotkey** opens the panel; while it is open the game's pointer is released and its
   mouse-look starved, and both are handed back when it closes.
-- **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L2. **Right column**: the
-  right-hand weapon with R1 / R2 / Y+R2. Each row shows its mouse binding beside the pad one.
+- **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L2 / Y+L1. **Right
+  column**: the right-hand weapon with R1 / R2 / Y+R2 / Y+R1. Each row shows its mouse binding
+  beside the pad one.
   **Middle**: your INT/FAI/ARC, the spell currently selected in game, search, the HUD mirror
   toggle. A footer spells out both mappings.
 - Dropdowns list only spells the character **owns** and **can cast** (requirements met).

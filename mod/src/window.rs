@@ -72,13 +72,15 @@ struct Slot {
     right_hand: bool,
 }
 
-const SLOTS: [Slot; 6] = [
+const SLOTS: [Slot; 8] = [
     Slot { label: "L1", mouse: "RMB", weapon_slot: 0, right_hand: false },
     Slot { label: "L2", mouse: "Shift+RMB", weapon_slot: 1, right_hand: false },
     Slot { label: "Y+L2", mouse: "Ctrl+RMB", weapon_slot: 2, right_hand: false },
+    Slot { label: "Y+L1", mouse: "Alt+RMB", weapon_slot: 3, right_hand: false },
     Slot { label: "R1", mouse: "LMB", weapon_slot: 0, right_hand: true },
     Slot { label: "R2", mouse: "Shift+LMB", weapon_slot: 1, right_hand: true },
     Slot { label: "Y+R2", mouse: "Ctrl+LMB", weapon_slot: 2, right_hand: true },
+    Slot { label: "Y+R1", mouse: "Alt+LMB", weapon_slot: 3, right_hand: true },
 ];
 
 /// Everything the panel shows, refreshed when it opens.
@@ -383,7 +385,7 @@ impl App {
                     ui,
                     "LEFT HAND",
                     model.weapons.0,
-                    [0, 1, 2],
+                    [0, 1, 2, 3],
                     "left",
                     &model.panel,
                     &candidates,
@@ -422,7 +424,7 @@ impl App {
                     ui,
                     "RIGHT HAND",
                     model.weapons.1,
-                    [3, 4, 5],
+                    [4, 5, 6, 7],
                     "right",
                     &model.panel,
                     &candidates,
@@ -433,11 +435,12 @@ impl App {
                 ui.columns(1, "footer", false);
                 ui.separator();
                 ui.text_disabled(
-                    "Pad:  R1/R2 = right hand,  L1/L2 = left hand,  Y + R2 / Y + L2 = third spell.",
+                    "Pad:  R1/R2 = right hand,  L1/L2 = left hand,  Y + R2 / Y + L2 = third spell,  \
+                     Y + R1 / Y + L1 = fourth spell (unless Recluse owns it).",
                 );
                 ui.text_disabled(
                     "Mouse:  LMB = R1,  RMB = L1,  Shift+LMB = R2,  Shift+RMB = L2,  \
-                     Ctrl+LMB = Y+R2,  Ctrl+RMB = Y+L2.",
+                     Ctrl+LMB = Y+R2,  Ctrl+RMB = Y+L2,  Alt+LMB = Y+R1,  Alt+RMB = Y+L1.",
                 );
                 ui.text_disabled("F8 opens and closes this panel;  Esc closes it.");
             });
@@ -514,7 +517,7 @@ fn hand_column(
     ui: &Ui,
     heading: &str,
     weapon: i32,
-    indices: [usize; 3],
+    indices: [usize; 4],
     prefix: &str,
     panel: &Panel,
     candidates: &[(i32, String)],
@@ -719,7 +722,7 @@ fn create_window() -> Option<HWND> {
             80,
             80,
             900,
-            560,
+            620,
             None,
             None,
             Some(instance.into()),

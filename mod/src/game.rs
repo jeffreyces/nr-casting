@@ -288,6 +288,18 @@ pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
     ))
 }
 
+/// Ids that identify the loaded character, for deciding whether a class port owns a chord.
+///
+/// `(character_event_id, character_id)`: the event id is the character template the save was
+/// made with, the chr id is the model the game spawned. A class port like Recluse ships its own
+/// model (`c8131`), so either number matching is enough to call the character that class.
+pub(crate) fn character_ids() -> Option<(i32, u32)> {
+    let player = player()?;
+    let chr_id = player.chr_ins.character_id;
+    let event_id = game_data().map(|pgd| pgd.character_event_id).unwrap_or(0);
+    Some((event_id, chr_id))
+}
+
 /// INT, FAI, ARC of the loaded character.
 pub(crate) fn player_stats() -> Option<(u32, u32, u32)> {
     let pgd = game_data()?;

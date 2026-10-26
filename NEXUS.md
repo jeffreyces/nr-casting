@@ -131,6 +131,7 @@ spells, and a full spell wheel is never displaced.
 [*][b]Class ports with their own HUD[/b] (Recluse and friends) [url=https://www.nexusmods.com/eldenring/mods/11410]Nightreign Recluse Full Port[/url]:
 [code]ERNativeUI.dll[/code]
  — no conflict: the panel never touches the game's swap chain, so their on-screen HUD keeps drawing.[/*]
+[*][b][url=https://www.nexusmods.com/eldenring/mods/510]Seamless Co-op[/url] — [/b]Utilizing this allows for online play with friends. EAC is still off. According to docs, friends also need this mod if one person has it.[/*]
 [*][b]Other overlay mods[/b] — no swap-chain conflict, but both drive the pointer while their window is open, so expect contention there.[/*]
 [*][b]Mod Engine 2[/b] — discontinued upstream, but the DLL is a plain native plugin.[/*]
 [*][b]Spell or selection mods[/b] — direct conflict, both write the game's magic selection.[/*]
