@@ -11,6 +11,7 @@
 //! presented there. If they stay at zero, it uses raw input and no user-mode forgery will work.
 
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
+use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 extern "system" {
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
@@ -125,6 +126,7 @@ unsafe extern "system" fn raw_data_detour(
     if command == RID_INPUT && !data.is_null() && out as usize > HEADER_SIZE {
         RAW_DATA_CALLS.fetch_add(1, Ordering::Relaxed);
         count_buttons(data);
+        steer_click(data);
     }
     out
 }
@@ -218,11 +220,68 @@ fn hook_read_only(target: *mut u8, detour: *const (), tramp: &AtomicPtr<()>, nam
     }
 }
 
-/// One line for the heartbeat: what the game asked for since the last call.
+/// When a pad poll last succeeded. Mouse casting falls back to raw input when this goes stale, so
+/// the two paths never fight over the same click.
+static LAST_PAD_OK: AtomicU32 = AtomicU32::new(0);
+/// Mouse casts steered through raw input, for the heartbeat.
+static STEERED: AtomicU32 = AtomicU32::new(0);
+/// Last slot announced, so a held click logs once.
+static STEER_LOGGED: AtomicU32 = AtomicU32::new(u32::MAX);
+
+fn millis() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u32)
+        .unwrap_or(0)
+}
+
+/// Called by the pad detour whenever a poll succeeds.
+pub(crate) fn note_pad_ok() {
+    LAST_PAD_OK.store(millis(), Ordering::Relaxed);
+}
+
+/// Whether a pad poll succeeded in the last two seconds.
+fn pad_alive() -> bool {
+    millis().wrapping_sub(LAST_PAD_OK.load(Ordering::Relaxed)) < 2000
+}
+
+/// Steer the selected spell for a click the game is about to process, with no pad involved.
+///
+/// The game casts from its own click once the magic entry points at the right spell, so this is
+/// the whole job: decide which hand and slot the click means, steer, and let the click through.
+unsafe fn steer_click(record: *const u8) {
+    if pad_alive() {
+        return; // the pad path already handles mouse input; do not steer twice
+    }
+    let buttons = *(record.add(HEADER_SIZE + MOUSE_BUTTONS_OFFSET) as *const u32);
+    let left = buttons & RI_MOUSE_LEFT_BUTTON_DOWN != 0;
+    let right = buttons & RI_MOUSE_RIGHT_BUTTON_DOWN != 0;
+    if !left && !right {
+        return;
+    }
+    // Modifiers come from our own reads; the game ignores them, which is what lets a ctrl or alt
+    // click reach it as a plain left/right click and cast the slot we just steered.
+    let down = |vk: i32| ours(|| unsafe { GetAsyncKeyState(vk) }) < 0;
+    let shift = down(0x10);
+    let ctrl = down(0x11);
+    let alt = down(0x12);
+    if let Some((right_hand, slot, which)) = nr_casting_core::mouse_route(left, right, shift, ctrl, alt)
+    {
+        if crate::input::steer_mouse(right_hand, slot) {
+            STEERED.fetch_add(1, Ordering::Relaxed);
+            let key = (slot as u32) << 1 | u32::from(right_hand);
+            if STEER_LOGGED.swap(key, Ordering::Relaxed) != key {
+                crate::log(&format!("mouse: {which} -> slot {slot}"));
+            }
+        }
+    }
+}
+
+
 pub(crate) fn report() -> String {
     format!(
         "{} key polls (LMB {}, RMB {}, shift {}, ctrl {}, alt {}); raw input: {} data, {} buffer, \
-         {} mouse records, {} button events",
+         {} mouse records, {} button events; {} mouse casts steered",
         TOTAL.swap(0, Ordering::Relaxed),
         LMB.swap(0, Ordering::Relaxed),
         RMB.swap(0, Ordering::Relaxed),
@@ -233,5 +292,6 @@ pub(crate) fn report() -> String {
         RAW_BUFFER_CALLS.swap(0, Ordering::Relaxed),
         RAW_MOUSE_ENTRIES.swap(0, Ordering::Relaxed),
         RAW_BUTTON_EVENTS.swap(0, Ordering::Relaxed),
+        STEERED.swap(0, Ordering::Relaxed),
     )
 }

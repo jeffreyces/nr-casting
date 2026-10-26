@@ -353,10 +353,17 @@ pub(crate) fn watch_hook() {
         }
 
         if !warned {
-            log(
-                "input: no pad polls received — another mod is intercepting XInput, so the \
-                 trigger/ash rewriting cannot work until it is removed or disabled.",
-            );
+            if UNPLUGGED.load(Ordering::Relaxed) > 0 || POLLS.load(Ordering::Relaxed) == 0 {
+                log(
+                    "input: no pad polls — no controller is connected, so the pad rewriting is \
+                     idle; mouse casts go through the raw-input path instead.",
+                );
+            } else {
+                log(
+                    "input: no pad polls received — another mod is intercepting XInput, so the \
+                     trigger/ash rewriting cannot work until it is removed or disabled.",
+                );
+            }
             warned = true;
         }
 
@@ -568,6 +575,7 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     }
     if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
         if ret == 0 {
+            crate::kbm::note_pad_ok();
             let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;
             if n == 1 || n.is_multiple_of(600) {
                 debug!(
@@ -991,6 +999,22 @@ fn rewrite_cast(pad: &mut XInputGamepad, right: bool) {
     } else {
         pad.buttons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
     }
+}
+
+/// Steer the game's selected spell for a mouse cast, without any pad involved.
+///
+/// The no-controller path: raw input tells us a mouse button went down, we point the magic entry
+/// at the bound spell, and the game's own click then performs the cast. Returns whether a spell
+/// was actually steered.
+pub(crate) fn steer_mouse(right: bool, slot: usize) -> bool {
+    if !probe::validated() {
+        return false;
+    }
+    let bound = bound_spell(right, slot);
+    if bound <= 0 {
+        return false;
+    }
+    select_spell(bound)
 }
 
 fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> bool {
