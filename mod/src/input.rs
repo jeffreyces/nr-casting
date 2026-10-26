@@ -699,12 +699,18 @@ fn adjust(state: &mut XInputState) {
         match route {
             Route::Cast {
                 right_hand, slot, ..
+            } => {
+                if bound_spell(right_hand, slot) > 0 {
+                    rewrite_cast(pad, right_hand);
+                }
             }
-            | Route::Chord {
+            Route::Chord {
                 right_hand, slot, ..
             } => {
                 if bound_spell(right_hand, slot) > 0 {
                     rewrite_cast(pad, right_hand);
+                } else {
+                    swallow_chord(pad);
                 }
             }
             Route::AshOfWar => pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB,
@@ -775,7 +781,8 @@ fn adjust(state: &mut XInputState) {
             label,
         } => {
             if !cast_slot(right_hand, slot, label, pad) && label.starts_with("Y+") {
-                debug!("input: {label} has no bound spell — trigger passed through");
+                debug!("input: {label} has no bound spell — chord swallowed, not two-handed");
+                swallow_chord(pad);
                 release_borrowed();
             }
         }
@@ -863,6 +870,17 @@ fn swallow_spell_inputs(pad: &mut XInputGamepad) {
         | config::load().modifier);
     pad.left_trigger = 0;
     pad.right_trigger = 0;
+}
+
+/// Swallow a Y chord that has no spell behind it.
+///
+/// Clearing only the shoulder and the triggers is not enough: the game would still see Y held and
+/// a shoulder press in the same report on the frames in between, which is its two-hand command.
+/// The player pressing Y+R1 with an empty fourth slot expects nothing to happen, not the staff
+/// to end up in both hands.
+fn swallow_chord(pad: &mut XInputGamepad) {
+    swallow_spell_inputs(pad);
+    pad.buttons &= !XINPUT_GAMEPAD_Y;
 }
 
 /// Cast the spell bound to `slot` of the weapon in `right`'s hand.

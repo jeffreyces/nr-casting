@@ -358,13 +358,20 @@ pub(crate) fn refresh_y_bumper() {
     let cfg = config::load();
     let loaded = recluse_loaded();
     let ids = game::character_ids();
-    let is_recluse = match ids {
+    let by_id = match ids {
         Some((event_id, chr_id)) => cfg
             .recluse_ids
             .iter()
             .any(|id| *id == event_id || (*id as u32) == chr_id),
         None => false,
     };
+    // The chr id the player reports is 0 in this build, so ids alone cannot recognise a class.
+    // A port ships its own catalyst, and that weapon id is missing from the vanilla table: the
+    // most reliable signal available without reading the port's own data.
+    let by_catalyst = game::weapon_ids()
+        .map(|(left, right)| !overlay::is_vanilla_weapon(left) || !overlay::is_vanilla_weapon(right))
+        .unwrap_or(false);
+    let is_recluse = by_id || by_catalyst;
     if let Some((event_id, chr_id)) = ids {
         let packed = (event_id as u32 as u64) << 32 | chr_id as u64;
         if CHARACTER_IDS.swap(packed, Ordering::Relaxed) != packed && cfg.debug_log {
@@ -373,13 +380,30 @@ pub(crate) fn refresh_y_bumper() {
             ));
         }
     }
+    // The ini decides, except that a Recluse character never gets the chords under `auto`:
+    // fighting the port on its own keybinds is the one outcome nobody wants.
     let allowed = match cfg.y_bumper {
         config::YBumper::On => true,
         config::YBumper::Off => false,
+        // Recluse present means the chords are its on its own character. Anywhere else they are
+        // ours, so nothing is lost for players who run the port for one character only.
         config::YBumper::Auto => !(loaded && is_recluse),
     };
+    let previous = Y_BUMPER_ALLOWED.swap(allowed, Ordering::Relaxed);
+    if previous != allowed {
+        log(&format!(
+            "input: Y+R1 / Y+L1 {} (recluse mod: {loaded}, recluse character: {is_recluse} \
+             [id: {by_id}, catalyst: {by_catalyst}], mode: {:?})",
+            if allowed { "are ours" } else { "left to Recluse" },
+            cfg.y_bumper
+        ));
+    }
     input::set_y_bumper(allowed);
 }
+
+/// The last value handed to `input::set_y_bumper`, so the decision is logged on change only.
+static Y_BUMPER_ALLOWED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
 
 fn log_foreign_modules() {
     match foreign_modules() {

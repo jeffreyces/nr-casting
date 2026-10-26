@@ -274,6 +274,28 @@ fn table_text(name: &str, embedded: &'static str) -> (String, &'static str) {
     }
 }
 
+/// Base weapon ids the vanilla table knows, built once from the embedded copy.
+fn vanilla_weapons() -> &'static std::collections::HashSet<i32> {
+    static SET: std::sync::OnceLock<std::collections::HashSet<i32>> = std::sync::OnceLock::new();
+    SET.get_or_init(|| {
+        WEAPONS_TABLE
+            .lines()
+            .filter_map(|line| line.split('#').next())
+            .filter_map(|line| line.split_once('='))
+            .filter_map(|(id, _)| id.trim().parse::<i32>().ok())
+            .collect()
+    })
+}
+
+/// Whether a weapon id came from the base game rather than from a content mod.
+///
+/// Paired weapons carry their upgrade level in the low two digits, so the base id is what the
+/// table lists. A class port ships its own catalysts, and those are exactly the ids that are
+/// missing here — which is how a Recluse character is recognised without knowing its chr id.
+pub(crate) fn is_vanilla_weapon(id: i32) -> bool {
+    id <= 0 || vanilla_weapons().contains(&(id - id % 100))
+}
+
 fn load_weapon_names() -> std::collections::HashMap<i32, String> {
     let (text, source) = table_text("nr_casting_weapons.txt", WEAPONS_TABLE);
     let mut map = std::collections::HashMap::new();
