@@ -1,7 +1,8 @@
 //! Per-weapon spell assignments: the in-memory store and its text file beside the DLL.
 //!
-//! Three slots per catalyst (bumper, trigger, Y chord). Parsing and formatting live in
-//! `nr_casting_core` so they can be tested without a game.
+//! Four slots per catalyst (bumper, trigger, Y+trigger chord, Y+bumper chord), one file per
+//! character. Parsing, formatting and the file name live in `nr_casting_core` so they can be
+//! tested without a game.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -15,7 +16,7 @@ use crate::logging::log;
 const NR_DEFAULTS: &str = "# weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell\n\
                            # Per character. Assign spells in the panel (F8); this file is written by the mod.\n";
 
-/// weapon param id -> [bumper spell, trigger spell]
+/// weapon param id -> [bumper, trigger, Y+trigger, Y+bumper] spell ids
 static STORE: OnceLock<Mutex<HashMap<i32, Category>>> = OnceLock::new();
 
 /// A panic while holding the store would otherwise poison it and, with `panic = "abort"`,
@@ -41,39 +42,6 @@ pub(crate) fn slots_path() -> std::path::PathBuf {
         Ok(Some(slug)) => config::path(&format!("nr_casting_slots_{slug}.txt")),
         _ => config::path("nr_casting_slots.txt"),
     }
-}
-
-/// A filename-safe, collision-resistant slug for a character name.
-///
-/// The hash suffix matters: two names that differ only in punctuation or case would otherwise
-/// share a file, which is the bug this whole scheme exists to avoid.
-fn slug(name: &str, id: u32) -> (String, String) {
-    let mut base = String::new();
-    let mut last_dash = false;
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() {
-            base.push(ch.to_ascii_lowercase());
-            last_dash = false;
-        } else if !last_dash && !base.is_empty() {
-            base.push('-');
-            last_dash = true;
-        }
-    }
-    while base.ends_with('-') {
-        base.pop();
-    }
-    base.truncate(24);
-    if base.is_empty() {
-        base.push_str("character");
-    }
-    // FNV-1a over the name *and* the save-level id: two characters with the same name must not
-    // share a file either.
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in name.as_bytes().iter().chain(&id.to_le_bytes()) {
-        hash ^= *byte as u32;
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    (base.clone(), format!("{base}-{hash:04x}"))
 }
 
 /// Keep the store on the loaded character's file. Cheap enough for the 500 ms watcher: two
@@ -143,7 +111,7 @@ fn adopt_previous_character_file(base: &str, target: &std::path::Path) {
 
 /// Switch the store to a character's file, creating it (and adopting the old shared file once).
 pub(crate) fn set_character(name: &str, id: u32) {
-    let (base, slug) = slug(name, id);
+    let (base, slug) = nr_casting_core::character_slug(name, id);
     {
         let Ok(current) = ACTIVE_SLUG.lock() else { return };
         if current.as_deref() == Some(slug.as_str()) {
