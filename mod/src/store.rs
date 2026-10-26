@@ -33,6 +33,10 @@ fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, Category>> {
 /// requirements met, so a shared file handed one character spells it could not cast.
 static ACTIVE_SLUG: Mutex<Option<String>> = Mutex::new(None);
 
+/// The `# character ...` line written into the file, so a deleted-and-recreated character with the
+/// same name and save slot can be told apart from the one whose assignments are in there.
+static MARKER: Mutex<Option<String>> = Mutex::new(None);
+
 /// Set once the pre-per-character file has been adopted by the first character that loaded.
 static MIGRATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -89,6 +93,23 @@ pub(crate) fn sync_character() {
         return;
     };
     set_character(&name, id);
+}
+
+/// The identity line for a slots file.
+fn marker_line(name: &str, id: u32, face: u32) -> String {
+    format!("# character face={face:08x} id={id} name={name}\n")
+}
+
+/// The face hash recorded in an existing slots file, if it has one.
+fn stored_face(path: &std::path::Path) -> Option<u32> {
+    let text = std::fs::read_to_string(path).ok()?;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("# character face=") {
+            let hex = rest.split_whitespace().next()?;
+            return u32::from_str_radix(hex, 16).ok();
+        }
+    }
+    None
 }
 
 /// Whether a slots file holds at least one weapon line.
@@ -151,6 +172,23 @@ pub(crate) fn set_character(name: &str, id: u32) {
         }
     }
     let path = config::path(&format!("nr_casting_slots_{slug}.txt"));
+    let face = crate::game::character_face_hash().unwrap_or(0);
+    let stamp = crate::game::character_stamp().unwrap_or(0);
+    let mut rotated = false;
+    // Same name and save slot, different character: the player deleted one and made another. The
+    // old file is kept, and this character starts fresh instead of inheriting its spells.
+    if let Some(stored) = stored_face(&path) {
+        if stored != face && face != 0 {
+            let aside = config::path(&format!("nr_casting_slots_{slug}-replaced-{stamp:08x}.txt"));
+            if std::fs::rename(&path, &aside).is_ok() {
+                rotated = true;
+                log(&format!(
+                    "slots: {name} is a different character than the one on file; kept that one as {}",
+                    aside.file_name().unwrap_or_default().to_string_lossy()
+                ));
+            }
+        }
+    }
     if !path.exists() {
         let legacy = config::path("nr_casting_slots.txt");
         // Only a legacy file that actually holds assignments is worth adopting: a header-only
@@ -177,7 +215,7 @@ pub(crate) fn set_character(name: &str, id: u32) {
         if !path.exists() {
             let _ = std::fs::write(&path, NR_DEFAULTS);
         }
-        if !has_assignments(&path) {
+        if !rotated && !has_assignments(&path) {
             adopt_previous_character_file(&base, &path);
         }
     }
@@ -185,9 +223,18 @@ pub(crate) fn set_character(name: &str, id: u32) {
         Ok(mut current) => *current = Some(slug),
         Err(_) => return,
     }
+    if let Ok(mut marker) = MARKER.lock() {
+        *marker = Some(marker_line(name, id, face));
+    }
+    // Record the identity in the file itself, so the next load can compare.
+    if stored_face(&path).is_none() {
+        if let Ok(existing) = std::fs::read_to_string(&path) {
+            let _ = std::fs::write(&path, format!("{}{existing}", marker_line(name, id, face)));
+        }
+    }
     reload_store();
     log(&format!(
-        "slots: character {name} (id {id}) -> {}",
+        "slots: character {name} (id {id}, stamp {stamp:08x}, face {face:08x}) -> {}",
         slots_path().display()
     ));
 }
@@ -214,7 +261,13 @@ pub(crate) fn reload_store() {
 
 fn save_store(map: &HashMap<i32, Category>) {
     let entries: Vec<(i32, Category)> = map.iter().map(|(id, spells)| (*id, *spells)).collect();
-    if let Err(e) = std::fs::write(slots_path(), nr_casting_core::format_slots(&entries)) {
+    let marker = MARKER
+        .lock()
+        .ok()
+        .and_then(|line| line.clone())
+        .unwrap_or_default();
+    let text = format!("{marker}{}", nr_casting_core::format_slots(&entries));
+    if let Err(e) = std::fs::write(slots_path(), text) {
         log(&format!("slots: FAILED to write {}: {e}", slots_path().display()));
     }
 }
