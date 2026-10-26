@@ -34,8 +34,8 @@ pub(crate) fn file_mtime() -> Option<std::time::SystemTime> {
 pub(crate) fn seed_store() {
     if !slots_path().exists() {
         // Empty on purpose: a release must not ship somebody else's weapons.
-        let defaults = "# weapon_param_id = bumper_spell, trigger_spell\n\
-                        # Hold the bind modifier + press R1/R2/L1/L2 in game to bind a spell.\n";
+        let defaults = "# weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell\n\
+                        # Assign spells in the panel (F8); this file is written by the mod.\n";
         let _ = std::fs::write(slots_path(), defaults);
         log("created default slots file");
     }

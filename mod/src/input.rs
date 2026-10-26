@@ -13,13 +13,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorInfo, GetForegroundWindow, GetWindowThreadProcessId, CURSORINFO, CURSOR_SHOWING,
 };
 
-use crate::game::{
-    release_borrowed, sample_player_selection, sample_player_selection_now, select_spell,
-    selection_is, weapon_ids, PLAYER_SPELL,
-};
+use crate::game::{release_borrowed, sample_player_selection, select_spell, selection_is, weapon_ids};
 use crate::logging::{debug, log};
-use crate::store::{store_get, store_set};
-use crate::{config, probe, UI_OPEN};
+use crate::store::store_get;
+use crate::{probe, UI_OPEN};
 
 const XINPUT_GAMEPAD_RIGHT_THUMB: u16 = 0x0080;
 const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
@@ -71,12 +68,7 @@ static TRAMPOLINE: std::sync::atomic::AtomicPtr<()> =
 
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
 /// Pad polls seen by our detour. Used to tell "the hook is dead" from "the game is not polling".
-pub(crate) static POLLS: AtomicU32 = AtomicU32::new(0);
-/// Polls where XInput said "no controller". Non-zero means the game still asks for the pad with
-/// nothing plugged in — which is what lets mouse casting keep working without one.
-pub(crate) static UNPLUGGED: AtomicU32 = AtomicU32::new(0);
 /// Polls that were not skipped as repeats — the work the gate saved. Reported when debug_log is on.
-pub(crate) static PASSES: AtomicU32 = AtomicU32::new(0);
 /// The `packet_number` of the last report we acted on. XInput only bumps it when the pad state
 /// actually changes, so a repeated number means a repeated report — there is nothing new to route.
 static LAST_PACKET: AtomicU32 = AtomicU32::new(u32::MAX);
@@ -87,7 +79,6 @@ static LAST_RUN_MS: AtomicU32 = AtomicU32::new(0);
 /// it caps the per-poll work at ~125 Hz however often the game polls.
 const POLL_INTERVAL_MS: u32 = 8;
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
-static LAST_CAPTURE_KEY: AtomicU32 = AtomicU32::new(u32::MAX);
 /// True once the current Y chord has had its "Y released" frame. Cleared when the chord ends.
 static CHORD_RELEASED: AtomicBool = AtomicBool::new(false);
 /// Whether the previous report already had Y down. A press that brings Y and the button in the
@@ -100,7 +91,6 @@ static LAST_PAD_LOG: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_MIRROR_MS: AtomicU32 = AtomicU32::new(0);
 /// When on, idle polls mirror the weapon's slot 1 into the selection so the game's
 /// own spell HUD shows what is bound. Locks the D-pad wheel while on (see README).
-pub(crate) static HUD_MIRROR: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn install_hook() -> Result<*mut u8, String> {
     unsafe {
@@ -290,7 +280,7 @@ pub(crate) fn watch_hook() {
     let mut attempts = 0;
     let mut warned = false;
     let mut tried_import_slot = false;
-    let mut last_polls = POLLS.load(Ordering::Relaxed);
+    let mut last_polls = crate::stats::pad_polls();
     let mut idle_ticks = 0u32;
 
     loop {
@@ -311,7 +301,7 @@ pub(crate) fn watch_hook() {
             continue;
         }
 
-        let polls = POLLS.load(Ordering::Relaxed);
+        let polls = crate::stats::pad_polls();
         if polls != last_polls {
             last_polls = polls;
             idle_ticks = 0;
@@ -353,7 +343,7 @@ pub(crate) fn watch_hook() {
         }
 
         if !warned {
-            if UNPLUGGED.load(Ordering::Relaxed) > 0 || POLLS.load(Ordering::Relaxed) == 0 {
+            if crate::stats::pad_unplugged_count() > 0 || crate::stats::pad_polls() == 0 {
                 log(
                     "input: no pad polls — no controller is connected, so the pad rewriting is \
                      idle; mouse casts go through the raw-input path instead.",
@@ -571,12 +561,12 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
         std::mem::transmute(tramp);
     let ret = original(user, state);
     if ret != 0 {
-        UNPLUGGED.fetch_add(1, Ordering::Relaxed);
+        crate::stats::pad_unplugged();
     }
     if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
         if ret == 0 {
-            crate::kbm::note_pad_ok();
-            let n = POLLS.fetch_add(1, Ordering::Relaxed) + 1;
+            crate::rawinput::note_pad_ok();
+            let n = crate::stats::pad_ok();
             if n == 1 || n.is_multiple_of(600) {
                 debug!(
                     "detour: poll #{n} (user {user}, buttons={:#06x})",
@@ -626,7 +616,7 @@ fn mouse_combo() -> Option<(bool, usize, &'static str)> {
     // foreground window and the cursor costs two more user32 calls (server round-trips under
     // Wine) that only matter once a click is actually down.
     // Ours: the counters in `kbm` exist to see what the *game* asks for.
-    let down = |vk: i32| crate::kbm::ours(|| unsafe { GetAsyncKeyState(vk) }) < 0;
+    let down = |vk: i32| crate::rawinput::ours(|| unsafe { GetAsyncKeyState(vk) }) < 0;
     let primary = down(VK_LBUTTON);
     let secondary = down(VK_RBUTTON);
     if !primary && !secondary {
@@ -689,15 +679,6 @@ pub(crate) fn set_y_bumper(allowed: bool) {
     }
 }
 
-/// Milliseconds since the epoch, truncated to 32 bits. Interval tests use wrapping subtraction,
-/// so the truncation is harmless and the whole thing is one `clock_gettime` (vDSO) call.
-fn millis() -> u32 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u32)
-        .unwrap_or(0)
-}
-
 fn adjust(state: &mut XInputState) {
     adjust_inner(state);
     let pad = &mut state.gamepad;
@@ -720,13 +701,29 @@ fn adjust(state: &mut XInputState) {
 /// Only asked while Y is down, and it is two store lookups per hand, so the cost never reaches a
 /// poll that isn't already handling a chord.
 fn chords_in_use() -> bool {
-    (2..nr_casting_core::SLOTS).any(|slot| {
-        bound_spell(true, slot) > 0 || bound_spell(false, slot) > 0
-    })
+    // Keyed on the equipped pair: the answer only changes when the weapons do, and this is read
+    // on every poll while Y is held. Recomputing it was up to four store-lock acquisitions per
+    // poll — five hundred a second at the 125 Hz cap — for an answer that had not changed.
+    let Some((left, right)) = weapon_ids() else {
+        return false;
+    };
+    let key = (left as u32 as u64) << 32 | right as u32 as u64;
+    if CHORDS_KEY.load(Ordering::Relaxed) == key {
+        return CHORDS_IN_USE.load(Ordering::Relaxed);
+    }
+    let answer = (2..nr_casting_core::SLOTS)
+        .any(|slot| bound_on(right, slot) > 0 || bound_on(left, slot) > 0);
+    CHORDS_IN_USE.store(answer, Ordering::Relaxed);
+    CHORDS_KEY.store(key, Ordering::Relaxed);
+    answer
 }
 
+/// The weapon pair the cached chord answer belongs to, and the answer itself.
+static CHORDS_KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+static CHORDS_IN_USE: AtomicBool = AtomicBool::new(false);
+
 fn adjust_inner(state: &mut XInputState) {
-    let now = millis();
+    let now = crate::millis();
     let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
         || now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) >= POLL_INTERVAL_MS;
     LAST_PACKET.store(state.packet_number, Ordering::Relaxed);
@@ -736,7 +733,7 @@ fn adjust_inner(state: &mut XInputState) {
     let y_before = Y_BEFORE.swap(held.buttons & XINPUT_GAMEPAD_Y != 0, Ordering::Relaxed);
     // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
     // function only carries out the answer. It is pure and cheap, so it runs on every poll.
-    let route = nr_casting_core::route(&held, config::load().modifier, y_bumper());
+    let route = nr_casting_core::route(&held, y_bumper());
 
     // A Y chord must not look like Y + RB to the game. The game decides "two-hand" from a Y press
     // and a shoulder press close together in time, not necessarily from one report, so the first
@@ -788,15 +785,13 @@ fn adjust_inner(state: &mut XInputState) {
                 }
             }
             Route::AshOfWar => pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB,
-            // Binding must not also attack: swallow the same inputs the capturing pass did.
-            Route::Capture { .. } => swallow_spell_inputs(pad),
             _ => {}
         }
         return;
     }
 
     LAST_RUN_MS.store(now, Ordering::Relaxed);
-    PASSES.fetch_add(1, Ordering::Relaxed);
+    crate::stats::pass();
 
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
@@ -843,21 +838,6 @@ fn adjust_inner(state: &mut XInputState) {
     }
 
     match route {
-        Route::Capture {
-            right_hand,
-            slot,
-            label,
-        } => {
-            // Bind the spell selected *now*: the throttled sample can be up to 100 ms old and
-            // the player may have flicked the wheel since.
-            sample_player_selection_now();
-            let Some((left_id, right_id)) = weapon_ids() else {
-                debug!("input: no weapon ids (player data unreadable)");
-                return;
-            };
-            let weapon = if right_hand { right_id } else { left_id };
-            capture(pad, weapon, slot, label);
-        }
         Route::Chord {
             right_hand,
             slot,
@@ -913,12 +893,12 @@ fn idle(pad: &mut XInputGamepad) {
         return;
     }
     release_borrowed();
-    if !HUD_MIRROR.load(Ordering::Relaxed) || UI_OPEN.load(Ordering::Relaxed) {
+    if UI_OPEN.load(Ordering::Relaxed) {
         return;
     }
     // Mirroring is a HUD convenience, not an input path: 30 Hz is plenty, and each pass is a
     // weapon read plus a selection compare (three `VirtualQuery` calls each) on the poll thread.
-    let now = millis();
+    let now = crate::millis();
     if now.wrapping_sub(LAST_MIRROR_MS.load(Ordering::Relaxed)) < 33 {
         return;
     }
@@ -933,29 +913,8 @@ fn idle(pad: &mut XInputGamepad) {
     }
 }
 
-/// Bind whatever the wheel has selected to `slot`, and swallow the press so binding never also
-/// casts.
-fn capture(pad: &mut XInputGamepad, weapon: i32, slot: usize, which: &str) {
-    let key = (weapon as u32) << 8 | slot as u32;
-    if LAST_CAPTURE_KEY.swap(key, Ordering::Relaxed) == key {
-        // Same press as the last poll: swallow it without binding twice.
-        swallow_spell_inputs(pad);
-        return;
-    }
-    let spell = PLAYER_SPELL.load(Ordering::Relaxed);
-    if spell > 0 {
-        store_set(weapon, slot, spell);
-        log(&format!("capture: {which} on {weapon} = spell {spell}"));
-    } else {
-        log(&format!("capture: {which} on {weapon} — no spell selected yet"));
-    }
-    swallow_spell_inputs(pad);
-}
-
 fn swallow_spell_inputs(pad: &mut XInputGamepad) {
-    pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER
-        | XINPUT_GAMEPAD_RIGHT_SHOULDER
-        | config::load().modifier);
+    pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER);
     pad.left_trigger = 0;
     pad.right_trigger = 0;
 }
@@ -980,7 +939,11 @@ fn bound_spell(right: bool, slot: usize) -> i32 {
     let Some((left_id, right_id)) = weapon_ids() else {
         return -1;
     };
-    let weapon = if right { right_id } else { left_id };
+    bound_on(if right { right_id } else { left_id }, slot)
+}
+
+/// The spell bound to `slot` of one weapon id, `-1` when unbound.
+fn bound_on(weapon: i32, slot: usize) -> i32 {
     store_get(weapon)
         .map(|s| s.get(slot).copied().unwrap_or(-1))
         .unwrap_or(-1)

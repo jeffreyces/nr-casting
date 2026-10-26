@@ -171,7 +171,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
 /// Sample the spell the player has selected, i.e. anything that is not our scratch
 /// entry. Throttled: the poll path calls this once per XInput poll, and the read is three
 /// `VirtualQuery` calls down a pointer chain. 100 ms is far below what the panel's "selected"
-/// line can show, and `sample_player_selection_now` covers the one place that needs the exact
+/// line can show.
 /// value (binding).
 pub(crate) fn sample_player_selection() {
     static LAST: AtomicU64 = AtomicU64::new(0);
@@ -187,10 +187,6 @@ pub(crate) fn sample_player_selection() {
 }
 
 /// Sample without the throttle. For binding: the spell captured must be the one selected at the
-/// press, not one from up to 100 ms ago.
-pub(crate) fn sample_player_selection_now() {
-    sample_now();
-}
 
 fn sample_now() {
     let Some(magic) = magic_data() else { return };

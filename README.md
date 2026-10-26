@@ -38,32 +38,35 @@ Elden Ring already casts on R1 and L1 with a catalyst in that hand — it casts 
 
 | input | mouse / keyboard | vanilla | with this mod |
 |---|---|---|---|
-| R1 (right hand) | left click | cast the selected spell | cast **slot 1** of the right-hand weapon |
-| L1 (left hand) | right click | cast the selected spell | cast **slot 1** of the left-hand weapon |
+| Pad | Mouse | Without the mod | With the mod |
+|---|---|---|---|
+| R1 | left click | cast the selected spell | cast **slot 1** of the right-hand weapon |
 | R2 | shift + left click | heavy attack | cast **slot 2** of the right-hand weapon |
-| L2 | shift + right click | ash of war | cast **slot 2** of the left-hand weapon |
 | **Y + R2** | ctrl + left click | two-hand stance, then heavy attack | cast **slot 3** of the right-hand weapon |
+| **Y + R1** | alt + left click | two-hand the right-hand weapon | cast **slot 4** of the right-hand weapon |
+| L1 | right click | cast the selected spell | cast **slot 1** of the left-hand weapon |
+| L2 | shift + right click | ash of war | cast **slot 2** of the left-hand weapon |
 | **Y + L2** | ctrl + right click | — | cast **slot 3** of the left-hand weapon |
+| **Y + L1** | alt + right click | two-hand the left-hand weapon | cast **slot 4** of the left-hand weapon |
 | **R3 + L2** | — | — | **unchanged vanilla L2**, so the ash of war still fires (R3 itself is swallowed) |
 
-Two-handing a staff is pointless, so the two-hand chord is spent on a third spell per catalyst
-instead: **Y + R2** and **Y + L2** carry their own slot, giving six spells across two staves.
-That press is not rewritten into a shoulder press while Y is held — the mod clears Y for the
-frame so the game performs a plain cast, which also keeps a class-port mod's `Y + RB` / `Y + LB`
-skill chords working (they read the raw pad, beneath our hook).
+Two-handing a staff is pointless, so those chords are spent on spells instead: **Y + R2 / Y + L2**
+carry a third slot and **Y + R1 / Y + L1** a fourth, giving eight spells across two staves. A chord
+is never handed to the game as Y plus a shoulder press — the mod drops Y from the report and lets
+the game see a plain cast. While any Y chord is bound, Y never reaches the game at all, so its
+two-hand latch cannot fire mid-fight; `y_bumper = off` (see below) gives vanilla two-handing back.
 
-The mouse bindings are the same six slots, with no separate configuration: the game performs the
-attack from its own click and the mod steers the selection, exactly as it does for a pad press.
-Clicks are ignored while the panel is open or another window has focus.
+The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which uses
+Y+R1 / Y+L1 itself. `y_bumper = auto` takes those chords **unless** the Recluse mod is loaded and
+the character is a Recluse, so eight spells everywhere else and the class port keeps its own chords
+on its own character.
 
-Two pieces make that work:
-
-1. **`XInputGetState` is detoured**, so R2/L2 are rewritten into shoulder presses before the game
-   picks an action. The game then runs its normal cast — casting is never reimplemented. Holding
-   R3 skips the rewrite for that press, which is how the ash of war keeps its own input.
-2. **The selection is steered per press**: `EquipMagicData.entries[].param_id` and
-   `selected_slot` are pointed at the bound spell as the input is read. Steering has to be
-   press-scoped, because two inputs on the same weapon must cast different spells.
+The mouse uses the same eight slots with no separate configuration: the game performs the attack
+from its own click and the mod steers the selection first, exactly as it does for a pad press.
+Clicks are ignored while the panel is open or another window has focus. With **no controller
+connected** the mod hides Shift from the game (`GetAsyncKeyState` and its raw keyboard records), so
+Shift + click arrives as a plain click and casts instead of being read as the game's strong attack;
+Ctrl and Alt are ignored by the game already, which is why they can carry slots too.
 
 The panel is Dear ImGui drawn into a borderless window of the mod's own, with its own D3D11 device
 created the first time you open it. It is deliberately *not* an overlay on the game's swap chain:
@@ -111,7 +114,7 @@ Files from older builds (beside the DLL, or beside `eldenring.exe`) are moved in
 | file | what it is | created by |
 |---|---|---|
 | `nr_casting/nr_casting_catalogue.txt` | spell catalogue read from the running game | mod, first launch |
-| `nr_casting/nr_casting_slots.txt` | weapon → two spell ids | mod, on first bind |
+| `nr_casting/nr_casting_slots.txt` | weapon → four spell ids | mod, when you assign in the panel |
 | `nr_casting/nr_casting_build.txt` | executable fingerprint the catalogue belongs to | mod |
 | `nr_casting/nr_casting_probe.log` | log, rotated at 4 MiB | mod |
 | `nr_casting/nr_casting_offsets.txt` | resolved RVA table + validation results | mod |
@@ -146,11 +149,9 @@ Two Manager behaviours are worth knowing:
 overlay = on             ; on | off — the panel window (casting works either way)
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 
-[input]
-bind_modifier = L3       ; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN
-
-[display]
-hud_mirror = off         ; show slot 1 on the game HUD (locks the D-pad wheel while on)
+[recluse]
+y_bumper = auto          ; auto | on | off — who gets Y+R1 / Y+L1
+recluse_chr_ids = 8131   ; character ids that count as a Recluse
 
 [logging]
 debug_log = off          ; log every cast, not just captures and errors
@@ -160,9 +161,9 @@ Malformed values are logged and the default kept.
 
 ## Using the panel
 
-The panel is optional. Assignment also works without it: select the spell you want in the game's
-menu, then hold the bind modifier and press the bumper/trigger you want it on. The panel exists to
-save that trip through the menu.
+Assignments are made in the panel. There is deliberately no bind gesture on the pad: a
+hold-a-modifier-and-press gesture collides with class-port mods that use the same chords, and it
+could not work at all on keyboard and mouse.
 
 `overlay` decides whether the hotkey can open the panel at all:
 
@@ -183,13 +184,14 @@ With the panel installed:
 - **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L2 / Y+L1. **Right
   column**: the right-hand weapon with R1 / R2 / Y+R2 / Y+R1. Each row shows its mouse binding
   beside the pad one.
-  **Middle**: your INT/FAI/ARC, the spell currently selected in game, search, the HUD mirror
-  toggle. A footer spells out both mappings.
+  **Middle**: your INT/FAI/ARC, the spell currently selected in game, and search. A footer spells
+  out both mappings.
 - Dropdowns list only spells the character **owns** and **can cast** (requirements met).
   `show everything` bypasses both for planning a build.
-- **Binding without the panel**: hold the configured modifier and press R1/R2/L1/L2 to bind
-  whatever spell is selected in the game's own wheel. The third slot is bound from the panel only —
-  the modifier gesture would collide with Y.
+- **On a Recluse character** the fourth row is greyed out and labelled, because those chords
+  belong to the class port there.
+- **The HUD mirror is always on**: the right-hand weapon's first slot is mirrored onto the game's
+  own spell wheel, so the game shows what R1 will cast.
 
 ## Repository layout
 
@@ -197,6 +199,8 @@ With the panel installed:
 mod/       the DLL:
   src/lib.rs        entry point, init sequence, module bookkeeping
   src/input.rs      the XInput hook, hook chaining and the cast/steer logic
+  src/rawinput.rs   the keyboard/mouse path: raw input, Shift hiding, mouse steering
+  src/stats.rs      input counters for the log
   src/game.rs       reads of the player, magic slots, inventory and stats
   src/store.rs      per-weapon assignments and their text file
   src/logging.rs    the log file and the debug gate
@@ -227,8 +231,8 @@ cd mod/pure && cargo test
 ```
 
 That covers which input means which slot, which input wins when several are held (ash of war,
-then binding, then the Y chord, then a plain cast), the mouse mapping, and slot files written by
-older versions. Everything else needs the live game.
+then the Y chords, then a plain cast), the mouse mapping, the raw-input record layout and Shift
+hiding, and slot files written by older versions. Everything else needs the live game.
 
 ## Building
 

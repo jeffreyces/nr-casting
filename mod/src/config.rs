@@ -31,13 +31,8 @@ pub struct Config {
     pub hotkey: i32,
     /// How the hotkey is spelled in the ini, for log messages.
     pub hotkey_name: String,
-    /// XInput button bit that starts a bind when held with a spell input.
-    pub modifier: u16,
-    pub modifier_name: String,
     /// Open the assignment panel window. Off = casting only.
     pub overlay: bool,
-    /// Mirror slot 1 onto the game's HUD while the panel is closed.
-    pub hud_mirror: bool,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
     /// Who owns the Y+bumper chords (Y+R1 / Y+L1, the fourth slot).
@@ -64,10 +59,7 @@ impl Default for Config {
         Config {
             hotkey: 0x77, // F8
             hotkey_name: "F8".to_string(),
-            modifier: 0x0040, // L3
-            modifier_name: "L3".to_string(),
             overlay: true,
-            hud_mirror: false,
             debug_log: false,
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
@@ -208,17 +200,6 @@ fn hotkey_code(name: &str) -> Option<i32> {
     })
 }
 
-fn modifier_bits(name: &str) -> Option<(u16, &'static str)> {
-    Some(match name.trim().to_ascii_uppercase().as_str() {
-        "L3" | "LS" | "LEFT_THUMB" => (0x0040, "L3"),
-        "R3" | "RS" | "RIGHT_THUMB" => (0x0080, "R3"),
-        "LB" | "L1_BUTTON" => (0x0100, "LB"),
-        "RB" | "R1_BUTTON" => (0x0200, "RB"),
-        "DPAD_UP" | "UP" => (0x0001, "D-pad Up"),
-        "DPAD_DOWN" | "DOWN" => (0x0002, "D-pad Down"),
-        _ => return None,
-    })
-}
 
 fn truthy(value: &str) -> bool {
     matches!(
@@ -252,16 +233,6 @@ pub fn load() -> &'static Config {
 overlay = on
 ; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
 hotkey = F8
-
-[input]
-; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in game.
-; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN
-bind_modifier = L3
-
-[display]
-; Mirror slot 1 onto the game's HUD while the panel is closed.
-; The D-pad wheel is locked while this is on, so turn it off to bind spells.
-hud_mirror = off
 
 [recluse]
 ; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
@@ -304,16 +275,6 @@ debug_log = off
                             config.hotkey_name
                         )),
                     },
-                    "bind_modifier" => match modifier_bits(value) {
-                        Some((bits, name)) => {
-                            config.modifier = bits;
-                            config.modifier_name = name.to_string();
-                        }
-                        None => crate::log(&format!(
-                            "config: bind_modifier '{value}' is not recognised, keeping {}",
-                            config.modifier_name
-                        )),
-                    },
                     // "auto" is accepted for older installs: the panel no longer hooks the
                     // game's swap chain, so there is nothing to skip automatically.
                     "overlay" => {
@@ -329,7 +290,6 @@ debug_log = off
                             config.overlay = truthy(value);
                         }
                     }
-                    "hud_mirror" => config.hud_mirror = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     "y_bumper" => match value.to_ascii_lowercase().as_str() {
                         "on" | "true" | "yes" => {
