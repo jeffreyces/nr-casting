@@ -213,7 +213,14 @@ pub(crate) fn set_character(name: &str, id: u32) {
     // old file is kept, and this character starts fresh instead of inheriting its spells.
     if let Some(stored) = stored_identity(&path) {
         if stored != who && face != 0 {
-            let aside = config::path(&format!("nr_casting_slots_{slug}-replaced-{stamp:08x}.txt"));
+            // Unique per rotation: the character's own stamp reads 0 in this build, so the
+            // clock is the only thing that can keep two rotations from colliding.
+            let seconds = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let aside =
+                config::path(&format!("nr_casting_slots_{slug}-replaced-{seconds}.txt"));
             if std::fs::rename(&path, &aside).is_ok() {
                 rotated = true;
                 log(&format!(
