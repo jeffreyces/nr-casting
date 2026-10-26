@@ -305,6 +305,15 @@ pub(crate) fn character_face_hash() -> Option<u32> {
     Some(hash)
 }
 
+/// The network-side player id the game stores per character, and the event id.
+///
+/// Logged while working out whether either can identify a character that was deleted and
+/// recreated with the same name, slot and appearance.
+pub(crate) fn character_extra_ids() -> Option<(u32, i32)> {
+    let pgd = game_data()?;
+    Some((pgd.player_id, pgd.character_event_id))
+}
+
 /// The save-level timestamp the game stores for the character, for the log only.
 pub(crate) fn character_stamp() -> Option<u32> {
     Some(game_data()?.packed_time_stamp)

@@ -233,8 +233,9 @@ pub(crate) fn set_character(name: &str, id: u32) {
         }
     }
     reload_store();
+    let (player_id, event) = crate::game::character_extra_ids().unwrap_or((0, 0));
     log(&format!(
-        "slots: character {name} (id {id}, stamp {stamp:08x}, face {face:08x}) -> {}",
+        "slots: character {name} (id {id}, player {player_id}, event {event}, stamp {stamp:08x}, face {face:08x}) -> {}",
         slots_path().display()
     ));
 }
