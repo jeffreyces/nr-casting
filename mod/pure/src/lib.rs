@@ -286,6 +286,23 @@ pub fn raw_mouse_buttons(record: &[u8]) -> Option<u32> {
     le_u32(record, RAW_MOUSE_BUTTONS_AT)
 }
 
+/// Overwrite the button field of a mouse record, keeping every other flag.
+///
+/// Returns whether the record was a mouse record long enough to hold the field.
+pub fn raw_set_mouse_buttons(record: &mut [u8], buttons: u32) -> bool {
+    if raw_kind(record) != Some(RAW_TYPE_MOUSE) {
+        return false;
+    }
+    if raw_size(record).unwrap_or(0) < RAW_MOUSE_LEN || record.len() < RAW_MOUSE_LEN {
+        return false;
+    }
+    let Some(slot) = record.get_mut(RAW_MOUSE_BUTTONS_AT..RAW_MOUSE_BUTTONS_AT + 4) else {
+        return false;
+    };
+    slot.copy_from_slice(&buttons.to_le_bytes());
+    true
+}
+
 /// `(usFlags, usVKey)` of a keyboard record, with the same guards.
 pub fn raw_keyboard(record: &[u8]) -> Option<(u16, u16)> {
     if raw_kind(record)? != RAW_TYPE_KEYBOARD {
@@ -692,6 +709,18 @@ mod raw_tests {
         assert_eq!(raw_kind(&bytes), Some(RAW_TYPE_MOUSE));
         assert_eq!(raw_size(&bytes), Some(RAW_MOUSE_LEN));
         assert_eq!(raw_mouse_buttons(&bytes), Some(RI_MOUSE_LEFT_BUTTON_DOWN));
+    }
+
+    #[test]
+    fn rewrite_buttons_in_place() {
+        let mut bytes = record(RAW_TYPE_MOUSE, RAW_MOUSE_LEN, &[(RAW_MOUSE_BUTTONS_AT, 0x05)]);
+        assert!(raw_set_mouse_buttons(&mut bytes, RI_MOUSE_RIGHT_BUTTON_UP));
+        assert_eq!(raw_mouse_buttons(&bytes), Some(RI_MOUSE_RIGHT_BUTTON_UP));
+        // Not a mouse record, and too short: left untouched, reported as not written.
+        let mut keyboard = record(RAW_TYPE_KEYBOARD, RAW_KEY_LEN, &[]);
+        assert!(!raw_set_mouse_buttons(&mut keyboard, 0));
+        let mut short = record(RAW_TYPE_MOUSE, 8, &[]);
+        assert!(!raw_set_mouse_buttons(&mut short, 0));
     }
 
     #[test]
