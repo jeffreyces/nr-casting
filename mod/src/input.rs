@@ -85,6 +85,8 @@ static LAST_RUN_MS: AtomicU32 = AtomicU32::new(0);
 const POLL_INTERVAL_MS: u32 = 8;
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CAPTURE_KEY: AtomicU32 = AtomicU32::new(u32::MAX);
+/// True once the current Y chord has had its "Y released" frame. Cleared when the chord ends.
+static CHORD_RELEASED: AtomicBool = AtomicBool::new(false);
 /// Last pad state we wrote to the debug log, packed buttons|rt|lt, so a held button logs once
 /// instead of 125 times a second.
 static LAST_PAD_LOG: AtomicU32 = AtomicU32::new(u32::MAX);
@@ -637,6 +639,29 @@ fn adjust(state: &mut XInputState) {
     // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
     // function only carries out the answer. It is pure and cheap, so it runs on every poll.
     let route = nr_casting_core::route(&held, config::load().modifier);
+
+    // A Y chord must not look like Y + RB to the game. The game decides "two-hand" from a Y press
+    // and a shoulder press close together in time, not necessarily from one report, so the first
+    // report of a chord releases Y *without* pressing anything: by the next report the game has
+    // seen Y let go, and the synthetic shoulder press reads as a plain cast. This is the one
+    // window where quick presses used to two-hand the staff.
+    if matches!(route, Route::Chord { .. }) {
+        if !CHORD_RELEASED.swap(true, Ordering::Relaxed) {
+            let which = match route {
+                Route::Chord { label, .. } => label,
+                _ => "",
+            };
+            debug!("chord: released Y for one report before pressing the shoulder ({which})");
+            pad.right_trigger = 0;
+            pad.left_trigger = 0;
+            pad.buttons &= !(XINPUT_GAMEPAD_Y
+                | XINPUT_GAMEPAD_LEFT_SHOULDER
+                | XINPUT_GAMEPAD_RIGHT_SHOULDER);
+            return;
+        }
+    } else {
+        CHORD_RELEASED.store(false, Ordering::Relaxed);
+    }
 
     if !due {
         // Every caller passes its own `XInputState`, so a repeated report still has to be
