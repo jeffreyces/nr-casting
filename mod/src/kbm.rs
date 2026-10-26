@@ -50,6 +50,27 @@ const RI_MOUSE_LEFT_BUTTON_UP: u32 = 0x0002;
 const RI_MOUSE_RIGHT_BUTTON_DOWN: u32 = 0x0004;
 const RI_MOUSE_RIGHT_BUTTON_UP: u32 = 0x0008;
 
+/// The three virtual keys that mean Shift (generic, left, right).
+fn is_shift(vk: i32) -> bool {
+    vk == 0x10 || vk == 0xA0 || vk == 0xA1
+}
+
+/// Rewrite Shift key presses as releases in one `RAWINPUT` keyboard record, so the game never
+/// sees Shift held while it is being used as the mod's slot modifier.
+unsafe fn hide_shift_in(record: *mut u8) -> bool {
+    if *(record as *const u32) != 1 {
+        return false; // 1 = keyboard
+    }
+    let vkey = *(record.add(HEADER_SIZE + 6) as *const u16) as i32;
+    if !is_shift(vkey) {
+        return false;
+    }
+    let flags = record.add(HEADER_SIZE + 2) as *mut u16;
+    const RI_KEY_BREAK: u16 = 0x01;
+    *flags |= RI_KEY_BREAK;
+    true
+}
+
 /// Count the button edges in one `RAWINPUT` record.
 unsafe fn count_buttons(record: *const u8) {
     let kind = *(record as *const u32);
@@ -85,6 +106,11 @@ unsafe extern "system" fn detour(vk: i32) -> i16 {
         return 0;
     }
     if !OURS.with(|ours| ours.get()) {
+        // No controller: Shift belongs to the mod (it selects the trigger slot) and the game
+        // would read it as "strong attack" instead of a cast.
+        if is_shift(vk) && !pad_alive() {
+            return 0;
+        }
         TOTAL.fetch_add(1, Ordering::Relaxed);
         match vk {
             VK_LBUTTON_V => LMB.fetch_add(1, Ordering::Relaxed),
@@ -126,6 +152,9 @@ unsafe extern "system" fn raw_data_detour(
     if command == RID_INPUT && !data.is_null() && out as usize > HEADER_SIZE {
         RAW_DATA_CALLS.fetch_add(1, Ordering::Relaxed);
         count_buttons(data);
+        if !pad_alive() && hide_shift_in(data) {
+            SHIFT_HIDDEN.fetch_add(1, Ordering::Relaxed);
+        }
         steer_click(data);
     }
     out
@@ -225,6 +254,8 @@ fn hook_read_only(target: *mut u8, detour: *const (), tramp: &AtomicPtr<()>, nam
 static LAST_PAD_OK: AtomicU32 = AtomicU32::new(0);
 /// Mouse casts steered through raw input, for the heartbeat.
 static STEERED: AtomicU32 = AtomicU32::new(0);
+/// Shift presses rewritten as releases, for the heartbeat.
+static SHIFT_HIDDEN: AtomicU32 = AtomicU32::new(0);
 /// Last slot announced, so a held click logs once.
 static STEER_LOGGED: AtomicU32 = AtomicU32::new(u32::MAX);
 
@@ -262,9 +293,12 @@ unsafe fn steer_click(record: *const u8) {
     // Modifiers come from our own reads; the game ignores them, which is what lets a ctrl or alt
     // click reach it as a plain left/right click and cast the slot we just steered.
     let down = |vk: i32| ours(|| unsafe { GetAsyncKeyState(vk) }) < 0;
+    let shift = down(0x10);
     let ctrl = down(0x11);
     let alt = down(0x12);
-    if let Some((right_hand, slot, which)) = nr_casting_core::mouse_route(left, right, ctrl, alt) {
+    if let Some((right_hand, slot, which)) =
+        nr_casting_core::mouse_route(left, right, shift, ctrl, alt)
+    {
         if crate::input::steer_mouse(right_hand, slot) {
             STEERED.fetch_add(1, Ordering::Relaxed);
             let key = (slot as u32) << 1 | u32::from(right_hand);
@@ -279,7 +313,7 @@ unsafe fn steer_click(record: *const u8) {
 pub(crate) fn report() -> String {
     format!(
         "{} key polls (LMB {}, RMB {}, shift {}, ctrl {}, alt {}); raw input: {} data, {} buffer, \
-         {} mouse records, {} button events; {} mouse casts steered",
+         {} mouse records, {} button events; {} mouse casts steered, {} shift presses hidden",
         TOTAL.swap(0, Ordering::Relaxed),
         LMB.swap(0, Ordering::Relaxed),
         RMB.swap(0, Ordering::Relaxed),
@@ -291,5 +325,6 @@ pub(crate) fn report() -> String {
         RAW_MOUSE_ENTRIES.swap(0, Ordering::Relaxed),
         RAW_BUTTON_EVENTS.swap(0, Ordering::Relaxed),
         STEERED.swap(0, Ordering::Relaxed),
+        SHIFT_HIDDEN.swap(0, Ordering::Relaxed),
     )
 }
