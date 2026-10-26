@@ -75,11 +75,11 @@ struct Slot {
 
 const SLOTS: [Slot; 8] = [
     Slot { label: "L1", mouse: "RMB", weapon_slot: 0, right_hand: false },
-    Slot { label: "L2", mouse: "Shift+RMB", weapon_slot: 1, right_hand: false },
+    Slot { label: "L2", mouse: "Ctrl+Alt+RMB", weapon_slot: 1, right_hand: false },
     Slot { label: "Y+L1", mouse: "Alt+RMB", weapon_slot: 3, right_hand: false },
     Slot { label: "Y+L2", mouse: "Ctrl+RMB", weapon_slot: 2, right_hand: false },
     Slot { label: "R1", mouse: "LMB", weapon_slot: 0, right_hand: true },
-    Slot { label: "R2", mouse: "Shift+LMB", weapon_slot: 1, right_hand: true },
+    Slot { label: "R2", mouse: "Ctrl+Alt+LMB", weapon_slot: 1, right_hand: true },
     Slot { label: "Y+R1", mouse: "Alt+LMB", weapon_slot: 3, right_hand: true },
     Slot { label: "Y+R2", mouse: "Ctrl+LMB", weapon_slot: 2, right_hand: true },
 ];
@@ -442,8 +442,8 @@ impl App {
                      Y + R1 / Y + L1 = fourth spell (unless Recluse owns it).",
                 );
                 ui.text_disabled(
-                    "Mouse:  LMB = R1,  RMB = L1,  Shift+LMB = R2,  Shift+RMB = L2,  \
-                     Ctrl+LMB = Y+R2,  Ctrl+RMB = Y+L2,  Alt+LMB = Y+R1,  Alt+RMB = Y+L1.",
+                    "Mouse:  LMB = R1,  RMB = L1,  Ctrl+LMB = Y+R2,  Ctrl+RMB = Y+L2,  \
+                     Alt+LMB = Y+R1,  Alt+RMB = Y+L1,  Ctrl+Alt+LMB/RMB = R2/L2.",
                 );
                 ui.text_disabled("F8 opens and closes this panel;  Esc closes it.");
             });

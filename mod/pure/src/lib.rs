@@ -152,26 +152,37 @@ pub fn route(held: &Held, modifier: u16, y_bumper: bool) -> Route {
 
 /// The mouse mapping: click plus modifier to (right hand, slot, name).
 ///
-/// Same eight slots as the pad. Ctrl is tested before alt and alt before shift, and a click with
-/// both buttons down is not a spell input at all.
+/// The mouse mapping: click plus modifiers to (right hand, slot, name).
+///
+/// Same eight slots as the pad, but the modifiers are Ctrl and Alt rather than Shift, because
+/// Shift is bound inside the game itself (Shift + click is the strong attack / ash of war). With
+/// no controller the game performs the cast from our click, so a modifier it recognises would
+/// turn the cast into a different action instead. Ctrl + Alt is the fourth slot.
 pub fn mouse_route(
     left: bool,
     right: bool,
-    shift: bool,
     ctrl: bool,
     alt: bool,
 ) -> Option<(bool, usize, &'static str)> {
-    match (left, right) {
-        (true, false) if ctrl => Some((true, 2, "ctrl + LMB")),
-        (true, false) if alt => Some((true, 3, "alt + LMB")),
-        (true, false) if shift => Some((true, 1, "shift + LMB")),
-        (true, false) => Some((true, 0, "LMB")),
-        (false, true) if ctrl => Some((false, 2, "ctrl + RMB")),
-        (false, true) if alt => Some((false, 3, "alt + RMB")),
-        (false, true) if shift => Some((false, 1, "shift + RMB")),
-        (false, true) => Some((false, 0, "RMB")),
-        _ => None,
-    }
+    let hand = match (left, right) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => return None,
+    };
+    Some(match (ctrl, alt) {
+        (true, true) => (
+            hand,
+            1,
+            if hand {
+                "ctrl + alt + LMB"
+            } else {
+                "ctrl + alt + RMB"
+            },
+        ),
+        (true, false) => (hand, 2, if hand { "ctrl + LMB" } else { "ctrl + RMB" }),
+        (false, true) => (hand, 3, if hand { "alt + LMB" } else { "alt + RMB" }),
+        (false, false) => (hand, 0, if hand { "LMB" } else { "RMB" }),
+    })
 }
 
 /// Parse a slot file. Unparseable lines are skipped, never fatal: the file is user-editable.
@@ -358,20 +369,18 @@ not a slot
 
     #[test]
     fn mouse_mapping_matches_the_pad() {
-        assert_eq!(mouse_route(true, false, false, false, false), Some((true, 0, "LMB")));
-        assert_eq!(mouse_route(false, true, false, false, false), Some((false, 0, "RMB")));
-        assert_eq!(mouse_route(true, false, true, false, false), Some((true, 1, "shift + LMB")));
-        assert_eq!(mouse_route(false, true, true, false, false), Some((false, 1, "shift + RMB")));
-        assert_eq!(mouse_route(true, false, false, true, false), Some((true, 2, "ctrl + LMB")));
-        assert_eq!(mouse_route(false, true, false, true, false), Some((false, 2, "ctrl + RMB")));
+        assert_eq!(mouse_route(true, false, false, false), Some((true, 0, "LMB")));
+        assert_eq!(mouse_route(false, true, false, false), Some((false, 0, "RMB")));
+        assert_eq!(mouse_route(true, false, true, false), Some((true, 2, "ctrl + LMB")));
+        assert_eq!(mouse_route(false, true, true, false), Some((false, 2, "ctrl + RMB")));
+        assert_eq!(mouse_route(true, false, false, true), Some((true, 3, "alt + LMB")));
+        assert_eq!(mouse_route(false, true, false, true), Some((false, 3, "alt + RMB")));
+        assert_eq!(mouse_route(true, false, true, true), Some((true, 1, "ctrl + alt + LMB")));
+        assert_eq!(mouse_route(false, true, true, true), Some((false, 1, "ctrl + alt + RMB")));
+        assert_eq!(mouse_route(true, true, false, false), None);
+        assert_eq!(mouse_route(false, false, false, false), None);
     }
 
-    #[test]
-    fn ctrl_wins_over_shift_and_two_buttons_are_not_a_spell() {
-        assert_eq!(mouse_route(true, false, true, true, false), Some((true, 2, "ctrl + LMB")));
-        assert_eq!(mouse_route(true, true, false, false, false), None);
-        assert_eq!(mouse_route(false, false, false, false, false), None);
-    }
     #[test]
     fn y_plus_bumper_is_the_fourth_slot_only_when_we_own_it() {
         let chord = |rb: bool, lb: bool| held(BTN_Y, false, false, rb, lb);

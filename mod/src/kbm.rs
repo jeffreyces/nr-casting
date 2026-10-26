@@ -262,11 +262,9 @@ unsafe fn steer_click(record: *const u8) {
     // Modifiers come from our own reads; the game ignores them, which is what lets a ctrl or alt
     // click reach it as a plain left/right click and cast the slot we just steered.
     let down = |vk: i32| ours(|| unsafe { GetAsyncKeyState(vk) }) < 0;
-    let shift = down(0x10);
     let ctrl = down(0x11);
     let alt = down(0x12);
-    if let Some((right_hand, slot, which)) = nr_casting_core::mouse_route(left, right, shift, ctrl, alt)
-    {
+    if let Some((right_hand, slot, which)) = nr_casting_core::mouse_route(left, right, ctrl, alt) {
         if crate::input::steer_mouse(right_hand, slot) {
             STEERED.fetch_add(1, Ordering::Relaxed);
             let key = (slot as u32) << 1 | u32::from(right_hand);
