@@ -37,6 +37,12 @@ pub struct Config {
     pub debug_log: bool,
     /// Panel planning mode: list spells the character cannot cast yet. Persisted when toggled.
     pub show_all: bool,
+    /// Force the game's own spell-wheel selection to slot 1 so its HUD shows what R1 will cast.
+    ///
+    /// Off by default: it rewrites `selected_slot` ~30 times a second, which fights the player's
+    /// own wheel selection (the HUD visibly cycles, and a cast that reads the selection after a
+    /// rewrite uses the wrong spell). Only useful if you never touch the wheel yourself.
+    pub hud_mirror: bool,
     /// Who owns the Y+bumper chords (Y+R1 / Y+L1, the fourth slot).
     pub y_bumper: YBumper,
     pub y_bumper_name: String,
@@ -48,6 +54,12 @@ pub struct Config {
     pub bind_modifier: u16,
     /// How the bind modifier is spelled in the ini, for log messages.
     pub bind_modifier_name: String,
+    /// How many reports a chord spends letting go of Y before the shoulder press is sent.
+    ///
+    /// This is the latch insurance: ER keeps its own "Y is held" state for a frame or two, and a
+    /// press inside that window becomes a weapon swap. Two is reliable; one is about 8-13 ms faster
+    /// and is worth trying once `chord_trigger_floor` handles the swap input (it does now).
+    pub chord_stage: u8,
 }
 
 /// Who gets Y+R1 / Y+L1.
@@ -69,10 +81,12 @@ impl Default for Config {
             overlay: true,
             debug_log: false,
             show_all: false,
+            hud_mirror: false,
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
             recluse_ids: vec![8131],
             bind_modifier: 0x0040, // L3
+            chord_stage: 2,
             bind_modifier_name: "L3".to_string(),
         }
     }
@@ -295,6 +309,9 @@ overlay = on
 hotkey = F8
 ; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
 show_all = off
+; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off: the wheel
+; stays yours (on, it rewrites the selection ~30x a second and fights your D-pad scrolling).
+hud_mirror = off
 
 [input]
 ; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
@@ -372,6 +389,10 @@ debug_log = off
                     }
                     "debug_log" => config.debug_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),
+                    "hud_mirror" => config.hud_mirror = truthy(value),
+                    "chord_stage" => {
+                        config.chord_stage = value.trim().parse::<u8>().unwrap_or(2).min(4)
+                    }
                     "y_bumper" => match value.to_ascii_lowercase().as_str() {
                         "on" | "true" | "yes" => {
                             config.y_bumper = YBumper::On;

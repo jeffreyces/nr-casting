@@ -20,6 +20,7 @@ use nr_casting_core::{
     RI_MOUSE_RIGHT_BUTTON_UP, RAW_TYPE_KEYBOARD, RAW_TYPE_MOUSE,
 };
 
+use crate::logging::debug;
 use crate::stats;
 
 extern "system" {
@@ -62,11 +63,6 @@ pub(crate) fn ours<R>(f: impl FnOnce() -> R) -> R {
 /// Called by the pad detour whenever a poll succeeds.
 pub(crate) fn note_pad_ok() {
     LAST_PAD_OK.store(crate::millis(), Ordering::Relaxed);
-}
-
-/// Whether a pad poll succeeded in the last two seconds.
-fn pad_alive() -> bool {
-    crate::millis().wrapping_sub(LAST_PAD_OK.load(Ordering::Relaxed)) < 2000
 }
 
 fn key_down(vk: i32) -> bool {
@@ -181,17 +177,27 @@ unsafe fn steer_click(record: &[u8]) {
     let left = buttons & RI_MOUSE_LEFT_BUTTON_DOWN != 0;
     let right = buttons & RI_MOUSE_RIGHT_BUTTON_DOWN != 0;
     // Buttons first: most records are movement only, and the pad check costs a clock read.
-    if !left && !right || pad_alive() {
+    if !left && !right {
         return;
     }
-    if let Some((right_hand, slot, which)) = nr_casting_core::mouse_route(
-        left,
-        right,
-        key_down(VK_SHIFT),
-        key_down(VK_CONTROL),
-        key_down(VK_MENU),
-        crate::input::y_bumper(),
-    ) {
+    // Mouse and keyboard keep their own layer, with or without a controller attached: the mod
+    // steers the selected spell and the game's own click performs the cast, exactly as it does
+    // with no pad. Nothing is synthesised and the click is never altered, so there is nothing to
+    // fight over — one click is one action. (v0.2.2 routed mouse input through the pad report
+    // when a controller was live, which is what made a click an attack *and* a cast, and left
+    // click timing at the mercy of the pad poll.)
+    if crate::input::game_shows_cursor() {
+        // The game is showing its cursor: a menu, not the world. Clicks there are the UI's.
+        return;
+    }
+    let shift = key_down(VK_SHIFT);
+    let ctrl = key_down(VK_CONTROL);
+    let alt = key_down(VK_MENU);
+    let route = nr_casting_core::mouse_route(left, right, shift, ctrl, alt, crate::input::y_bumper());
+    debug!(
+        "mouse: l={left} r={right} shift={shift} ctrl={ctrl} alt={alt} -> {route:?}"
+    );
+    if let Some((right_hand, slot, which)) = route {
         if crate::input::steer_mouse(right_hand, slot) {
             stats::steered(which, slot);
         }
@@ -204,9 +210,11 @@ unsafe extern "system" fn key_detour(vk: i32) -> i16 {
         return 0;
     }
     if !OURS.with(|ours| ours.get()) {
-        // No controller: Shift is the mod's slot modifier and the game would read it as the
-        // strong-attack modifier instead.
-        if is_shift_vkey(vk as u16) && !pad_alive() {
+        // Shift is the mouse slots' modifier, and the game reads Shift + click as its strong
+        // attack — which does not cast. Hidden unconditionally now that the mouse layer owns
+        // mouse input whether or not a controller is attached (ER keeps its mouse bindings live
+        // with a pad plugged in, which is how Shift + click was arriving as an attack).
+        if is_shift_vkey(vk as u16) {
             return 0;
         }
         stats::key_poll(vk);
@@ -292,7 +300,9 @@ fn visit_record(record: &mut [u8]) {
             }
         }
         Some(RAW_TYPE_KEYBOARD) => {
-            if raw_keyboard(record).is_some() && !pad_alive() && raw_hide_shift(record) {
+            // Same reasoning as the `GetAsyncKeyState` side: the raw stream is where the game
+            // tracks held modifiers, so Shift has to be released in both places.
+            if raw_keyboard(record).is_some() && raw_hide_shift(record) {
                 stats::shift_hidden();
             }
         }

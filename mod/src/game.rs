@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use eldenring::cs::{ChrAsmSlot, WorldChrMan};
+use eldenring::cs::{ChrAsmArmStyle, ChrAsmHand, WorldChrMan};
 use fromsoftware_shared::FromStatic;
 
 use crate::probe;
@@ -39,6 +39,20 @@ static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// once per press is the point; doing it on every poll of a held button (125 a second) was the
 /// per-poll cost most likely to be felt as a hitch while casting.
 static STEERED: AtomicI32 = AtomicI32::new(-1);
+
+/// Keep the borrowed entry in place until this millisecond timestamp.
+///
+/// A pad cast is performed by the report we rewrite, in the same poll, so the entry only has to
+/// survive one frame. A mouse cast is performed by the *game's own click*, which it processes on
+/// its next frame — and the pad poll runs every 8 ms in between, calling `release_borrowed` and
+/// putting the player's spell back before the click is ever acted on. That is why every mouse
+/// click cast the wheel's current spell no matter what was steered. The hold covers the gap.
+static BORROW_HOLD_UNTIL: AtomicU32 = AtomicU32::new(0);
+
+/// Hold the borrowed entry for `ms` so the game's own click can act on it.
+pub(crate) fn hold_borrowed(ms: u32) {
+    BORROW_HOLD_UNTIL.store(now_ms().wrapping_add(ms), Ordering::Relaxed);
+}
 
 /// The spell the borrow currently holds, or `-1` when nothing is borrowed.
 pub(crate) fn steered_spell() -> i32 {
@@ -117,6 +131,11 @@ pub(crate) fn release_borrowed() {
     // Cheap gate for the common case: no cast in flight, no need to take the lock at all. This is
     // called from every idle poll.
     if !BORROW_ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
+    // A mouse cast asked for the entry to stay a little longer (see `hold_borrowed`). Wrapping
+    // comparison: still held while `now` has not reached the deadline.
+    if (now_ms().wrapping_sub(BORROW_HOLD_UNTIL.load(Ordering::Relaxed)) as i32) < 0 {
         return;
     }
     let snapshot = {
@@ -270,7 +289,7 @@ pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
 }
 
 /// Milliseconds since the epoch, low 32 bits (wrapping compares are fine).
-fn now_ms() -> u32 {
+pub(crate) fn now_ms() -> u32 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u32)
@@ -333,15 +352,25 @@ pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
         return Some((unpack_weapon_id(cached >> 32), unpack_weapon_id(cached)));
     }
     let pgd = game_data()?;
-    let ids = &pgd.equipment.chr_asm.equipment_param_ids;
-    let left = ids[ChrAsmSlot::WeaponLeft1 as usize];
-    let right = ids[ChrAsmSlot::WeaponRight1 as usize];
+    let chr_asm = &pgd.equipment.chr_asm;
+    let ids = &chr_asm.equipment_param_ids;
+    // The *active* slot, not slot 1: each hand has three weapon slots and the player cycles them,
+    // so reading `WeaponRight1` reports whatever is in the first slot no matter what is in hand.
+    // That is how the panel kept naming a staff after the right hand was switched to a sword, and
+    // why the chord logic and the store were answering for the wrong weapon.
+    let left = ids[chr_asm.equipment.active_weapon_slot(ChrAsmHand::Left) as usize];
+    let right = ids[chr_asm.equipment.active_weapon_slot(ChrAsmHand::Right) as usize];
     WEAPON_PAIR.store(
         pack_weapon_id(left) << 32 | pack_weapon_id(right),
         Ordering::Relaxed,
     );
     WEAPON_AT.store(now, Ordering::Relaxed);
     Some((left, right))
+}
+
+/// The game's own stance value, for the diagnostic trace.
+pub(crate) fn arm_style() -> Option<ChrAsmArmStyle> {
+    Some(game_data()?.equipment.chr_asm.equipment.arm_style)
 }
 
 /// Weapon ids are `i32`; the cache is a `u64` pair. Round-trip through `u32` so a negative or
@@ -398,52 +427,28 @@ pub(crate) fn player_stats() -> Option<(u32, u32, u32)> {
     Some((pgd.intelligence, pgd.faith, pgd.arcane))
 }
 
-/// INT/FAI/ARC as the game applies them: the levelled stat plus whatever active effects add.
+/// INT/FAI/ARC as the game applies them: the levelled value plus whatever is boosting it.
 ///
-/// Godrick's Great Rune and stat talismans are `SpEffect`s, and level ups are not the only way
-/// to meet a spell's requirement. The panel's filter read the base values, so a spell the
-/// character could cast *with the rune on* was hidden and could not be assigned — the bug that
-/// made the bind gesture the only way to use it. The deltas sit in the param row each active
-/// entry points at: `change_magic_point` is INT, `change_faith_point` FAI and `change_luck_point`
-/// ARC.
+/// `PlayerGameData` carries both: `intelligence`/`faith`/`arcane` are the levelled values on the
+/// character sheet's left column, and `effective_*` are what the game itself computed after great
+/// runes, talismans, physick and buffs. Reading `effective_*` is both exact and free — the earlier
+/// version of this summed `change_magic_point`/`change_faith_point`/`change_luck_point` over the
+/// active `SpEffect` rows and came out 8 short of the sheet (76 vs 84 with a rune and talismans
+/// on), because those param fields are not where the game accumulates talisman bonuses.
 ///
-/// Bounded and readability-checked: this walks a linked list owned by the game while the game
-/// may be equipping or removing effects, and it runs off the panel thread as well as the pad
-/// poll.
+/// Falls back to the levelled values if the game has not filled the effective set in yet (they are
+/// valid from load, but zero is a cheap and certain tell that something is off).
 pub(crate) fn player_effective_stats() -> Option<(u32, u32, u32)> {
-    let base = player_stats()?;
-    let Some(player) = player() else {
-        return Some(base);
-    };
-    let effect = player.chr_ins.special_effect.as_ptr();
-    if effect.is_null()
-        || !probe::readable(
-            effect as *const u8,
-            std::mem::size_of::<eldenring::cs::SpecialEffect>(),
-        )
-    {
-        return Some(base);
+    let pgd = game_data()?;
+    let effective = (
+        pgd.effective_intelligence,
+        pgd.effective_faith,
+        pgd.effective_arcane,
+    );
+    if effective.0 == 0 || effective.1 == 0 || effective.2 == 0 {
+        return Some((pgd.intelligence, pgd.faith, pgd.arcane));
     }
-    // SAFETY: readable, owned by the character `player()` already validated.
-    let effect = unsafe { &*effect };
-    let (mut int, mut fai, mut arc) = (0i32, 0i32, 0i32);
-    for entry in effect.entries().take(64) {
-        let Some(param) = entry.param_data else { continue };
-        let row = param.as_ptr();
-        if !probe::readable(
-            row as *const u8,
-            std::mem::size_of::<eldenring::param::SP_EFFECT_PARAM_ST>(),
-        ) {
-            continue;
-        }
-        // SAFETY: the param repository owns the row and the readability check just passed.
-        let row = unsafe { &*row };
-        int += row.change_magic_point();
-        fai += row.change_faith_point();
-        arc += row.change_luck_point();
-    }
-    let apply = |base: u32, delta: i32| (base as i32).saturating_add(delta).clamp(1, 99) as u32;
-    Some((apply(base.0, int), apply(base.1, fai), apply(base.2, arc)))
+    Some(effective)
 }
 
 /// Param ids in the goods half of the inventory. Spells are goods entries in ER, so

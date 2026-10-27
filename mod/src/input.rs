@@ -4,14 +4,13 @@
 //! The rules themselves (which input means which slot, and which wins when several are held)
 //! live in `nr_casting_core::route` so they are tested; this module carries them out.
 
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{
+    AtomicBool, AtomicU8, AtomicU16, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+};
 use std::time::Duration;
 
 use nr_casting_core::{Held, Route};
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorInfo, GetForegroundWindow, GetWindowThreadProcessId, CURSORINFO, CURSOR_SHOWING,
-};
+use windows::Win32::UI::WindowsAndMessaging::{GetCursorInfo, CURSORINFO, CURSOR_SHOWING};
 
 use crate::game::{release_borrowed, sample_player_selection, select_spell, selection_is, weapon_ids};
 use crate::logging::{debug, log};
@@ -21,11 +20,19 @@ use crate::{probe, UI_OPEN};
 const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
 const XINPUT_GAMEPAD_RIGHT_SHOULDER: u16 = 0x0200;
 const XINPUT_GAMEPAD_Y: u16 = 0x8000;
+/// Any D-pad direction. The game cycles the spell wheel with these, and the HUD mirror has to get
+/// out of their way (see `idle`).
+const XINPUT_GAMEPAD_DPAD: u16 = 0x000F;
 const TRIGGER_THRESHOLD: u8 = 100;
-/// With Y held the trigger does not have to be a deliberate pull: the game's own two-hand chord
-/// fires well below our cast threshold, so a press still ramping through 40-90 would reach the
-/// game as Y+L2 (two-hand) before we ever saw it as a chord.
-const CHORD_TRIGGER_FLOOR: u8 = 20;
+/// With Y held, *any* trigger movement counts as a pull — one, not twenty.
+///
+/// ER's swap chord fires on any nonzero trigger with Y down, and it does not act on that input
+/// immediately: the swap is buffered for roughly 300 ms, which is why the staff went two-handed
+/// *after* the spell had already cast and my correction then fought it twice. At 20 we handed the
+/// game Y with a feathered trigger (rt 1-19) on every pass where the player was easing off, and
+/// that is precisely the swap input. The trigger is binary here for the same reason it is binary
+/// to the game.
+const CHORD_TRIGGER_FLOOR: u8 = 1;
 /// `XInputGetState` is ordinal 2 in `xinput1_4.dll`, and ELDEN RING imports it that way.
 const XINPUT_GET_STATE_ORDINAL: u64 = 2;
 
@@ -65,7 +72,100 @@ static HOOK_SLOT: AtomicUsize = AtomicUsize::new(0);
 static TRAMPOLINE: std::sync::atomic::AtomicPtr<()> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetModuleHandleExW(flags: u32, address: *const u16, module: *mut *mut u8) -> i32;
+    fn GetModuleFileNameW(module: *mut u8, buffer: *mut u16, size: u32) -> u32;
+    fn RtlCaptureStackBackTrace(
+        frames_to_skip: u32,
+        frames_to_capture: u32,
+        back_trace: *mut *mut core::ffi::c_void,
+        back_trace_hash: *mut u32,
+    ) -> u16;
+}
+
+/// Trampoline for `XInputGetStateEx` (ordinal 100), which is the entry point ELDEN RING actually
+/// polls for gameplay input.
+///
+/// `XInputGetState` (ordinal 2) and the Ex variant are *different functions*, and FromSoft titles
+/// use the Ex one because it also carries the guide button. Hooking only ordinal 2 was enough for
+/// the mod to look alive — Steam's overlay and other mods call it, and ER calls it too for things
+/// that are not the gameplay pad read — while the buttons the game acts on came from a copy we
+/// never touched. That is the two-hand that survived every input fix: the game was reading the real
+/// Y+R1, not our rewritten report.
+static TRAMPOLINE_EX: std::sync::atomic::AtomicPtr<()> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+thread_local! {
+    /// Whether the in-flight detour call came in through the Ex entry point.
+    static VIA_EX: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Same signature as `XInputGetState`, so it reuses the detour body and only swaps the trampoline.
+unsafe extern "system" fn detour_ex(user: u32, state: *mut XInputState) -> u32 {
+    VIA_EX.with(|flag| flag.set(true));
+    let result = detour(user, state);
+    VIA_EX.with(|flag| flag.set(false));
+    result
+}
+
 static HOOK_READY: AtomicBool = AtomicBool::new(false);
+/// Module bases we have already named in the log. A pad poll is only worth rewriting if it comes
+/// from the game; Steam's overlay polls the same function and is preloaded into this process.
+static CALLERS_SEEN: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+/// How many polls may still pay for caller detection. A stack walk plus `GetModuleHandleExW` plus a
+/// mutex is far too much to spend 120 times a second forever; the callers do not change after load,
+/// so the first handful of polls is the whole job.
+static CALLER_BUDGET: AtomicU32 = AtomicU32::new(96);
+
+/// Log which module called into the detour, once per module.
+///
+/// This is the question that decides whether the input rewrite reaches ELDEN RING at all: the
+/// overlay renderer (`gameoverlayrenderer64.dll`) polls XInput for its own UI, and seeing its polls
+/// instead of the game's would look exactly like "the mod runs but the game disagrees".
+unsafe fn note_caller() {
+    // Four frames from the top of our own call, so inlining cannot hide the caller: the module that
+    // shows up here is the one the rewrite has to satisfy.
+    let mut frames = [std::ptr::null_mut::<core::ffi::c_void>(); 4];
+    let captured = RtlCaptureStackBackTrace(1, 4, frames.as_mut_ptr(), std::ptr::null_mut()) as usize;
+    if captured == 0 {
+        return;
+    }
+    for frame in frames.iter().take(captured) {
+        if frame.is_null() {
+            continue;
+        }
+        let mut module: *mut u8 = std::ptr::null_mut();
+        if GetModuleHandleExW(
+            0x0000_0004 | 0x0000_0002, // FROM_ADDRESS | UNCHANGED_REFCOUNT
+            *frame as *const u16,
+            &mut module,
+        ) == 0
+            || module.is_null()
+        {
+            continue;
+        }
+        let base = module as usize;
+        let fresh = match CALLERS_SEEN.lock() {
+            Ok(mut seen) => {
+                if seen.contains(&base) {
+                    false
+                } else {
+                    seen.push(base);
+                    true
+                }
+            }
+            Err(_) => false,
+        };
+        if !fresh {
+            continue;
+        }
+        let mut name = [0u16; 260];
+        let len = GetModuleFileNameW(module, name.as_mut_ptr(), 260) as usize;
+        let name = String::from_utf16_lossy(&name[..len.min(260)]);
+        log(&format!("XInputGetState: caller stack includes {name}"));
+    }
+}
 /// Pad polls seen by our detour. Used to tell "the hook is dead" from "the game is not polling".
 /// Polls that were not skipped as repeats — the work the gate saved. Reported when debug_log is on.
 /// The `packet_number` of the last report we acted on. XInput only bumps it when the pad state
@@ -78,8 +178,35 @@ static LAST_RUN_MS: AtomicU32 = AtomicU32::new(0);
 /// it caps the per-poll work at ~125 Hz however often the game polls.
 const POLL_INTERVAL_MS: u32 = 8;
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
-/// True once the current Y chord has had its "Y released" frame. Cleared when the chord ends.
-static CHORD_RELEASED: AtomicBool = AtomicBool::new(false);
+/// How many "Y released" reports the current chord has had. Cleared when the chord ends.
+///
+/// One, not two. The stage exists because ER keeps its own "Y is held" latch for a frame or two
+/// after we stop showing it Y, and a chord that arrives while the latch lives gets two-handed
+/// instead of cast. Two stages made that rare but cost ~2 frames (~16-25 ms) on *every* chord,
+/// which is the latency you feel. One stage halves it, and the two-hand correction — which now runs
+/// inside the chord press, puts the catalyst back and re-sends the press — is the safety net for
+/// the misfires that remain. The cast lands either way; only the path differs.
+static CHORD_STAGED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+const CHORD_STAGE_REPORTS: u8 = 2;  // default; overridden by `chord_stage` in the ini
+
+/// One Y chord that belongs to the mod: which hand, and the spell behind it (`<= 0` = empty).
+#[derive(Clone, Copy)]
+struct ChordPress {
+    right_hand: bool,
+    spell: i32,
+    label: &'static str,
+}
+/// Until when Y is hidden from the game.
+///
+/// ER's weapon swap is a *buffered chord*: the shoulder press we synthesise as a cast is remembered
+/// as a swap candidate, and the game completes the swap when it next sees Y — even a few hundred
+/// milliseconds later. Since holding Y with nothing else pressed is a report we pass through
+/// untouched, that "next Y" arrived 475 ms after the cast and two-handed the staff. So for a short
+/// window after every cast press, Y is cleared out of the report: the swap has nothing to complete
+/// with, and the player's own Y press is unaffected once the window passes.
+static Y_SUPPRESS_UNTIL: AtomicU32 = AtomicU32::new(0);
+const Y_SUPPRESS_MS: u32 = 700;
+
 /// Whether the previous report already had Y down. A press that brings Y and the button in the
 /// same report was never seen by the game as "Y held", so it needs no staged release.
 static Y_BEFORE: AtomicBool = AtomicBool::new(false);
@@ -114,9 +241,49 @@ pub(crate) fn install_hook() -> Result<*mut u8, String> {
                     "XInputGetState: import slot unusable ({e}) — patching the export instead"
                 ));
                 hook_target(target)?;
+                hook_ex(target);
                 Ok(target)
             }
         }
+    }
+}
+
+/// Hook `XInputGetStateEx` as well, when the DLL exports it separately.
+///
+/// This is the entry point the game polls for gameplay input (see `TRAMPOLINE_EX`). Failure is not
+/// fatal: the ordinal-2 hook is what the mod has always had, and some xinput builds alias the two.
+unsafe fn hook_ex(normal: *mut u8) {
+    let module = LoadLibraryA(c"xinput1_4.dll".as_ptr() as *const u8);
+    let module = if module.is_null() {
+        LoadLibraryA(c"xinput9_1_0.dll".as_ptr() as *const u8)
+    } else {
+        module
+    };
+    if module.is_null() {
+        return;
+    }
+    // Ordinals are passed as a small integer cast to a pointer, per MAKEINTRESOURCE.
+    let ex = GetProcAddress(module, 100usize as *const u8);
+    if ex.is_null() {
+        log("XInputGetStateEx (ordinal 100): not exported by this xinput — the ordinal-2 hook is all there is");
+        return;
+    }
+    if ex == normal || patch_is_ours(ex) {
+        log("XInputGetStateEx (ordinal 100): same entry point as XInputGetState — nothing extra to hook");
+        return;
+    }
+    match retour::RawDetour::new(ex as *const (), detour_ex as *const ()) {
+        Ok(raw) => match raw.enable() {
+            Ok(()) => {
+                TRAMPOLINE_EX.store(raw.trampoline() as *const () as *mut (), Ordering::Release);
+                log(&format!(
+                    "XInputGetStateEx (ordinal 100): hooked at {ex:p} — this is the pad read the game acts on"
+                ));
+                std::mem::forget(raw);
+            }
+            Err(e) => log(&format!("XInputGetStateEx (ordinal 100): enable failed: {e:?}")),
+        },
+        Err(e) => log(&format!("XInputGetStateEx (ordinal 100): detour failed: {e:?}")),
     }
 }
 
@@ -554,7 +721,11 @@ unsafe fn read_c_string(ptr: *const u8) -> String {
 
 /// Runs on whatever thread the game polls the pad from.
 unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
-    let tramp = TRAMPOLINE.load(Ordering::Acquire);
+    let tramp = if VIA_EX.with(|flag| flag.get()) {
+        TRAMPOLINE_EX.load(Ordering::Acquire)
+    } else {
+        TRAMPOLINE.load(Ordering::Acquire)
+    };
     if tramp.is_null() {
         return 1167; // ERROR_DEVICE_NOT_CONNECTED
     }
@@ -574,98 +745,31 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
                     unsafe { (*state).gamepad.buttons }
                 );
             }
+            if CALLER_BUDGET.load(Ordering::Relaxed) > 0 {
+                CALLER_BUDGET.fetch_sub(1, Ordering::Relaxed);
+                note_caller();
+            }
             adjust_inner(&mut *state);
-        } else if let Some((right, slot, which)) = mouse_combo() {
-            // No controller: a failed read used to go straight back to the game, so mouse casting
-            // silently required a pad to be plugged in — our rewrite never ran. Hand back one
-            // synthetic connected report instead, carrying just the shoulder press the cast
-            // needs. Only while a click combination is actually held, so the game never thinks a
-            // pad is connected for longer than that.
-            let mock = &mut *state;
-            mock.packet_number = MOCK_PACKET.fetch_add(1, Ordering::Relaxed);
-            mock.gamepad = XInputGamepad::default();
-            if probe::validated() {
-                cast_slot(right, slot, which, &mut mock.gamepad);
-            }
-            if !MOCK_USED.swap(true, Ordering::Relaxed) {
-                crate::log("input: no controller — mouse casts are using a synthetic report");
-            }
-            return 0;
         }
+        // A failed read goes back to the game unchanged. Mouse casts do not come through here any
+        // more: they are steered in the raw-input layer and performed by the game's own click, so
+        // there is nothing to synthesise (and a synthetic pad report alongside a real click was
+        // one way to get two actions out of one press).
     }
     ret
 }
 
-/// Packet number for synthetic reports. The game only accepts a report whose packet number moved.
-static MOCK_PACKET: AtomicU32 = AtomicU32::new(1);
-/// Whether the no-controller mouse path has been announced in the log.
-static MOCK_USED: AtomicBool = AtomicBool::new(false);
-
-/// Floor between mouse-button polls on the pad path.
+/// Is the game showing its cursor, i.e. are we in a menu rather than in the world?
 ///
-/// `idle()` runs at the pass cap (up to 125 Hz) for the whole session — most frames hold no spell
-/// input — so asking the OS about the mouse there was the largest per-poll cost left in the mod.
-const MOUSE_POLL_MS: u32 = 16;
-static LAST_MOUSE_MS: AtomicU32 = AtomicU32::new(0);
-
-/// The six mouse combinations, in the same order as the pad's slots.
-///
-/// The game casts from its own mouse bindings (left = right hand, right = left hand, with the
-/// usual modifier for the strong attacks), so the mod does what it does on the pad: steer the
-/// selection at the bound spell and hand the game a shoulder press. Mouse and pad share one
-/// code path so a slot can never mean two different things.
-fn mouse_combo() -> Option<(bool, usize, &'static str)> {
-    // Only while the game itself has focus: clicks in the panel or another window are somebody
-    // else's input.
-    if UI_OPEN.load(Ordering::Relaxed) {
-        return None;
-    }
-    // Buttons first: no click means no routing, and this runs on every idle poll. Asking for the
-    // foreground window and the cursor costs two more user32 calls (server round-trips under
-    // Wine) that only matter once a click is actually down.
-    // Ours: the counters in `kbm` exist to see what the *game* asks for.
-    let down = |vk: i32| crate::rawinput::ours(|| unsafe { GetAsyncKeyState(vk) }) < 0;
-    let primary = down(VK_LBUTTON);
-    let secondary = down(VK_RBUTTON);
-    if !primary && !secondary {
-        return None;
-    }
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() {
-            return None;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid != std::process::id() {
-            return None;
-        }
-    }
-    // In menus, the title screen and any other UI the game shows its cursor; in gameplay it
-    // hides and captures it. Clicking there belongs to the game's UI — synthesising a pad press
-    // for it turned "Exit" into an attack/confirm, so the cursor decides.
+/// The one signal that separates "this click is the game's UI" from "this click is a cast": in
+/// gameplay ER hides and captures the pointer, in every menu it shows it.
+pub(crate) fn game_shows_cursor() -> bool {
     let mut cursor = CURSORINFO {
         cbSize: std::mem::size_of::<CURSORINFO>() as u32,
         ..Default::default()
     };
-    if unsafe { GetCursorInfo(&mut cursor) }.is_ok() && cursor.flags.0 & CURSOR_SHOWING.0 != 0 {
-        return None;
-    }
-    nr_casting_core::mouse_route(
-        primary,
-        secondary,
-        down(VK_SHIFT),
-        down(VK_CONTROL),
-        down(VK_MENU),
-        y_bumper(),
-    )
+    unsafe { GetCursorInfo(&mut cursor) }.is_ok() && cursor.flags.0 & CURSOR_SHOWING.0 != 0
 }
-
-const VK_LBUTTON: i32 = 0x01;
-const VK_RBUTTON: i32 = 0x02;
-const VK_SHIFT: i32 = 0x10;
-const VK_CONTROL: i32 = 0x11;
-const VK_MENU: i32 = 0x12;
 
 /// Whether the Y+bumper chords (Y+R1, Y+L1, the fourth slot) are ours this session.
 ///
@@ -697,6 +801,9 @@ pub(crate) fn set_y_bumper(allowed: bool) {
 static BOUND_KEY: AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 static BOUND_GEN: AtomicU32 = AtomicU32::new(0);
 static BOUND_MASK: AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+/// Whether each hand's weapon can cast at all. Cached with the mask: it is a param read.
+static CATALYST_LEFT: AtomicBool = AtomicBool::new(false);
+static CATALYST_RIGHT: AtomicBool = AtomicBool::new(false);
 
 fn bound_mask(left: i32, right: i32) -> u16 {
     let key = (left as u32 as u64) << 32 | right as u32 as u64;
@@ -715,10 +822,89 @@ fn bound_mask(left: i32, right: i32) -> u16 {
             mask |= 1 << (nr_casting_core::SLOTS + slot);
         }
     }
+    // `weapon_is_catalyst` is a param read, so it is answered here — once per weapon change —
+    // rather than per poll. An unreadable row falls back to "has assignments", which keeps a
+    // port's own catalyst working when the base game's categories do not cover it.
+    CATALYST_LEFT.store(catalyst_or_bound(left, mask, false), Ordering::Relaxed);
+    CATALYST_RIGHT.store(catalyst_or_bound(right, mask, true), Ordering::Relaxed);
     BOUND_MASK.store(mask, Ordering::Relaxed);
     BOUND_GEN.store(generation, Ordering::Relaxed);
     BOUND_KEY.store(key, Ordering::Relaxed);
     mask
+}
+
+/// Can this hand's weapon cast?
+///
+/// Vanilla catalysts live in two dedicated param bands — `33xxxxxx` glintstone staffs and
+/// `34xxxxxx` sacred seals — and every row in both is a catalyst (42 of them), while the weapons
+/// that merely *look* like catalysts sit outside: `Watchdog's Staff` and `Rotten Staff` are
+/// colossal weapons, `Devourer's Scepter` a hammer, `Barbed Staff-Spear` a spear. So the band is
+/// the test, not the name.
+///
+/// A weapon outside those bands that the name table does not know belongs to a content mod, and
+/// falls back to "has any spell assigned" — how a port's own catalyst keeps working.
+fn catalyst_or_bound(weapon: i32, mask: u16, right: bool) -> bool {
+    let hand_bits = if right {
+        mask & ((1 << nr_casting_core::SLOTS) - 1)
+    } else {
+        (mask >> nr_casting_core::SLOTS) & ((1 << nr_casting_core::SLOTS) - 1)
+    };
+    let base = nr_casting_core::base_weapon_id(weapon);
+    let band = base / 1_000_000;
+    let answer = if band == 33 || band == 34 {
+        true
+    } else if crate::overlay::weapon_name_base(base).is_none() {
+        hand_bits != 0
+    } else {
+        false
+    };
+    debug!(
+        "weapons: {} {} (cat {:?}) — catalyst {answer}, slots {hand_bits:#x}",
+        if right { "R" } else { "L" },
+        crate::overlay::weapon_name_base(weapon).unwrap_or_else(|| format!("weapon {weapon}")),
+        crate::params::weapon_category(weapon),
+    );
+    answer
+}
+
+/// Are the Y chords on this hand the mod's? Only when that hand holds a catalyst.
+///
+/// The player's rule, stated plainly: "we should only two-hand an item that is not a staff". So on
+/// a catalyst every chord belongs to the mod — a cast when the slot carries a spell, a swallow when
+/// it does not (never a two-hand). On anything else the game keeps the whole press, which is what
+/// makes a sword two-handable again even if a stray assignment sits on its slots.
+fn chords_owned(right: bool) -> bool {
+    // Refresh first: the flags live in the same cache as the slot mask, and a pass can reach this
+    // before anything has asked about the current weapon pair (after a swap, say). `bound_mask`
+    // is a no-op when the pair and the store are unchanged.
+    if let Some((left, right_id)) = weapon_ids() {
+        let _ = bound_mask(left, right_id);
+    }
+    if right {
+        CATALYST_RIGHT.load(Ordering::Relaxed)
+    } else {
+        CATALYST_LEFT.load(Ordering::Relaxed)
+    }
+}
+
+/// Last report we traced, packed.
+static LAST_WIRE: AtomicU64 = AtomicU64::new(u64::MAX);
+/// Last stance value logged, so a transition is one line rather than one per poll.
+static LAST_STANCE: AtomicU8 = AtomicU8::new(u8::MAX);
+
+/// Whether the equipment says a catalyst is being held in both hands.
+///
+/// While a weapon is held two-handed, `active_weapon_slot` reports it for *both* hands, so the two
+/// hands read the same param id. That is a fact about the equipment rather than about `arm_style`,
+/// which the game updates on its own schedule.
+fn catalyst_two_handed() -> bool {
+    if !probe::validated() {
+        return false;
+    }
+    let Some((left, right)) = weapon_ids() else {
+        return false;
+    };
+    left > 0 && left == right && chords_owned(true)
 }
 
 /// The last (hand, slot) a held bind gesture acted on, so one press binds once.
@@ -756,36 +942,50 @@ fn adjust_inner(state: &mut XInputState) {
         }
     }
 
+    // A cast press arms ER's buffered swap chord; keeping Y away from the game for a moment stops
+    // it from ever completing. Pad-only, so it runs before any game-memory work.
+    let quiet_y = pad.right_trigger == 0
+        && pad.left_trigger == 0
+        && pad.buttons & (XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER) == 0;
+    if quiet_y && (now.wrapping_sub(Y_SUPPRESS_UNTIL.load(Ordering::Relaxed)) as i32) < 0 {
+        // Only the "Y on its own" report: that is the one that completes the buffered swap. A chord
+        // press is left alone so chords keep working (and keep mapping to their own slots) even in
+        // the window right after a cast.
+        pad.buttons &= !XINPUT_GAMEPAD_Y;
+    }
+
     let held = held_from(pad, pad.buttons & XINPUT_GAMEPAD_Y != 0);
     let y_before = Y_BEFORE.swap(held.buttons & XINPUT_GAMEPAD_Y != 0, Ordering::Relaxed);
     // Which input means what is decided by `nr_casting_core::route`, which is unit-tested; this
     // function only carries out the answer. It is pure and cheap, so it runs on every poll.
     let route = nr_casting_core::route(&held, y_bumper());
 
-    // A Y chord is ours only when it has a spell behind it. A chord with nothing bound is handed
-    // back to the game untouched, and that is what keeps vanilla two-handing: Y + R2/R1 is the
-    // game's two-hand command, and in v0.2.2 the mod claimed every chord and swallowed it even
-    // with an empty slot, so two-handing stopped working everywhere. Two-hand is part of the
-    // combat flow (swap mid-fight without opening a menu), so an empty chord is not "nothing
-    // happens" — it is the game's press, and it stays the game's.
+    // What this Y chord is ours to handle: nothing at all unless the hand it addresses holds a
+    // catalyst (see `chords_owned`). On a catalyst it is always ours, because two-handing a staff
+    // is the thing this mod exists to replace — a bound slot casts, an empty one is swallowed.
     let chord = match route {
         Route::Chord {
             right_hand,
             slot,
             label,
-        } => (bound_spell(right_hand, slot) > 0).then_some((right_hand, label)),
+        } => chords_owned(right_hand).then_some(ChordPress {
+            right_hand,
+            spell: bound_spell(right_hand, slot),
+            label,
+        }),
         _ => None,
     };
 
-    if chord.is_some() {
-        // The game latches "Y held" and fires the swap on the shoulder press that follows, so
-        // the first report of a chord the game already saw Y held for is a released one: by the
-        // next report the synthetic shoulder press reads as a plain cast. One staged release per
-        // chord episode, and only when Y was genuinely seen alone — a press that brings both at
-        // once never armed the latch, and swallowing its first report would only add latency.
-        let staged = CHORD_RELEASED.swap(true, Ordering::Relaxed);
-        if y_before && !staged {
-            let which = chord.map(|(_, label)| label).unwrap_or("");
+    if matches!(chord, Some(press) if press.spell > 0) {
+        // The game latches "Y held" and fires the swap on the shoulder press that follows, so the
+        // first reports of a chord the game already saw Y held for are released ones: by the time
+        // the synthetic shoulder press arrives, Y has been let go often enough that the latch is
+        // gone. Two reports, not one — the latch survives a single released frame, which is the
+        // "holding Y+combo still two-hands the staff" that survived v0.2.2's single stage.
+        let done = CHORD_STAGED.load(Ordering::Relaxed);
+        if y_before && done < crate::config::load().chord_stage.min(CHORD_STAGE_REPORTS + 2) {
+            CHORD_STAGED.store(done.saturating_add(1), Ordering::Relaxed);
+            let which = chord.map(|press| press.label).unwrap_or("");
             debug!("chord: released Y for one report before pressing the shoulder ({which})");
             pad.right_trigger = 0;
             pad.left_trigger = 0;
@@ -795,7 +995,7 @@ fn adjust_inner(state: &mut XInputState) {
             return;
         }
     } else {
-        CHORD_RELEASED.store(false, Ordering::Relaxed);
+        CHORD_STAGED.store(0, Ordering::Relaxed);
     }
 
     if !due {
@@ -803,14 +1003,18 @@ fn adjust_inner(state: &mut XInputState) {
         // rewritten in place: skipping it handed the game Y+R2 (the chord) and the staff got
         // two-handed instead of a spell cast. This is pad-only work, so it happens before any
         // game-memory check: a world that is not readable yet must not let a chord through.
-        if let Some((right_hand, _)) = chord {
-            rewrite_cast(pad, right_hand);
+        if let Some(press) = chord {
+            if press.spell > 0 {
+                rewrite_cast(pad, press.right_hand, now);
+            } else {
+                swallow_chord(pad);
+            }
         } else if let Route::Cast {
             right_hand, slot, ..
         } = route
         {
             if bound_spell(right_hand, slot) > 0 {
-                rewrite_cast(pad, right_hand);
+                rewrite_cast(pad, right_hand, now);
             }
         }
         return;
@@ -818,6 +1022,19 @@ fn adjust_inner(state: &mut XInputState) {
 
     LAST_RUN_MS.store(now, Ordering::Relaxed);
     crate::stats::pass();
+
+    // Diagnostic: the stance is what the game animates and equips from, and the two-hand symptoms
+    // are about it changing when nothing of ours asked for it.
+    if let Some(style) = crate::game::arm_style() {
+        if LAST_STANCE.swap(style as u8, Ordering::Relaxed) != style as u8 {
+            debug!(
+                "stance: arm_style -> {style:?} | player buttons={:#06x} rt={} | two_handed={}",
+                held.buttons,
+                pad.right_trigger,
+                catalyst_two_handed()
+            );
+        }
+    }
 
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
@@ -834,6 +1051,22 @@ fn adjust_inner(state: &mut XInputState) {
         );
     }
 
+    // ER's two-hand latch still fires on a catalyst now and then: the game latches "Y held" from
+    // frames before our synthesised shoulder press, and staged releases do not reliably clear it.
+    // Two-handing a catalyst does nothing but cost the chord that was meant to cast, so it is
+    // undone here — for a catalyst only (a two-handed sword is the player's business).
+    //
+    // Checked on every full pass, unconditionally. Gating it on "Y is up" (or on a chord being in
+    // the report) was wrong: the latch fires while Y is held with no button pressed, so the staff
+    // stayed in both hands until the player let go — and that is exactly the press they wanted to
+    // cast with.
+    //
+    // What the check costs: `weapon_ids()` is cached for 8 ms (one pointer walk plus two reads
+    // when it misses), `chords_owned` reads the cached (hand,slot) mask, and `probe::validated()`
+    // is an atomic load. So it is a handful of atomics per pass — ~60-120 times a second, a few
+    // microseconds — and the memory write only happens while the game is actually two-handing a
+    // catalyst, which stops as soon as the correction lands (`set_one_handed` drops the weapon
+    // cache so the next pass sees the corrected state instead of writing again).
     if route == Route::Idle {
         LAST_BIND.store(u32::MAX, Ordering::Relaxed);
         idle(pad, now);
@@ -843,8 +1076,12 @@ fn adjust_inner(state: &mut XInputState) {
     // Make the report safe before asking whether the world is readable: a chord that reaches the
     // game while pointers are being re-validated is a two-hand, and the pad edit needs no game
     // memory at all.
-    if let Some((right_hand, _)) = chord {
-        rewrite_cast(pad, right_hand);
+    if let Some(press) = chord {
+        if press.spell > 0 {
+            rewrite_cast(pad, press.right_hand, now);
+        } else {
+            swallow_chord(pad);
+        }
     }
 
     probe::maybe_validate();
@@ -853,7 +1090,8 @@ fn adjust_inner(state: &mut XInputState) {
     }
 
     match route {
-        // Not our chord after all: the game owns this press (two-hand, heavy attack).
+        // Not our chord after all (a catalyst-less hand): the game owns this press — two-hand,
+        // heavy attack — and nothing of ours is in flight.
         Route::Chord { .. } if chord.is_none() => release_borrowed(),
         Route::Chord {
             right_hand,
@@ -865,7 +1103,10 @@ fn adjust_inner(state: &mut XInputState) {
             slot,
             label,
         } => {
-            if !cast_slot(right_hand, slot, label, pad) {
+            if matches!(chord, Some(press) if press.spell <= 0) {
+                // An owned chord with no spell behind it: swallowed above, nothing to cast.
+                release_borrowed();
+            } else if !cast_slot(right_hand, slot, label, pad, now) {
                 // Nothing bound: a plain input was never rewritten (so the game does its own
                 // thing) and an owned chord was already swallowed. Either way no cast is in
                 // flight, so any borrowed entry goes back now.
@@ -943,23 +1184,24 @@ fn held_from(pad: &XInputGamepad, chord: bool) -> Held {
 /// Mirroring forces the wheel selection every frame, which would stop the player cycling spells
 /// — so it is suppressed while the panel is open, and only writes when the selection differs.
 fn idle(pad: &mut XInputGamepad, now: u32) {
-    // Asking about the mouse is two `GetAsyncKeyState` calls — wineserver round-trips under Wine,
-    // on the very thread the game polls the pad from — for a click no human produces faster than
-    // a frame. The no-controller path must not be throttled here: it answers a *failed* poll
-    // inside the detour, and skipping reports there would hand the game a run of "disconnected"
-    // reports in the middle of a held click, which reads as release-then-press (a double cast).
-    if now.wrapping_sub(LAST_MOUSE_MS.load(Ordering::Relaxed)) >= MOUSE_POLL_MS {
-        LAST_MOUSE_MS.store(now, Ordering::Relaxed);
-        if let Some((right, slot, which)) = mouse_combo() {
-            probe::maybe_validate();
-            if probe::validated() {
-                cast_slot(right, slot, which, pad);
-            }
-            return;
-        }
-    }
+    // Nothing spell-shaped is held, so any borrowed magic entry goes back now. Mouse and keyboard
+    // are not polled here at all: they keep their own layer in `rawinput`, which steers the
+    // selection and lets the game's own click cast (see that module).
     release_borrowed();
     if UI_OPEN.load(Ordering::Relaxed) {
+        return;
+    }
+    // The mirror is opt-in (`hud_mirror = on` in the ini): forcing the selection every 33 ms
+    // fights the player's own wheel and hands a cast the wrong spell. See `config::Config`.
+    if !crate::config::load().hud_mirror {
+        return;
+    }
+    // Get out of the way while the player is cycling the wheel. The mirror forces the game's
+    // selection back to slot 1, so holding a D-pad direction means the game advances the wheel
+    // and the mirror yanks it back — dozens of times a second, which reads as the selection
+    // flickering through every spell instead of scrolling. The mirror exists to show what R1 will
+    // cast when nobody is choosing; when somebody *is* choosing, they win.
+    if pad.buttons & XINPUT_GAMEPAD_DPAD != 0 {
         return;
     }
     // Mirroring is a HUD convenience, not an input path: 30 Hz is plenty, and each pass is a
@@ -1009,11 +1251,24 @@ fn bound_on(weapon: i32, slot: usize) -> i32 {
         .unwrap_or(-1)
 }
 
+/// Swallow a Y chord that is ours but has nothing to cast.
+///
+/// Clearing only the shoulder and the triggers is not enough: the game would still see Y held and
+/// a shoulder press in the same report, which is its two-hand command — and on a catalyst that is
+/// exactly what the player does not want. A keystroke that does nothing must look like nothing.
+fn swallow_chord(pad: &mut XInputGamepad) {
+    pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER
+        | XINPUT_GAMEPAD_RIGHT_SHOULDER
+        | XINPUT_GAMEPAD_Y);
+    pad.left_trigger = 0;
+    pad.right_trigger = 0;
+}
+
 /// Turn this report's trigger into the shoulder press the game casts on.
 ///
 /// Pure pad edit, no game memory: it has to happen for *every* caller's report, including the
 /// repeats that skip the rest of `adjust`, or the game reads Y+R2 and two-hands the staff.
-fn rewrite_cast(pad: &mut XInputGamepad, right: bool) {
+fn rewrite_cast(pad: &mut XInputGamepad, right: bool, now: u32) {
     pad.right_trigger = 0;
     pad.left_trigger = 0;
     pad.buttons &= !XINPUT_GAMEPAD_Y;
@@ -1022,6 +1277,26 @@ fn rewrite_cast(pad: &mut XInputGamepad, right: bool) {
     } else {
         pad.buttons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
     }
+    // This press is a swap candidate to the game; hide Y until the candidate expires.
+    Y_SUPPRESS_UNTIL.store(now.wrapping_add(Y_SUPPRESS_MS), Ordering::Relaxed);
+    trace_wire("cast", pad);
+}
+
+/// Log the report we hand over, but only when it changes: a held chord re-sends the same state every
+/// poll, and the log is 4 MiB.
+fn trace_wire(what: &str, pad: &XInputGamepad) {
+    let packed = (pad.buttons as u64) << 16 | (pad.right_trigger as u64) << 8 | pad.left_trigger as u64;
+    if LAST_WIRE.swap(packed, Ordering::Relaxed) == packed {
+        return;
+    }
+    debug!(
+        "wire: {what} buttons={:#06x} rt={} lt={} | stance {:?} | two_handed={}",
+        pad.buttons,
+        pad.right_trigger,
+        pad.left_trigger,
+        crate::game::arm_style(),
+        catalyst_two_handed()
+    );
 }
 
 /// Steer the game's selected spell for a mouse cast, without any pad involved.
@@ -1037,16 +1312,23 @@ pub(crate) fn steer_mouse(right: bool, slot: usize) -> bool {
     if bound <= 0 {
         return false;
     }
-    select_spell(bound)
+    let steered = select_spell(bound);
+    if steered {
+        // The game performs this cast from its own click on its next frame; the pad poll would
+        // otherwise restore the entry first (every 8 ms), and the click would cast whatever the
+        // wheel held instead of the slot that was steered.
+        crate::game::hold_borrowed(400);
+    }
+    steered
 }
 
-fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad) -> bool {
+fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad, now: u32) -> bool {
     let bound = bound_spell(right, slot);
     if bound <= 0 {
         debug!("input: {which} has no bound spell");
         return false;
     }
-    rewrite_cast(pad, right);
+    rewrite_cast(pad, right, now);
     // Steering is a write to game memory behind two readability checks and two locks. It is only
     // needed once per press: after that the borrowed entry already holds the spell and the
     // selection already points at it. Redoing it on every poll of a held button was real work at

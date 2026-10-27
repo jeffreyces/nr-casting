@@ -321,6 +321,36 @@ pub(crate) fn is_vanilla_weapon(id: i32) -> bool {
     id <= 0 || vanilla_weapons().contains(&(id - id % 100))
 }
 
+/// One weapon's name by base id, for code outside the panel (the chord logic needs to know
+/// whether a hand holds a catalyst).
+///
+/// The name is the honest signal available offline: `weaponCategory` is coarse and its numbers
+/// differ between builds, while every vanilla catalyst is named "... Staff", "... Scepter" or
+/// "... Seal". A weapon the table does not name is a content mod's, and the caller falls back to
+/// "has spells assigned" for those.
+pub(crate) fn weapon_name_base(id: i32) -> Option<String> {
+    static NAMES: std::sync::OnceLock<std::collections::HashMap<i32, String>> =
+        std::sync::OnceLock::new();
+    let names = NAMES.get_or_init(|| {
+        let (text, _source) = table_text("nr_casting_weapons.txt", WEAPONS_TABLE);
+        let mut map = std::collections::HashMap::new();
+        for line in text.lines() {
+            let line = line.split('#').next().unwrap_or("").trim();
+            if let Some((id, name)) = line.split_once('=') {
+                if let (Ok(id), name) = (id.trim().parse::<i32>(), name.trim()) {
+                    if !name.is_empty() {
+                        map.insert(id, name.to_string());
+                    }
+                }
+            }
+        }
+        map
+    });
+    names
+        .get(&nr_casting_core::base_weapon_id(id))
+        .cloned()
+}
+
 fn load_weapon_names() -> std::collections::HashMap<i32, String> {
     let (text, source) = table_text("nr_casting_weapons.txt", WEAPONS_TABLE);
     let mut map = std::collections::HashMap::new();
