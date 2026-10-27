@@ -20,7 +20,6 @@ pub type Category = [i32; SLOTS];
 /// XInput button bits used by the routing rules.
 pub const BTN_LEFT_SHOULDER: u16 = 0x0100;
 pub const BTN_RIGHT_SHOULDER: u16 = 0x0200;
-pub const BTN_RIGHT_THUMB: u16 = 0x0080;
 pub const BTN_Y: u16 = 0x8000;
 
 /// What the pad reported this poll.
@@ -45,8 +44,6 @@ impl Held {
 pub enum Route {
     /// Nothing spell-shaped is held: release any borrowed entry, maybe mirror the HUD.
     Idle,
-    /// R3 + L2: give the trigger back to the game so the ash of war fires.
-    AshOfWar,
     /// Y plus a trigger: the third slot.
     Chord {
         right_hand: bool,
@@ -72,9 +69,6 @@ pub enum Route {
 /// Y+L1, so on a Recluse character (or with Recluse loaded) those reports must reach the game
 /// untouched. They come back as `Idle`, which the DLL treats as "do not rewrite this report".
 pub fn route(held: &Held, y_bumper: bool) -> Route {
-    if held.buttons & BTN_RIGHT_THUMB != 0 && held.left_pull {
-        return Route::AshOfWar;
-    }
     if !held.any() {
         return Route::Idle;
     }
@@ -465,8 +459,8 @@ not a slot
 
     #[test]
     fn ash_of_war_wins_over_everything() {
-        let all = held(BTN_RIGHT_THUMB | BTN_Y, true, true, true, true);
-        assert_eq!(route(&all, true), Route::AshOfWar);
+        let all = held(BTN_Y, true, true, true, true);
+        assert_eq!(route(&all, true), Route::Chord { right_hand: true, slot: 2, label: "Y+R2" });
     }
 
     #[test]

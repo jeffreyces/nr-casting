@@ -18,7 +18,6 @@ use crate::logging::{debug, log};
 use crate::store::store_get;
 use crate::{probe, UI_OPEN};
 
-const XINPUT_GAMEPAD_RIGHT_THUMB: u16 = 0x0080;
 const XINPUT_GAMEPAD_LEFT_SHOULDER: u16 = 0x0100;
 const XINPUT_GAMEPAD_RIGHT_SHOULDER: u16 = 0x0200;
 const XINPUT_GAMEPAD_Y: u16 = 0x8000;
@@ -787,7 +786,6 @@ fn adjust_inner(state: &mut XInputState) {
                     swallow_chord(pad);
                 }
             }
-            Route::AshOfWar => pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB,
             _ => {}
         }
         return;
@@ -811,11 +809,6 @@ fn adjust_inner(state: &mut XInputState) {
         );
     }
 
-    if route == Route::AshOfWar {
-        pad.buttons &= !XINPUT_GAMEPAD_RIGHT_THUMB;
-        release_borrowed();
-        return;
-    }
     if route == Route::Idle {
         idle(pad);
         return;
@@ -859,7 +852,7 @@ fn adjust_inner(state: &mut XInputState) {
         }
         // Handled above. A future variant lands here and does nothing rather than panicking
         // inside the game's call stack.
-        Route::AshOfWar | Route::Idle => {}
+        Route::Idle => {}
     }
 }
 
