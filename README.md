@@ -48,7 +48,6 @@ Elden Ring already casts on R1 and L1 with a catalyst in that hand — it casts 
 | L2 | shift + right click | ash of war | cast **slot 2** of the left-hand weapon |
 | **Y + L2** | ctrl + right click | — | cast **slot 3** of the left-hand weapon |
 | **Y + L1** | alt + right click | two-hand the left-hand weapon | cast **slot 4** of the left-hand weapon |
-| **R3 + L2** | — | — | **unchanged vanilla L2**, so the ash of war still fires (R3 itself is swallowed) |
 
 Two-handing a staff is pointless, so those chords are spent on spells instead: **Y + R2 / Y + L2**
 carry a third slot and **Y + R1 / Y + L1** a fourth, giving eight spells across two staves. A chord
@@ -296,9 +295,9 @@ The two pieces worth testing — the slot-file format and the input routing tabl
 cd mod/pure && cargo test
 ```
 
-That covers which input means which slot, which input wins when several are held (ash of war,
-then the Y chords, then a plain cast), the mouse mapping, the raw-input record layout and Shift
-hiding, and slot files written by older versions. Everything else needs the live game.
+That covers which input means which slot, which input wins when several are held (the Y chords
+before a plain cast), the mouse mapping, the raw-input record layout and Shift hiding, the
+character-file naming, and slot files written by older versions. Everything else needs the live game.
 
 ## Building
 
