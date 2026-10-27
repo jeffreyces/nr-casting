@@ -46,6 +46,9 @@ hud_mirror = off
 ; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. On mouse and keyboard the same gesture is
 ; Super (Windows key) + click.
 bind_modifier = L3
+; Hold this and click to bind on mouse and keyboard. Super, Menu, F9, F10, F11, F12 or none.
+; Super is grabbed by KDE/GNOME on Linux, so Menu or a function key is the safe choice there.
+bind_modifier_kb = Super
 ; How many reports a Y chord spends with Y released before the shoulder press that casts. Higher is
 ; more forgiving of the game's own weapon-swap latch, lower is faster to cast. 2 is the default.
 chord_stage = 2

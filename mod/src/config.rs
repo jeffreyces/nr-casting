@@ -54,6 +54,15 @@ pub struct Config {
     pub bind_modifier: u16,
     /// How the bind modifier is spelled in the ini, for log messages.
     pub bind_modifier_name: String,
+    /// Virtual-key code held with a click to bind, on mouse and keyboard.
+    ///
+    /// Separate from `bind_modifier` because the two devices have nothing in common here, and
+    /// because Super is a poor citizen on Linux: KDE and GNOME both claim it, and a compositor grab
+    /// eats `Super + click` before the game sees it. `menu` (the context-menu key) and `F9`-`F12`
+    /// are offered as grab-free alternatives. `none` disables the gesture.
+    pub bind_modifier_kb: i32,
+    /// How the keyboard bind modifier is spelled, for log messages.
+    pub bind_modifier_kb_name: String,
     /// How many reports a chord spends letting go of Y before the shoulder press is sent.
     ///
     /// This is the latch insurance: ER keeps its own "Y is held" state for a frame or two, and a
@@ -86,6 +95,8 @@ impl Default for Config {
             y_bumper_name: "auto".to_string(),
             recluse_ids: vec![8131],
             bind_modifier: 0x0040, // L3
+            bind_modifier_kb: 0x5B, // Super (VK_LWIN)
+            bind_modifier_kb_name: "Super".to_string(),
             chord_stage: 2,
             bind_modifier_name: "L3".to_string(),
         }
@@ -243,6 +254,21 @@ fn modifier_bits(name: &str) -> Option<(u16, &'static str)> {
     })
 }
 
+/// Virtual-key code held with a click to bind. Deliberately excludes Shift, Ctrl and Alt: those
+/// already select slots 2-4 on the click, so using one as the modifier would collide with itself.
+fn keyboard_modifier(name: &str) -> Option<(i32, &'static str)> {
+    Some(match name.trim().to_ascii_uppercase().as_str() {
+        "NONE" | "OFF" | "DISABLED" => (0, "none"),
+        "SUPER" | "WIN" | "WINDOWS" | "META" => (0x5B, "Super"), // VK_LWIN; VK_RWIN accepted too
+        "MENU" | "APPS" | "CONTEXT" => (0x5D, "Menu"),           // VK_APPS
+        "F9" => (0x78, "F9"),
+        "F10" => (0x79, "F10"),
+        "F11" => (0x7A, "F11"),
+        "F12" => (0x7B, "F12"),
+        _ => return None,
+    })
+}
+
 fn truthy(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -351,6 +377,17 @@ debug_log = off
                 let key = key.trim().to_ascii_lowercase();
                 let value = value.trim();
                 match key.as_str() {
+                    "bind_modifier_kb" => match keyboard_modifier(value) {
+                        Some((vk, spelling)) => {
+                            config.bind_modifier_kb = vk;
+                            config.bind_modifier_kb_name = spelling.to_string();
+                        }
+                        None => crate::log(&format!(
+                            "config: bind_modifier_kb '{value}' is not recognised (Super, Menu, \
+                             F9-F12, none); keeping {}",
+                            config.bind_modifier_kb_name
+                        )),
+                    },
                     "bind_modifier" => match modifier_bits(value) {
                         Some((bits, spelling)) => {
                             config.bind_modifier = bits;

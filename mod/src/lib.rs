@@ -187,10 +187,11 @@ fn run() {
     ));
     log("crash: exception observer installed (faults are logged with module and offset)");
     log(&format!(
-        "config: debug_log={} y_bumper={} bind_modifier={} files in {}",
+        "config: debug_log={} y_bumper={} bind_modifier={} bind_modifier_kb={} files in {}",
         cfg.debug_log,
         cfg.y_bumper_name,
         cfg.bind_modifier_name,
+        cfg.bind_modifier_kb_name,
         config::dir().display()
     ));
     DEBUG_LOG.store(cfg.debug_log, Ordering::Relaxed);
