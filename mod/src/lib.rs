@@ -7,25 +7,35 @@
 //! normal cast with vanilla FP checks and animations. Holding **Y** turns a trigger into the
 //! third slot; the chord clears Y for that press so the game sees a plain cast.
 //!
-//! On every press the chosen spell is steered into the borrowed magic entry and `selected_slot`
-//! is pointed at it, which is what makes several spells work off one selection.
+//! A Y chord is only ours when the slot behind it carries a spell. **Y + R1/R2 and Y + L1/L2 are
+//! also the game's two-hand command**, so an empty chord is handed back untouched: two-handing a
+//! weapon whose hand has nothing bound works exactly as it does without the mod, mid-fight
+//! included. On that hand the chord that *does* carry a spell belongs to the spell, which is the
+//! trade this design makes out loud.
 //!
-//! **Ash of war:** hold R3 while pressing L2 and the trigger is passed through unchanged, so
-//! the weapon skill fires exactly as it does without the mod.
+//! On every press the chosen spell is steered into the borrowed magic entry and `selected_slot`
+//! is pointed at it, which is what makes several spells work off one selection. Steering happens
+//! once per press, not once per poll: the entry stays where it was put until the input is
+//! released.
 //!
 //! **Keyboard and mouse:** with no controller the game never polls XInput, so a click cannot be
 //! answered by rewriting a pad report. The mouse is read through raw input instead: the click
 //! steers the selection and the game's own click performs the cast. Shift is hidden from the game
 //! while it is used as a slot modifier, because the game binds Shift + click to the strong attack.
 //!
-//! **Assignment:** done in the panel (F8). There is no bind gesture on the pad, so nothing can
-//! collide with a mod that already uses those chords. Assignments are per character, in
-//! `nr_casting_slots_<name>-<hash>.txt`:
+//! **Assignment:** in the panel (F8) **or with the bind gesture** — hold the configured modifier
+//! (L3 by default) and press the input you want, or hold Super (the Windows key) and click. The
+//! gesture binds whatever the game's own wheel has selected, which is the only way to assign a
+//! spell the character can cast *because of* a Great Rune or a talisman. Assignments are per
+//! character, in `nr_casting_slots_<name>-<hash>.txt`, filed on the weapon's base id:
 //!
 //! ```text
 //! # weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell
-//! 33240009 = 4710, 4200, -1, -1
+//! 33240000 = 4710, 4200, -1, -1
 //! ```
+//!
+//! The base id is why upgrading a staff at a smith no longer drops its spells: the game treats
+//! every upgrade level as its own row, so the store files them under `id - id % 100`.
 //!
 //! Layout: `logging` (file), `store` (assignments), `game` (reads), `input` (the pad hook and its
 //! rules), `rawinput` (the keyboard/mouse hooks), `stats` (input counters), `config`, `params`,
@@ -48,8 +58,8 @@ mod window;
 // The panel and the probe read these through the crate root; re-exporting keeps one obvious
 // name for each instead of a module path in every call site.
 pub(crate) use game::{
-    character_name, inventory_goods_ids, magic_slots, player, player_stats, forget_borrowed,
-    forget_pointers, weapon_ids, PLAYER_SPELL,
+    character_name, inventory_goods_ids, magic_slots, player, player_effective_stats, player_stats,
+    forget_borrowed, forget_pointers, weapon_ids, PLAYER_SPELL,
 };
 pub(crate) use logging::{debug_enabled, log};
 pub(crate) use store::{store_get, store_set};
@@ -177,9 +187,10 @@ fn run() {
     ));
     log("crash: exception observer installed (faults are logged with module and offset)");
     log(&format!(
-        "config: debug_log={} y_bumper={} files in {}",
+        "config: debug_log={} y_bumper={} bind_modifier={} files in {}",
         cfg.debug_log,
         cfg.y_bumper_name,
+        cfg.bind_modifier_name,
         config::dir().display()
     ));
     DEBUG_LOG.store(cfg.debug_log, Ordering::Relaxed);

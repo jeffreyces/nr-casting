@@ -21,7 +21,7 @@ use std::time::Instant;
 
 use imgui::{Condition, Ui};
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_10_1,
     D3D_FEATURE_LEVEL_11_0,
@@ -43,20 +43,20 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, LoadCursorW, IDC_ARROW, WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_POPUP, DispatchMessageW, GetClientRect, IsIconic, PeekMessageW,
     GetForegroundWindow, RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG,
     PM_REMOVE, SW_HIDE, SW_SHOW,
-    WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_NCHITTEST,
+    WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP,
     WM_ACTIVATE, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WS_THICKFRAME, MINMAXINFO,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WM_SIZE,
+    WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
+    SWP_NOSIZE, SWP_NOZORDER,
 };
 
 use crate::overlay::Panel;
 
 /// Height of the draggable header band, in physical pixels.
 const TITLE_BAND: i16 = 28;
-/// `HTCAPTION` as `DefWindowProcW` returns it; the `windows` crate only exposes the constant on
-/// some target feature sets, and the value is part of the Win32 ABI.
-const HTCAPTION: isize = 2;
+/// Virtual key of the left mouse button, for the drag's own button-state poll.
+const VK_LBUTTON: i32 = 0x01;
 
 extern "system" {
     fn GetAsyncKeyState(vk: i32) -> i16;
@@ -99,7 +99,9 @@ struct Model {
 
 impl Model {
     fn refresh_candidates(&mut self) {
-        let stats = crate::player_stats().unwrap_or((0, 0, 0));
+        // Effective stats: base plus active effects. Keying the cache on them means a Great
+        // Rune going on (or a talisman swap) re-filters the list instead of leaving it stale.
+        let stats = crate::player_effective_stats().unwrap_or((0, 0, 0));
         let (int, fai, arc) = stats;
         let key = format!("{}\u{1}{}\u{1}{int}\u{1}{fai}\u{1}{arc}", self.search, self.show_all);
         if key == self.candidates_key {
@@ -128,8 +130,16 @@ impl Model {
         self.panel.set_filter(self.search.clone());
         self.panel.set_show_all(self.show_all);
         let listed = self.panel.candidates(&self.search).len();
-        let stats = crate::player_stats()
-            .map(|(int, fai, arc)| format!("INT {int}   FAI {fai}   ARC {arc}"))
+        let stats = crate::player_effective_stats()
+            .map(|(int, fai, arc)| {
+                // Say when a rune or talisman is doing the work, so a requirement the base
+                // stats do not meet does not read as a bug.
+                let boosted = crate::player_stats().is_some_and(|base| base != (int, fai, arc));
+                format!(
+                    "INT {int}   FAI {fai}   ARC {arc}{}",
+                    if boosted { "   (incl. rune/talisman)" } else { "" }
+                )
+            })
             .unwrap_or_else(|| "stats unavailable".to_string());
         // The character name is the key the assignments are filed under, so showing it says
         // which file the panel is editing.
@@ -192,6 +202,21 @@ impl Gfx {
     }
 }
 
+/// A drag in progress: where the pointer was when it started, and where the window was.
+///
+/// The header band used to return `HTCAPTION` and let `DefWindowProcW` run its modal move loop.
+/// That cannot work here: the mod swallows `SetCapture` and releases the capture every frame
+/// while the panel is open (both needed to keep the pointer away from the game), so the loop
+/// never tracks the mouse and the panel cannot be moved at all. Dragging it by hand touches
+/// neither.
+#[derive(Clone, Copy)]
+struct Drag {
+    /// Screen coordinates of the pointer at the start.
+    from: [i32; 2],
+    /// Window origin at the start.
+    origin: [i32; 2],
+}
+
 struct App {
     hwnd: HWND,
     /// Whatever had focus when the panel opened. Hiding our window does not give focus back, and
@@ -202,6 +227,8 @@ struct App {
     input: Input,
     gfx: Option<Gfx>,
     shown: bool,
+    /// Set while the player is dragging the panel by its header band.
+    drag: Option<Drag>,
     hotkey: i32,
     hotkey_down: bool,
     /// A physical press must produce exactly one toggle: the poll runs every 16 ms and the
@@ -226,6 +253,7 @@ impl App {
             input: Input::default(),
             gfx: None,
             shown: false,
+            drag: None,
             hotkey: crate::config::load().hotkey,
             hotkey_down: false,
             last_toggle: None,
@@ -326,6 +354,40 @@ impl App {
         unsafe { gfx.rebuild_view() };
         self.gfx = Some(gfx);
         true
+    }
+
+    /// Follow the pointer while the header band is dragged.
+    ///
+    /// Polled from the frame loop rather than driven by `WM_MOUSEMOVE`: the window moves *with*
+    /// the pointer, so the client coordinates under the cursor never change and a fast drag can
+    /// leave the window altogether. `GetCursorPos` is the only reliable source, and the mouse
+    /// button's own state ends the drag wherever the pointer happens to be.
+    fn drag_step(&mut self) {
+        let Some(drag) = self.drag else { return };
+        if unsafe { GetAsyncKeyState(VK_LBUTTON) } >= 0 {
+            self.drag = None;
+            return;
+        }
+        let mut point = POINT::default();
+        if unsafe { GetCursorPos(&mut point) }.is_err() {
+            self.drag = None;
+            return;
+        }
+        let x = drag.origin[0] + (point.x - drag.from[0]);
+        let y = drag.origin[1] + (point.y - drag.from[1]);
+        // NOZORDER keeps the panel topmost; NOACTIVATE keeps focus where it is (the panel owns
+        // it already, and stealing it mid-drag would close the panel through WM_ACTIVATE).
+        let _ = unsafe {
+            SetWindowPos(
+                self.hwnd,
+                None,
+                x,
+                y,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+        };
     }
 
     fn set_open(&mut self, open: bool) {
@@ -455,6 +517,12 @@ impl App {
                      Ctrl+LMB = Y+R2,  Ctrl+RMB = Y+L2,  Alt+LMB = Y+R1,  Alt+RMB = Y+L1.",
                 );
                 ui.text_disabled("F8 opens and closes this panel;  Esc closes it.");
+                ui.text_disabled(
+                    "Bind:  hold L3 and press the input you want (Super + click on mouse/keyboard).",
+                );
+                ui.text_disabled(
+                    "Drag the title band to move the panel here; the window edges resize it.",
+                );
             });
 
         if let Some((index, spell_id)) = assign {
@@ -659,15 +727,32 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     }
                     Some(LRESULT(0))
                 }
-                // Borderless, so there is no caption to drag by: the header band moves the
-                // window and the thick frame gives the edges their resize cursors.
-                WM_NCHITTEST => {
+                // Dragging: see `Drag`. The window is borderless, so the header band is the
+                // handle, but the move is done here rather than by `DefWindowProcW`'s modal
+                // loop — that loop needs the mouse capture the mod gives away on purpose.
+                WM_LBUTTONDOWN => {
                     let y = ((lparam.0 >> 16) & 0xFFFF) as i16;
                     if (0..TITLE_BAND).contains(&y) {
-                        return Some(LRESULT(HTCAPTION));
+                        let mut point = POINT::default();
+                        let mut rect = RECT::default();
+                        if unsafe { GetCursorPos(&mut point) }.is_ok()
+                            && unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
+                        {
+                            app.drag = Some(Drag {
+                                from: [point.x, point.y],
+                                origin: [rect.left, rect.top],
+                            });
+                            // Deliberately not fed to ImGui: this press moves the panel.
+                            return Some(LRESULT(0));
+                        }
                     }
-                    // Fall through to the default handler for the resize borders.
-                    None
+                    app.input.down[0] = true;
+                    Some(LRESULT(0))
+                }
+                WM_LBUTTONUP => {
+                    app.drag = None;
+                    app.input.down[0] = false;
+                    Some(LRESULT(0))
                 }
                 WM_GETMINMAXINFO => {
                     let info = lparam.0 as *mut MINMAXINFO;
@@ -706,10 +791,6 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     let x = (lparam.0 & 0xFFFF) as i16 as f32;
                     let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32;
                     app.input.mouse = [x, y];
-                    Some(LRESULT(0))
-                }
-                WM_LBUTTONDOWN | WM_LBUTTONUP => {
-                    app.input.down[0] = msg == WM_LBUTTONDOWN;
                     Some(LRESULT(0))
                 }
                 WM_RBUTTONDOWN | WM_RBUTTONUP => {
@@ -833,6 +914,9 @@ pub fn start() {
                         }
                     }
                     app.hotkey_down = down;
+                    // Before drawing: a drag has to move the window under the cursor, and the
+                    // ImGui frame would otherwise be a frame behind the move.
+                    app.drag_step();
                     if app.shown && !minimized {
                         app.render();
                     }

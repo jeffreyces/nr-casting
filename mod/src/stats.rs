@@ -23,6 +23,8 @@ static STEERED: AtomicU32 = AtomicU32::new(0);
 static STEERED_SLOT: AtomicU32 = AtomicU32::new(u32::MAX);
 /// Alt chords handed to the class port as its own key presses.
 static HANDOFF: AtomicU32 = AtomicU32::new(0);
+/// Binds made from a Super + click.
+static BOUND: AtomicU32 = AtomicU32::new(0);
 /// Shift presses rewritten as releases.
 static SHIFT_HIDDEN: AtomicU32 = AtomicU32::new(0);
 /// Key-state queries from the game, and how many were for the mouse buttons (the question the
@@ -92,6 +94,14 @@ pub(crate) fn handoff() {
     HANDOFF.fetch_add(1, Ordering::Relaxed);
 }
 
+/// A Super + click bound the game's selected spell to a slot.
+pub(crate) fn bound(which: &str) {
+    let count = BOUND.fetch_add(1, Ordering::Relaxed) + 1;
+    if count <= 8 || count.is_multiple_of(32) {
+        crate::log(&format!("mouse: super + click bound {which} ({count} so far)"));
+    }
+}
+
 pub(crate) fn shift_hidden() {
     SHIFT_HIDDEN.fetch_add(1, Ordering::Relaxed);
 }
@@ -110,7 +120,8 @@ pub(crate) fn key_poll(vk: i32) {
 pub(crate) fn raw_report() -> String {
     format!(
         "{} key polls (LMB {}, RMB {}); raw input: {} calls, {} buffer, {} mouse records, \
-         {} with buttons; {} casts steered, {} handed to Recluse, {} shift presses hidden",
+         {} with buttons; {} casts steered, {} handed to Recluse, {} bound by super + click, \
+         {} shift presses hidden",
         KEY_POLLS.swap(0, Ordering::Relaxed),
         KEY_LMB.swap(0, Ordering::Relaxed),
         KEY_RMB.swap(0, Ordering::Relaxed),
@@ -120,6 +131,7 @@ pub(crate) fn raw_report() -> String {
         BUTTON_RECORDS.swap(0, Ordering::Relaxed),
         STEERED.swap(0, Ordering::Relaxed),
         HANDOFF.swap(0, Ordering::Relaxed),
+        BOUND.swap(0, Ordering::Relaxed),
         SHIFT_HIDDEN.swap(0, Ordering::Relaxed),
     )
 }

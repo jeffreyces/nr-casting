@@ -183,7 +183,7 @@ impl Panel {
             "panel: {} goods entries, {} of them spells, stats {:?}",
             goods.len(),
             spells.len(),
-            crate::player_stats()
+            crate::player_effective_stats()
         ));
         self.owned = spells;
     }
@@ -222,9 +222,13 @@ impl Panel {
 
 
     /// Everything the window needs to fill a slot's list, already filtered.
+    ///
+    /// Requirements are checked against the character's *effective* stats (base plus active
+    /// effects), so a spell that only becomes castable with Godrick's Great Rune or a stat
+    /// talisman is offered — and can be assigned — while the effect is on.
     pub fn candidates(&self, needle: &str) -> Vec<(i32, String)> {
         let needle = needle.trim().to_ascii_lowercase();
-        let stats = crate::player_stats();
+        let stats = crate::player_effective_stats();
         self.spells
             .iter()
             .filter(|spell| self.offered(spell, stats))

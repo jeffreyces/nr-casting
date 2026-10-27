@@ -174,11 +174,50 @@ pub(crate) fn seed_store() {
 pub(crate) fn reload_store() {
     let mut map = HashMap::new();
     if let Ok(text) = std::fs::read_to_string(slots_path()) {
-        for (id, spells) in nr_casting_core::parse_slots(&text) {
+        let parsed = nr_casting_core::parse_slots(&text);
+        let folded = nr_casting_core::canonicalize(&parsed);
+        // A file written before assignments moved onto base weapon ids holds `33090010` where
+        // the store now wants `33090000`. Fold it and write the result back once, so the
+        // upgrade does not look like a new weapon on every future load either.
+        //
+        // `canonicalize` sorts, and `format_slots` writes sorted, so a file that needs nothing
+        // compares equal here once it has been through this. Comparing against the raw parse
+        // would rewrite (and log) on every load of an unsorted file.
+        let mut sorted = parsed.clone();
+        sorted.sort_by_key(|(id, _)| *id);
+        if folded != sorted {
+            log(&format!(
+                "slots: folded {} line(s) onto base weapon ids ({} after folding)",
+                parsed.len(),
+                folded.len()
+            ));
+            if let Err(e) = std::fs::write(slots_path(), nr_casting_core::format_slots(&folded)) {
+                log(&format!(
+                    "slots: FAILED to rewrite {}: {e}",
+                    slots_path().display()
+                ));
+            }
+        }
+        for (id, spells) in folded {
             map.insert(id, spells);
         }
     }
     *store_lock() = map;
+    bump_generation();
+}
+
+/// Bumped on every change to the in-memory store.
+///
+/// The input path caches "which slots on this weapon pair carry a spell" and needs to know when
+/// a binding (panel, or the bind gesture) invalidates that answer.
+static GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub(crate) fn generation() -> u32 {
+    GENERATION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn bump_generation() {
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 fn save_store(map: &HashMap<i32, Category>) {
@@ -199,7 +238,7 @@ fn prune_uncastable() {
     if crate::overlay::show_all() {
         return;
     }
-    let (int, fai, arc) = match crate::game::player_stats() {
+    let (int, fai, arc) = match crate::game::player_effective_stats() {
         // All zero means the read landed before the character existed: pruning on that would
         // wipe every assignment.
         Some((0, 0, 0)) | None => return,
@@ -232,6 +271,7 @@ fn prune_uncastable() {
     if dropped > 0 {
         let snapshot: HashMap<i32, Category> = store_lock().clone();
         save_store(&snapshot);
+        bump_generation();
         log(&format!(
             "slots: dropped {dropped} assignment(s) this character cannot cast"
         ));
@@ -249,6 +289,7 @@ pub(crate) fn clear_character() {
         map.clear();
     }
     save_store(&HashMap::new());
+    bump_generation();
     log(&format!("slots: cleared {}", slots_path().display()));
 }
 
@@ -263,10 +304,15 @@ pub(crate) fn describe_store() -> String {
 }
 
 pub(crate) fn store_get(weapon: i32) -> Option<Category> {
-    store_lock().get(&weapon).copied()
+    store_lock()
+        .get(&nr_casting_core::base_weapon_id(weapon))
+        .copied()
 }
 
 pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
+    // Assignments follow the weapon, not one upgrade level of it: the game gives every level
+    // its own param row, so filing them under the equipped id lost them at the smith.
+    let weapon = nr_casting_core::base_weapon_id(weapon);
     // Snapshot under one lock, then write: dropping the guard first let two assignments
     // interleave and save out of order.
     let snapshot = {
@@ -278,5 +324,6 @@ pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
         map.clone()
     };
     save_store(&snapshot);
+    bump_generation();
 }
 
