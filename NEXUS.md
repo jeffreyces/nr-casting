@@ -3,13 +3,13 @@
 
 [line]
 
-[b]Four spells per staff.[/b] R1/R2/Y+R1/Y+R2 cast the right-hand catalyst's two spells, L1/L2/Y+L1/Y+L2 the
-left-hand one. That is four castable spells across two staves, swapped instantly, without opening
-the menu or touching the spell wheel mid-fight. For mouse/keyboard, you have native left/right + SHIFT/CTRL/ALT for a 
-total of four spells.
+[b]Four spells per staff.[/b] R1/R2/Y+R1/Y+R2 cast the right-hand catalyst's four spells,
+L1/L2/Y+L1/Y+L2 the left-hand one. That is eight castable spells across two staves, swapped
+instantly, without opening the menu or touching the spell wheel mid-fight. Keyboard and mouse get
+the same eight: click for the first slot, then SHIFT, CTRL and ALT on either button.
 
-This is not a custom casting implementation. The mod rewrites the controller buttons reports into shoulder
-presses before the game reads the pad, so Elden Ring runs its own cast: real FP costs, real
+This is not a custom casting implementation. The mod rewrites the pad reports into shoulder
+presses before the game reads them, so Elden Ring runs its own cast: real FP costs, real
 requirements, real animations, real i-frames. If the game would not let you cast it, the mod will
 not either.
 
@@ -23,8 +23,8 @@ not either.
 nothing, so those inputs carry spells instead.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast.[/*]
-[*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on[/*]
-[*]two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
+[*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
+two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
 live in a small text file next to the DLL, one per character.[/*]
 [*][b]Safe to remove[/b] — no save file is ever written and nothing persists in memory, so the mod
@@ -45,9 +45,8 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 [*][b]Mouse[/b] — click, shift + click, ctrl + click, alt + click (left or right button) for the same eight slots, with or without a controller[/*]
 [/list]
 
-The panel hotkey is configurable in
-[code]nr_casting.ini[/code]
-Spells are assigned in the panel;there is no bind gesture on the pad.
+The panel hotkey is configurable in [code]nr_casting.ini[/code]. Spells are assigned in the panel;
+there is no bind gesture on the pad.
 
 [line]
 
@@ -55,8 +54,8 @@ Spells are assigned in the panel;there is no bind gesture on the pad.
 [list]
 [*]ELDEN RING, offline. Online play and EAC are not supported and not tested.[/*]
 [*][url=https://github.com/garyttierney/me3]me3[/url] (Mod Engine 3) to load the DLL.[/*]
-[*]A controller — the mod works at the XInput layer.[/*]
-[*]Keyboard  / Mouse — Also works with Left/Right click (original) But added SHIFT / CTRL / ALT + Left / Right to reach full 8.[/*]
+[*]A controller, keyboard and mouse, or both — the mod drives whichever is present. With no controller connected it reads the mouse through raw input instead.[/*]
+[*]Mouse — click for slot 1, then SHIFT, CTRL and ALT on either button for slots 2-4.[/*]
 [/list]
 [line]
 
