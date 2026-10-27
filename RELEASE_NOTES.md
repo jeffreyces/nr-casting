@@ -131,9 +131,11 @@ running on the pad thread.
 ## Upgrading
 
 - `nr_casting.ini` gains a `[input]` section with `bind_modifier` (default `L3`; `none` disables the
-  gesture) and `chord_stage` (default 2; reports a Y chord spends with Y released before the cast
-  press — lower is faster, higher is more forgiving of the game's own latch). An ini without either
-  keeps working: the defaults are the old behaviour.
+  pad gesture), `bind_modifier_kb` (default `Super`; also `Menu`, `F9`-`F12` or `none` — Super is
+  grabbed by KDE and GNOME, so the alternatives matter on Linux) and `chord_stage` (default 2;
+  reports a Y chord spends with Y released before the cast press — lower is faster, higher is more
+  forgiving of the game's own latch). An ini without any of them keeps working: the defaults are the
+  old behaviour.
 - Slot files are rewritten once on load: `33090010 = …` becomes `33090000 = …`. Two lines for the
   same catalyst at different upgrade levels are merged, keeping the first spell each line assigns.
 - The Y + bumper chords remain Recluse's on a Recluse character (`y_bumper = auto`). Super + click
