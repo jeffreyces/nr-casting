@@ -211,13 +211,11 @@ pub(crate) fn select_spell(spell: i32) -> bool {
 /// `VirtualQuery` calls down a pointer chain. 100 ms is far below what the panel's "selected"
 /// line can show.
 /// value (binding).
-pub(crate) fn sample_player_selection() {
-    static LAST: AtomicU64 = AtomicU64::new(0);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    if now.saturating_sub(LAST.load(Ordering::Relaxed)) < 100 {
+pub(crate) fn sample_player_selection(now: u32) {
+    // Wrapping compare on the caller's millisecond clock: `saturating_sub` would stall this for
+    // the 49 days between a wrap and the stored value being overtaken again.
+    static LAST: AtomicU32 = AtomicU32::new(0);
+    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < 100 {
         return;
     }
     LAST.store(now, Ordering::Relaxed);
@@ -265,6 +263,7 @@ pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
     // re-verify.
     PGD.store(0, Ordering::Relaxed);
     MAGIC.store(0, Ordering::Relaxed);
+    WEAPON_PAIR.store(u64::MAX, Ordering::Relaxed);
     CHAR.store(raw, Ordering::Relaxed);
     CHAR_CHECKED.store(now_ms(), Ordering::Relaxed);
     Some(unsafe { &*(raw as *const eldenring::cs::PlayerIns) })
@@ -292,6 +291,7 @@ pub(crate) fn forget_pointers() {
     CHAR.store(0, Ordering::Relaxed);
     PGD.store(0, Ordering::Relaxed);
     MAGIC.store(0, Ordering::Relaxed);
+    WEAPON_PAIR.store(u64::MAX, Ordering::Relaxed);
     CHAR_CHECKED.store(0, Ordering::Relaxed);
 }
 
@@ -313,13 +313,45 @@ fn game_data() -> Option<&'static mut eldenring::cs::PlayerGameData> {
     Some(unsafe { &mut *ptr })
 }
 
+/// The equipped weapon pair, cached for one poll pass.
+///
+/// `weapon_ids` is asked several times per poll (is this slot bound, which chord is this, the HUD
+/// mirror) and each answer used to walk `WorldChrMan -> main_player -> PlayerGameData` *and* take a
+/// clock reading, because `player()` checks its revalidation timer on every call. Answering from a
+/// cached pair collapses that to one walk per pass. 8 ms is the pass interval itself, so a weapon
+/// swap is still seen on the pass it happens in: this is de-duplication, not staleness.
+const WEAPON_CACHE_MS: u32 = 8;
+static WEAPON_PAIR: AtomicU64 = AtomicU64::new(u64::MAX);
+static WEAPON_AT: AtomicU32 = AtomicU32::new(0);
+
 pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
+    let now = now_ms();
+    let cached = WEAPON_PAIR.load(Ordering::Relaxed);
+    if cached != u64::MAX
+        && now.wrapping_sub(WEAPON_AT.load(Ordering::Relaxed)) < WEAPON_CACHE_MS
+    {
+        return Some((unpack_weapon_id(cached >> 32), unpack_weapon_id(cached)));
+    }
     let pgd = game_data()?;
     let ids = &pgd.equipment.chr_asm.equipment_param_ids;
-    Some((
-        ids[ChrAsmSlot::WeaponLeft1 as usize],
-        ids[ChrAsmSlot::WeaponRight1 as usize],
-    ))
+    let left = ids[ChrAsmSlot::WeaponLeft1 as usize];
+    let right = ids[ChrAsmSlot::WeaponRight1 as usize];
+    WEAPON_PAIR.store(
+        pack_weapon_id(left) << 32 | pack_weapon_id(right),
+        Ordering::Relaxed,
+    );
+    WEAPON_AT.store(now, Ordering::Relaxed);
+    Some((left, right))
+}
+
+/// Weapon ids are `i32`; the cache is a `u64` pair. Round-trip through `u32` so a negative or
+/// sentinel id comes back exactly as it went in.
+fn pack_weapon_id(id: i32) -> u64 {
+    id as u32 as u64
+}
+
+fn unpack_weapon_id(bits: u64) -> i32 {
+    bits as u32 as i32
 }
 
 /// The loaded character's name, as the game stores it (UTF-16, 16 characters).

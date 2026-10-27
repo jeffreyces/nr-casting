@@ -90,15 +90,19 @@ const VK_RWIN: i32 = 0x5C;
 /// controller plugged in but a mouse in their hand still needs a way to bind.
 /// Returns whether the record was consumed.
 unsafe fn bind_gesture(record: &mut [u8]) -> bool {
-    if !key_down(VK_LWIN) && !key_down(VK_RWIN) {
-        return false;
-    }
+    // Buttons first, and before the modifier lookup: this runs for *every* mouse record,
+    // movement included, and each `key_down` is a `GetAsyncKeyState` call — a wineserver
+    // round-trip under Wine. Asking about Super before knowing there is a click to bind turned
+    // an idle mouse into two round-trips per record.
     let Some(buttons) = raw_mouse_buttons(record) else {
         return false;
     };
     let left = buttons & RI_MOUSE_LEFT_BUTTON_DOWN != 0;
     let right = buttons & RI_MOUSE_RIGHT_BUTTON_DOWN != 0;
     if (!left && !right) || (left && right) {
+        return false;
+    }
+    if !key_down(VK_LWIN) && !key_down(VK_RWIN) {
         return false;
     }
     // `true` for the fourth slot: binding is our own data, so an Alt chord is bindable even on a
@@ -129,12 +133,17 @@ unsafe fn bind_gesture(record: &mut [u8]) -> bool {
 /// (so the game does not also attack) and the port's key is pressed in its place — 4 for the
 /// right hand, 5 for the left. Returns whether the record was consumed.
 unsafe fn hand_off_to_recluse(record: &mut [u8]) -> bool {
-    if crate::input::y_bumper() || !key_down(VK_MENU) {
+    if crate::input::y_bumper() {
         return false;
     }
+    // Buttons before the modifier: same reasoning as `bind_gesture` — this runs on every mouse
+    // record, and `key_down` is a `GetAsyncKeyState` call.
     let Some(buttons) = raw_mouse_buttons(record) else {
         return false;
     };
+    if !key_down(VK_MENU) {
+        return false;
+    }
     let mut remaining = buttons;
     let mut press: Option<(u8, bool)> = None;
     for (down, up, key) in [
