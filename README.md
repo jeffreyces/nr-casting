@@ -7,9 +7,9 @@ for the fourth, so two staves carry eight spells.
 
 It reproduces Nightreign's casting layout — one spell on the bumper, one on the trigger, per staff —
 using only Elden Ring's data. The Y chords are the addition: **Y + R2 / Y + L2** is a third slot and
-**Y + R1 / Y + L1** a fourth, and each is only the mod's when it actually carries a spell. An empty
-chord is left to the game, so **two-handing works exactly as it always did** on a weapon whose hand
-has nothing bound — mid-fight, without opening a menu.
+**Y + R1 / Y + L1** a fourth. On a staff or seal all four of those chords are the mod's — Y is
+dropped from the report and the game sees a plain cast — while **any other weapon keeps the game's
+press entirely, so two-handing works exactly as it always did**, mid-fight, without opening a menu.
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which
 uses Y+R1 / Y+L1 itself. `y_bumper = auto` (the default) takes those chords **unless** the Recluse

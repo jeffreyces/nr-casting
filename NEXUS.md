@@ -19,9 +19,9 @@ not either.
 
 [list]
 [*][b]Eight spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, a third on
-[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]. A chord the mod does not use
-for a spell is left to the game, so [b]two-handing works as usual[/b] whenever that slot is
-empty.[/*]
+[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]. Ownership follows the weapon: a
+staff or seal never two-hands (all four chords cast), and any other weapon keeps the game's press
+entirely, so nothing is taken away from it.[/*]
 [*][b]Mouse and pad together[/b] — each input keeps its own layer: a click steers the spell and the
 game's own click casts it, with or without a controller attached, so a click is never an attack on
 top of a spell.[/*]
@@ -32,6 +32,12 @@ either slot from the spells your character actually owns and can cast, or bind o
 [b]L3[/b] (or [b]Super[/b] on mouse and keyboard) and press the input you want.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
+[*][b]Survives the smith[/b] — assignments are filed on the weapon's base id, so upgrading a staff or
+seal keeps its spells instead of emptying it. Slot files from older versions are folded onto base
+ids once, on the next load.[/*]
+[*][b]Reads your real stats[/b] — the panel checks requirements against the INT/FAI/ARC the game
+publishes after Great Runes, talismans and buffs, so a spell you can only cast with a rune on can be
+assigned from the panel as well as bound from the wheel.[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
 live in a small text file next to the DLL, one per character.[/*]
 [*][b]Safe to remove[/b] — no save file is ever written and nothing persists in memory, so the mod
@@ -53,8 +59,10 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 [*][b]Bind[/b] — hold [b]L3[/b] and press the input to bind the spell selected in your wheel, or hold [b]Super[/b] and click; the press never also casts[/*]
 [/list]
 
-The panel hotkey and the bind modifier are configurable in [code]nr_casting.ini[/code]. The panel
-window can be dragged by its title band.
+The panel hotkey, the bind modifier and the chord timing ([code]chord_stage[/code], for controllers
+that two-hand too easily on a fast chord) are configurable in [code]nr_casting.ini[/code], along with
+[code]hud_mirror[/code] if you want the game's own wheel pinned to slot 1. The panel window can be
+dragged by its title band.
 
 [line]
 
