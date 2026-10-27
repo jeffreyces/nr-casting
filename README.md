@@ -6,8 +6,10 @@ requirements. Holding **Y** adds two more: **Y+R2 / Y+L2** for the third slot an
 for the fourth, so two staves carry eight spells.
 
 It reproduces Nightreign's casting layout — one spell on the bumper, one on the trigger, per staff —
-using only Elden Ring's data. The Y chords are the addition: two-handing a staff does nothing, so
-those inputs are spent on spells instead.
+using only Elden Ring's data. The Y chords are the addition: **Y + R2 / Y + L2** is a third slot and
+**Y + R1 / Y + L1** a fourth, and each is only the mod's when it actually carries a spell. An empty
+chord is left to the game, so **two-handing works exactly as it always did** on a weapon whose hand
+has nothing bound — mid-fight, without opening a menu.
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which
 uses Y+R1 / Y+L1 itself. `y_bumper = auto` (the default) takes those chords **unless** the Recluse
@@ -15,8 +17,9 @@ mod is loaded *and* the character is a Recluse, so you get eight spells everywhe
 class port keeps its own chords on its own character. `on` claims them regardless, `off` leaves
 them to the game.
 
-Assignment happens in game: press the panel hotkey, pick a slot, choose a spell. Nothing in the
-game's data is edited.
+Assignment happens in game, two ways: press the panel hotkey and pick a slot, or hold **L3** (or
+**Super**, on mouse and keyboard) and press the input you want to bind. Nothing in the game's data
+is edited.
 
 ## Scope
 
@@ -51,9 +54,14 @@ Elden Ring already casts on R1 and L1 with a catalyst in that hand — it casts 
 
 Two-handing a staff is pointless, so those chords are spent on spells instead: **Y + R2 / Y + L2**
 carry a third slot and **Y + R1 / Y + L1** a fourth, giving eight spells across two staves. A chord
-is never handed to the game as Y plus a shoulder press — the mod drops Y from the report and lets
-the game see a plain cast. While any Y chord is bound, Y never reaches the game at all, so its
-two-hand latch cannot fire mid-fight; `y_bumper = off` (see below) gives vanilla two-handing back.
+that carries a spell is never handed to the game as Y plus a shoulder press — the mod drops Y from
+the report and lets the game see a plain cast.
+
+A chord that carries **nothing** is not the mod's press: it goes to the game untouched, which is
+what keeps **two-handing** working. Y + R1/R2 is how the game two-hands the right-hand weapon and
+Y + L1/L2 the left, so the mod only claims a chord when the hand it addresses has a spell bound to
+that slot. The one thing you give up is two-handing a weapon that *does* have a spell bound on that
+same slot — the spell wins there, which is the trade for eight spells.
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which uses
 Y+R1 / Y+L1 itself. `y_bumper = auto` takes those chords **unless** the Recluse mod is loaded and
@@ -149,6 +157,9 @@ overlay = on             ; on | off — the panel window (casting works either w
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 show_all = off           ; list spells the character cannot cast yet (planning mode)
 
+[input]
+bind_modifier = L3       ; L3 | R3 | LB | RB | DPAD_UP | DPAD_DOWN | none
+
 [recluse]
 y_bumper = auto          ; auto | on | off — who gets Y+R1 / Y+L1
 recluse_chr_ids = 8131   ; character ids that count as a Recluse
@@ -161,9 +172,21 @@ Malformed values are logged and the default kept.
 
 ## Using the panel
 
-Assignments are made in the panel. There is deliberately no bind gesture on the pad: a
-hold-a-modifier-and-press gesture collides with class-port mods that use the same chords, and it
-could not work at all on keyboard and mouse.
+Assignments are made in the panel or with the bind gesture; both write the same per-character file.
+
+**The bind gesture** is the quick way, and the only way to assign a spell your character can cast
+because of a Great Rune or a stat talisman: while held, the mod reads the spell *the game's own
+wheel* has selected and writes it to the slot you press.
+
+| input | mouse / keyboard |
+|---|---|
+| hold **L3** + R1 / R2 / L1 / L2 | hold **Super** (Windows key) + the same click |
+| hold **L3** + Y + R2 / Y + L2 | Super + ctrl + click |
+| hold **L3** + Y + R1 / Y + L1 | Super + alt + click |
+
+The press is swallowed, so binding never also casts, and the modifier itself does not reach the
+game. `bind_modifier = none` turns the pad gesture off; the Super + click works regardless of
+whether a controller is attached.
 
 `overlay` decides whether the hotkey can open the panel at all:
 
@@ -182,15 +205,20 @@ device the first time you open it (a few hundred milliseconds), which is why it 
 With the panel installed:
 
 - **The hotkey** opens the panel; while it is open the game's pointer is released and its
-  mouse-look starved, and both are handed back when it closes.
+  mouse-look starved, and both are handed back when it closes. **Drag the title band** to move the
+  window anywhere on screen; the edges resize it.
 - **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L1 / Y+L2. **Right
   column**: the right-hand weapon with R1 / R2 / Y+R1 / Y+R2 (the fourth row first, matching
   slot order). Each row shows its mouse binding beside the pad one.
   **Middle**: the character whose assignments are being edited, your INT/FAI/ARC, the spell
   currently selected in game, search, `refresh` and `reset slots`. A footer spells out both
   mappings.
-- Dropdowns list only spells the character **owns** and **can cast** (requirements met).
-  `show everything` bypasses both for planning a build.
+- Dropdowns list only spells the character **owns** and **can cast** — requirements are checked
+  against INT/FAI/ARC *including active effects*, so a Great Rune or a stat talisman counts and the
+  stats line says when it is doing the work. `show everything` bypasses both for planning a build.
+- **Assignments survive upgrades.** They are filed on the weapon's base id (`33090000`, not
+  `33090010`), so taking a staff to the smith no longer empties it. Slots files written by older
+  versions are folded onto base ids the first time they are read.
 - **On a Recluse character** the fourth row is greyed out and labelled *passthrough*: the chord
   goes to the class port, which binds it to its own `4` (Y+R1) and `5` (Y+L1) keys. With a
   controller the pad report is simply left alone, so the port sees Y+R1 / Y+L1 itself; on
@@ -256,7 +284,7 @@ recluse_chr_ids = 8131
 ```
 
 `auto` is the table above; `on` claims the chords even on a Recluse character (the class port then
-loses them); `off` never claims them, which gives vanilla two-handing back on every character.
+loses them); `off` never claims them, so the chords stay the game's two-hand command everywhere.
 
 ## Repository layout
 

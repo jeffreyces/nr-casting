@@ -33,6 +33,21 @@ static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
 /// Non-blocking mirror of `BORROWED.is_some()` for the pad poll. The poll path runs on the game's
 /// input thread and must never queue behind the panel thread's lock.
 static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Lock-free mirror of `Borrow::steered`: the spell the borrowed entry currently holds.
+///
+/// Steering is a write to game memory behind two `VirtualQuery` checks and two locks. Doing that
+/// once per press is the point; doing it on every poll of a held button (125 a second) was the
+/// per-poll cost most likely to be felt as a hitch while casting.
+static STEERED: AtomicI32 = AtomicI32::new(-1);
+
+/// The spell the borrow currently holds, or `-1` when nothing is borrowed.
+pub(crate) fn steered_spell() -> i32 {
+    if BORROW_ACTIVE.load(Ordering::Relaxed) {
+        STEERED.load(Ordering::Relaxed)
+    } else {
+        -1
+    }
+}
 
 /// Cached game pointers, in `usize` form so they can live in atomics.
 ///
@@ -84,6 +99,7 @@ fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
 
 /// Remember what `select_spell` wrote into the borrowed entry.
 fn remember_steered(spell: i32) {
+    STEERED.store(spell, Ordering::Relaxed);
     if let Ok(mut slot) = BORROWED.lock() {
         if let Some(borrow) = slot.as_mut() {
             borrow.steered = spell;
@@ -108,6 +124,7 @@ pub(crate) fn release_borrowed() {
         slot.take()
     };
     BORROW_ACTIVE.store(false, Ordering::Relaxed);
+    STEERED.store(-1, Ordering::Relaxed);
     let Some(snapshot) = snapshot else {
         return;
     };
@@ -133,6 +150,7 @@ pub(crate) fn forget_borrowed() {
     let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
     *slot = None;
     BORROW_ACTIVE.store(false, Ordering::Relaxed);
+    STEERED.store(-1, Ordering::Relaxed);
 }
 
 /// Does the selection already point at `spell`?
@@ -143,6 +161,26 @@ pub(crate) fn selection_is(spell: i32) -> bool {
     let selected = magic.selected_slot;
     (0..magic.entries.len() as i32).contains(&selected)
         && magic.entries[selected as usize].param_id == spell
+}
+
+/// The spell the *game* has selected, or `None` while our own borrow is in place.
+///
+/// This is what the bind gesture assigns: the player's own wheel selection, not our steered
+/// entry. Reading it from the game is exactly why the gesture works for a spell the character can
+/// only cast with a Great Rune or a talisman on — the panel's requirement filter cannot see the
+/// buffed stat, but the game has already let the player equip the spell.
+pub(crate) fn selected_spell() -> Option<i32> {
+    if BORROW_ACTIVE.load(Ordering::Relaxed) {
+        // The entry holds our steered spell; the player's choice is not readable through it.
+        return None;
+    }
+    let magic = magic_data()?;
+    let selected = magic.selected_slot;
+    if !(0..magic.entries.len() as i32).contains(&selected) {
+        return None;
+    }
+    let id = magic.entries[selected as usize].param_id;
+    (id > 0).then_some(id)
 }
 
 pub(crate) fn select_spell(spell: i32) -> bool {
@@ -326,6 +364,54 @@ pub(crate) fn character_ids() -> Option<(i32, u32)> {
 pub(crate) fn player_stats() -> Option<(u32, u32, u32)> {
     let pgd = game_data()?;
     Some((pgd.intelligence, pgd.faith, pgd.arcane))
+}
+
+/// INT/FAI/ARC as the game applies them: the levelled stat plus whatever active effects add.
+///
+/// Godrick's Great Rune and stat talismans are `SpEffect`s, and level ups are not the only way
+/// to meet a spell's requirement. The panel's filter read the base values, so a spell the
+/// character could cast *with the rune on* was hidden and could not be assigned — the bug that
+/// made the bind gesture the only way to use it. The deltas sit in the param row each active
+/// entry points at: `change_magic_point` is INT, `change_faith_point` FAI and `change_luck_point`
+/// ARC.
+///
+/// Bounded and readability-checked: this walks a linked list owned by the game while the game
+/// may be equipping or removing effects, and it runs off the panel thread as well as the pad
+/// poll.
+pub(crate) fn player_effective_stats() -> Option<(u32, u32, u32)> {
+    let base = player_stats()?;
+    let Some(player) = player() else {
+        return Some(base);
+    };
+    let effect = player.chr_ins.special_effect.as_ptr();
+    if effect.is_null()
+        || !probe::readable(
+            effect as *const u8,
+            std::mem::size_of::<eldenring::cs::SpecialEffect>(),
+        )
+    {
+        return Some(base);
+    }
+    // SAFETY: readable, owned by the character `player()` already validated.
+    let effect = unsafe { &*effect };
+    let (mut int, mut fai, mut arc) = (0i32, 0i32, 0i32);
+    for entry in effect.entries().take(64) {
+        let Some(param) = entry.param_data else { continue };
+        let row = param.as_ptr();
+        if !probe::readable(
+            row as *const u8,
+            std::mem::size_of::<eldenring::param::SP_EFFECT_PARAM_ST>(),
+        ) {
+            continue;
+        }
+        // SAFETY: the param repository owns the row and the readability check just passed.
+        let row = unsafe { &*row };
+        int += row.change_magic_point();
+        fai += row.change_faith_point();
+        arc += row.change_luck_point();
+    }
+    let apply = |base: u32, delta: i32| (base as i32).saturating_add(delta).clamp(1, 99) as u32;
+    Some((apply(base.0, int), apply(base.1, fai), apply(base.2, arc)))
 }
 
 /// Param ids in the goods half of the inventory. Spells are goods entries in ER, so

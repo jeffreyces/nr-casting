@@ -17,6 +17,48 @@ pub const SLOTS: usize = 4;
 /// One weapon's four spell ids, `-1` for unbound.
 pub type Category = [i32; SLOTS];
 
+/// The weapon id with its upgrade level stripped: `33090010` (a +10 staff) -> `33090000`.
+///
+/// ELDEN RING's upgrade level is the low two digits of the equipped id — `overlay` already
+/// relies on that to name a weapon. Assignments are filed on the *base* id so upgrading a
+/// catalyst at a smith does not look like a different weapon and lose its spells: the game
+/// treats each level as its own param row, which is why the store had to stop keying on the
+/// raw id.
+///
+/// Weapon param ids are eight digits; anything outside that range (a negative, a zero, a short id
+/// from a hand-edited file) is returned unchanged rather than folded into a neighbour.
+pub fn base_weapon_id(id: i32) -> i32 {
+    if id < 1_000_000 {
+        id
+    } else {
+        id - id % 100
+    }
+}
+
+/// Fold a parsed slot file onto base weapon ids.
+///
+/// Files written by older versions hold the upgraded id (`33090010 = ...`). Folding two of them
+/// into one base id merges slot by slot, keeping the first spell each line assigns, so an
+/// upgrade cannot silently split one catalyst's assignments into two rows.
+pub fn canonicalize(entries: &[(i32, Category)]) -> Vec<(i32, Category)> {
+    let mut out: Vec<(i32, Category)> = Vec::with_capacity(entries.len());
+    for (id, spells) in entries {
+        let id = base_weapon_id(*id);
+        match out.iter_mut().find(|(existing, _)| *existing == id) {
+            Some((_, target)) => {
+                for (slot, spell) in spells.iter().enumerate() {
+                    if target[slot] == -1 {
+                        target[slot] = *spell;
+                    }
+                }
+            }
+            None => out.push((id, *spells)),
+        }
+    }
+    out.sort_by_key(|(id, _)| *id);
+    out
+}
+
 /// XInput button bits used by the routing rules.
 pub const BTN_LEFT_SHOULDER: u16 = 0x0100;
 pub const BTN_RIGHT_SHOULDER: u16 = 0x0200;
@@ -60,10 +102,12 @@ pub enum Route {
 
 /// Decide what a poll means.
 ///
-/// Order is the contract and matches the DLL: the ash-of-war escape wins over everything, and
-/// the Y chords are
-/// checked before the plain inputs because under Y the trigger means the third slot and the
-/// bumper the fourth.
+/// Order is the contract and matches the DLL: the Y chords are checked before the plain inputs
+/// because under Y the trigger means the third slot and the bumper the fourth.
+///
+/// This says *which slot* an input addresses, not whether that slot carries a spell. A chord
+/// with no spell behind it is handed back to the game untouched (see the DLL), which is what
+/// keeps vanilla two-handing working on a hand that has nothing bound.
 ///
 /// `y_bumper` is false when the Y+bumper chords belong to someone else — Recluse uses Y+R1 and
 /// Y+L1, so on a Recluse character (or with Recluse loaded) those reports must reach the game
@@ -122,10 +166,32 @@ pub fn route(held: &Held, y_bumper: bool) -> Route {
     }
 }
 
-/// The mouse mapping: click plus modifier to (right hand, slot, name).
+/// The bind gesture: with the bind modifier held, the same four inputs that cast also assign.
 ///
-/// The mouse mapping: click plus modifiers to (right hand, slot, name).
+/// Returns `(right_hand, slot, label)` for the input that is down, or `None` when no spell
+/// input is held. The Y chords keep their meaning here, so `L3 + Y + R2` binds the third slot
+/// and `L3 + R2` the second — the player holds the same key they would cast with.
 ///
+/// The caller owns the modifier: it knows whether the pad is reporting L3 (or whatever the ini
+/// says) this report, and it must swallow the press so binding never also casts. Kept here
+/// rather than in the DLL because the mapping has to match `route` exactly, and that is the
+/// kind of thing worth a test.
+pub fn bind_route(held: &Held) -> Option<(bool, usize, &'static str)> {
+    match route(held, true) {
+        Route::Idle => None,
+        Route::Chord {
+            right_hand,
+            slot,
+            label,
+        }
+        | Route::Cast {
+            right_hand,
+            slot,
+            label,
+        } => Some((right_hand, slot, label)),
+    }
+}
+
 /// The mouse mapping: click plus modifiers to (right hand, slot, name).
 ///
 /// Same eight slots as the pad: Shift selects the trigger slot, Ctrl the Y+trigger slot, Alt the
@@ -553,6 +619,61 @@ not a slot
         let text = format_slots(&[(33090010, [1, 2, 3, 4])]);
         assert!(text.contains("33090010 = 1, 2, 3, 4"));
         assert_eq!(parse_slots(&text), vec![(33090010, [1, 2, 3, 4])]);
+    }
+
+    #[test]
+    fn upgrade_levels_fold_onto_the_base_weapon() {
+        assert_eq!(base_weapon_id(33090010), 33090000);
+        assert_eq!(base_weapon_id(33090000), 33090000);
+        // Somber weapons stop at +10, standard ones at +25; both fit in the low two digits.
+        assert_eq!(base_weapon_id(33240025), 33240000);
+        // "No weapon" is passed through, never wrapped.
+        assert_eq!(base_weapon_id(0), 0);
+        assert_eq!(base_weapon_id(-1), -1);
+        // A short id from a hand-edited file is not a weapon param id: leave it alone rather
+        // than folding it onto a neighbour.
+        assert_eq!(base_weapon_id(4101), 4101);
+    }
+
+    #[test]
+    fn canonicalize_merges_the_same_catalyst_at_two_upgrade_levels() {
+        let entries = vec![
+            (33090010, [4431, -1, -1, -1]),
+            (33090000, [-1, 4060, -1, -1]),
+            (4101, [1, 2, -1, -1]),
+        ];
+        let out = canonicalize(&entries);
+        assert_eq!(
+            out,
+            vec![(4101, [1, 2, -1, -1]), (33090000, [4431, 4060, -1, -1])]
+        );
+        // The first line keeps its own value when both assign the same slot.
+        let out = canonicalize(&[(1, [10, -1, -1, -1]), (1, [20, -1, -1, -1])]);
+        assert_eq!(out, vec![(1, [10, -1, -1, -1])]);
+        assert!(canonicalize(&[]).is_empty());
+    }
+
+    #[test]
+    fn bind_gesture_uses_the_cast_mapping() {
+        // No spell input held: nothing to bind, even with the modifier down.
+        assert_eq!(bind_route(&held(0, false, false, false, false)), None);
+        assert_eq!(
+            bind_route(&held(0, false, false, true, false)),
+            Some((true, 0, "R1"))
+        );
+        assert_eq!(
+            bind_route(&held(0, false, true, false, false)),
+            Some((false, 1, "L2"))
+        );
+        // The Y chords keep their slots, so L3 + Y + R2 binds the third.
+        assert_eq!(
+            bind_route(&held(BTN_Y, true, false, false, false)),
+            Some((true, 2, "Y+R2"))
+        );
+        assert_eq!(
+            bind_route(&held(BTN_Y, false, false, false, true)),
+            Some((false, 3, "Y+L1"))
+        );
     }
 }
 

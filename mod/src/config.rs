@@ -43,6 +43,11 @@ pub struct Config {
     /// Character ids that mean "this character is a Recluse". Matched against the player's
     /// character event id and character id. 8131 is the Recluse port's character model.
     pub recluse_ids: Vec<i32>,
+    /// XInput button bit held with a spell input to bind the wheel's selected spell to that
+    /// slot. `0` disables the gesture.
+    pub bind_modifier: u16,
+    /// How the bind modifier is spelled in the ini, for log messages.
+    pub bind_modifier_name: String,
 }
 
 /// Who gets Y+R1 / Y+L1.
@@ -67,6 +72,8 @@ impl Default for Config {
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
             recluse_ids: vec![8131],
+            bind_modifier: 0x0040, // L3
+            bind_modifier_name: "L3".to_string(),
         }
     }
 }
@@ -204,6 +211,24 @@ fn hotkey_code(name: &str) -> Option<i32> {
 }
 
 
+/// XInput button bit that starts a bind when held with a spell input.
+///
+/// Deliberately a small set: this is held *while* pressing R1/R2/L1/L2, so it has to be a button
+/// a thumb can hold down comfortably — L3 (click the left stick) is the default the v0.1 builds
+/// used, and `none` turns the gesture off for anyone who would rather not risk the press.
+fn modifier_bits(name: &str) -> Option<(u16, &'static str)> {
+    Some(match name.trim().to_ascii_uppercase().as_str() {
+        "NONE" | "OFF" | "DISABLED" => (0, "none"),
+        "L3" | "LS" | "LEFT_THUMB" => (0x0040, "L3"),
+        "R3" | "RS" | "RIGHT_THUMB" => (0x0080, "R3"),
+        "LB" | "L1_BUTTON" => (0x0100, "LB"),
+        "RB" | "R1_BUTTON" => (0x0200, "RB"),
+        "DPAD_UP" | "UP" => (0x0001, "D-pad Up"),
+        "DPAD_DOWN" | "DOWN" => (0x0002, "D-pad Down"),
+        _ => return None,
+    })
+}
+
 fn truthy(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -271,6 +296,12 @@ hotkey = F8
 ; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
 show_all = off
 
+[input]
+; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
+; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. The same gesture on mouse and keyboard is
+; Super (Windows key) + click: Super + LMB / Shift / Ctrl / Alt.
+bind_modifier = L3
+
 [recluse]
 ; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
 ; auto = ours unless the Recluse mod is loaded and this character is a Recluse,
@@ -303,6 +334,17 @@ debug_log = off
                 let key = key.trim().to_ascii_lowercase();
                 let value = value.trim();
                 match key.as_str() {
+                    "bind_modifier" => match modifier_bits(value) {
+                        Some((bits, spelling)) => {
+                            config.bind_modifier = bits;
+                            config.bind_modifier_name = spelling.to_string();
+                        }
+                        None => crate::log(&format!(
+                            "config: bind_modifier '{value}' is not recognised (L3, R3, LB, RB, \
+                             none); keeping {}",
+                            config.bind_modifier_name
+                        )),
+                    },
                     "hotkey" => match hotkey_code(value) {
                         Some(code) => {
                             config.hotkey = code;

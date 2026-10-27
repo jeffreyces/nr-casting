@@ -29,20 +29,30 @@ cp "$BUILD/nr_casting.dll" "$OUT/"
 
 if [[ ! -f "$OUT/nr_casting.ini" ]]; then
 cat > "$OUT/nr_casting.ini" <<'INI'
-; nr-casting — three spells per catalyst (bumper, trigger, Y + trigger)
+; nr-casting — four spells per catalyst (bumper, trigger, Y + trigger, Y + bumper)
 [ui]
 ; Open the assignment panel on the hotkey. Set off for casting only (no window at all).
 overlay = on
-; Key that opens the assignment panel
+; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
 hotkey = F8
+; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
+show_all = off
 
 [input]
-; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in game
+; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
+; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. On mouse and keyboard the same gesture is
+; Super (Windows key) + click.
 bind_modifier = L3
 
-[display]
-; Mirror slot 1 onto the game's HUD while the panel is closed (locks the D-pad wheel)
-hud_mirror = off
+[recluse]
+; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
+; auto = ours unless the Recluse mod is loaded and this character is a Recluse,
+;        in which case the chords pass through to the class port (its 4 / 5 keys)
+; on   = always ours (even on a Recluse character)
+; off  = never ours
+y_bumper = auto
+; Character ids that count as a Recluse: the port's character model is c8131.
+recluse_chr_ids = 8131
 
 [logging]
 ; Log every cast, not just captures and errors
@@ -68,12 +78,12 @@ enabled = true
 PROFILE
 
 cat > "$OUT/INSTALL.txt" <<'TXT'
-nr-casting — three spells per catalyst for ELDEN RING (offline only)
+nr-casting — four spells per catalyst for ELDEN RING (offline only)
 
 WHAT IS IN THIS FOLDER
    nr_casting.dll    the mod
    nr-casting.me3    loader profile — already points at the DLL, nothing to edit
-   nr_casting.ini    settings (panel key, bind key, HUD mirror, logging)
+   nr_casting.ini    settings (panel key, bind key, Recluse chords, logging)
    INSTALL.txt       this file
 
 
@@ -118,7 +128,7 @@ INSTALL — me3 Manager (the graphical one)
    Two things to know about the manager:
      - it has a "start online" toggle. Leave it off; this mod is offline only.
      - updating a mod replaces its folder, which takes nr_casting.ini and
-       nr_casting_slots.txt with it. Copy them out first if you have
+       nr_casting_slots_<character>.txt with it. Copy them out first if you have
        assignments you care about.
 
 
@@ -128,13 +138,16 @@ IN GAME
    R1 / R2                 cast slot 1 / slot 2 of the right-hand catalyst
    L1 / L2                 cast slot 1 / slot 2 of the left-hand catalyst
    Y + R2 / Y + L2         cast slot 3 of the right / left-hand catalyst
-   R3 + L2                 plain L2, for the weapon's ash of war
+   Y + R1 / Y + L1         cast slot 4 of the right / left-hand catalyst
+   Y + a shoulder          two-hand that hand, as usual, whenever the slot has no spell bound
    hold L3 + R1/R2/L1/L2   bind the spell selected in the wheel to that slot
 
    Mouse, same slots, no setup:
    left click              R1        shift + left click     R2
    right click             L1        shift + right click    L2
    ctrl + left click       Y+R2      ctrl + right click     Y+L2
+   alt + left click        Y+R1      alt + right click      Y+L1
+   super + any of those    bind the spell selected in the wheel to that slot
 
 
 WHERE THE MOD WRITES ITS FILES
@@ -142,7 +155,7 @@ WHERE THE MOD WRITES ITS FILES
    Everything it generates goes into a subfolder beside the DLL:
 
          nr_casting\nr_casting_catalogue.txt   spells read from your own game
-         nr_casting\nr_casting_slots.txt       your assignments
+         nr_casting\nr_casting_slots_<character>.txt   your assignments, one file per character
          nr_casting\nr_casting_offsets.txt     resolved addresses (for bug reports)
          nr_casting\nr_casting_build.txt       which build the catalogue belongs to
          nr_casting\nr_casting_probe.log       what happened, in order

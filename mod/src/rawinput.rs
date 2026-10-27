@@ -77,6 +77,51 @@ fn key_down(vk: i32) -> bool {
 const RECLUSE_KEY_4: u8 = 0x34;
 const RECLUSE_KEY_5: u8 = 0x35;
 
+/// The bind gesture's modifier on keyboard and mouse: the Windows/Super key, the counterpart of
+/// the pad's L3. Under Proton it is the same physical key (Super), so one spelling covers both.
+const VK_LWIN: i32 = 0x5B;
+const VK_RWIN: i32 = 0x5C;
+
+/// Bind the game's selected spell to the slot this click means.
+///
+/// Held Super + click is the keyboard/mouse counterpart of L3 + R1/R2/L1/L2: it assigns to the
+/// same slot the bare click would cast from, and the click bits are cleared from the record so
+/// the press never also attacks. Deliberately checked before `pad_alive()`: a player with a
+/// controller plugged in but a mouse in their hand still needs a way to bind.
+/// Returns whether the record was consumed.
+unsafe fn bind_gesture(record: &mut [u8]) -> bool {
+    if !key_down(VK_LWIN) && !key_down(VK_RWIN) {
+        return false;
+    }
+    let Some(buttons) = raw_mouse_buttons(record) else {
+        return false;
+    };
+    let left = buttons & RI_MOUSE_LEFT_BUTTON_DOWN != 0;
+    let right = buttons & RI_MOUSE_RIGHT_BUTTON_DOWN != 0;
+    if (!left && !right) || (left && right) {
+        return false;
+    }
+    // `true` for the fourth slot: binding is our own data, so an Alt chord is bindable even on a
+    // character where the cast chord belongs to a class port.
+    let Some((right_hand, slot, which)) = nr_casting_core::mouse_route(
+        left,
+        right,
+        key_down(VK_SHIFT),
+        key_down(VK_CONTROL),
+        key_down(VK_MENU),
+        true,
+    ) else {
+        return false;
+    };
+    if !crate::input::bind_now(right_hand, slot, which) {
+        return false;
+    }
+    let remaining = buttons & !(RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUTTON_DOWN);
+    raw_set_mouse_buttons(record, remaining);
+    stats::bound(which);
+    true
+}
+
 /// Hand an Alt chord to the class port when the fourth slot is not ours.
 ///
 /// Letting the click through is not enough: the game ignores Alt, so it would perform a plain
@@ -231,9 +276,10 @@ fn visit_record(record: &mut [u8]) {
             if let Some(buttons) = raw_mouse_buttons(record) {
                 stats::mouse_buttons(buttons);
             }
-            // A chord that belongs to a class port is handed over instead of steered.
-            if !unsafe { hand_off_to_recluse(record) } {
-                unsafe { steer_click(record) };
+            // A chord that belongs to a class port is handed over instead of steered, and a
+            // Super + click binds rather than casts.
+            if !unsafe { bind_gesture(record) } && !unsafe { hand_off_to_recluse(record) } {
+                unsafe { steer_click(record) }
             }
         }
         Some(RAW_TYPE_KEYBOARD) => {

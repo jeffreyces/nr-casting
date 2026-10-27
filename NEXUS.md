@@ -19,10 +19,12 @@ not either.
 
 [list]
 [*][b]Eight spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, a third on
-[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]; two-handing a staff does
-nothing, so those inputs carry spells instead.[/*]
+[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]. A chord the mod does not use
+for a spell is left to the game, so [b]two-handing works as usual[/b] whenever that slot is
+empty.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
-either slot from the spells your character actually owns and can cast.[/*]
+either slot from the spells your character actually owns and can cast, or bind on the fly: hold
+[b]L3[/b] (or [b]Super[/b] on mouse and keyboard) and press the input you want.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
@@ -43,10 +45,11 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 [*][b]R1 / R2 / Y + R1 / Y + R2[/b] — cast slots 1-4 of the right-hand catalyst[/*]
 [*][b]L1 / L2 / Y + L1 / Y + L2[/b] — cast slots 1-4 of the left-hand catalyst[/*]
 [*][b]Mouse[/b] — click, shift + click, ctrl + click, alt + click (left or right button) for the same eight slots, with or without a controller[/*]
+[*][b]Bind[/b] — hold [b]L3[/b] and press the input to bind the spell selected in your wheel, or hold [b]Super[/b] and click; the press never also casts[/*]
 [/list]
 
-The panel hotkey is configurable in [code]nr_casting.ini[/code]. Spells are assigned in the panel;
-there is no bind gesture on the pad.
+The panel hotkey and the bind modifier are configurable in [code]nr_casting.ini[/code]. The panel
+window can be dragged by its title band.
 
 [line]
 
@@ -109,7 +112,7 @@ loaded and the character is a Recluse — there the chord goes to the class port
 [code]on[/code]
 always takes them,
 [code]off[/code]
-gives vanilla two-handing back.
+never does — the chords stay the game's two-hand command everywhere.
 
 [line]
 
