@@ -50,6 +50,16 @@ files is redistributed.
   own param row, so `33090010` (+10) and `33090000` were different weapons to the store and a trip
   to the smith emptied the slots. Existing files are folded on load, merged slot by slot, and
   rewritten once.
+- `perf(input): the same audit, three more per-poll costs` — after fixing the steering, the rest of
+  the poll path was measured the same way. The pad path asked the OS about the mouse buttons on
+  every idle pass (two `GetAsyncKeyState` calls, each a wineserver round-trip under Wine, on the
+  thread the game polls the pad from, at up to 125 Hz all session) — now 60 Hz, and the
+  no-controller path is deliberately not throttled because there a skipped poll is a "controller
+  disconnected" report in the middle of a held click. `weapon_ids()` walked
+  `WorldChrMan → main_player → PlayerGameData` plus a clock read separately for every question
+  asked about it in a pass; it is answered from a cache keyed to the 8 ms pass. And two
+  `GetAsyncKeyState` calls ran on *every* raw mouse record — movement included — before anything
+  checked whether a button was even down.
 - `fix(panel): list spells the character can cast with active effects` — requirements are checked
   against INT/FAI/ARC including active `SpEffect` bonuses (`change_magic_point`,
   `change_faith_point`, `change_luck_point`), so a Great Rune or a stat talisman is enough. The

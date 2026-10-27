@@ -601,6 +601,13 @@ static MOCK_PACKET: AtomicU32 = AtomicU32::new(1);
 /// Whether the no-controller mouse path has been announced in the log.
 static MOCK_USED: AtomicBool = AtomicBool::new(false);
 
+/// Floor between mouse-button polls on the pad path.
+///
+/// `idle()` runs at the pass cap (up to 125 Hz) for the whole session — most frames hold no spell
+/// input — so asking the OS about the mouse there was the largest per-poll cost left in the mod.
+const MOUSE_POLL_MS: u32 = 16;
+static LAST_MOUSE_MS: AtomicU32 = AtomicU32::new(0);
+
 /// The six mouse combinations, in the same order as the pad's slots.
 ///
 /// The game casts from its own mouse bindings (left = right hand, right = left hand, with the
@@ -814,7 +821,7 @@ fn adjust_inner(state: &mut XInputState) {
 
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
-    sample_player_selection();
+    sample_player_selection(now);
 
     // Debug: log the pad on change, not on every pass — a held button at 125 passes a second
     // would fill the 4 MiB log in half a minute.
@@ -829,7 +836,7 @@ fn adjust_inner(state: &mut XInputState) {
 
     if route == Route::Idle {
         LAST_BIND.store(u32::MAX, Ordering::Relaxed);
-        idle(pad);
+        idle(pad, now);
         return;
     }
 
@@ -935,13 +942,21 @@ fn held_from(pad: &XInputGamepad, chord: bool) -> Held {
 ///
 /// Mirroring forces the wheel selection every frame, which would stop the player cycling spells
 /// — so it is suppressed while the panel is open, and only writes when the selection differs.
-fn idle(pad: &mut XInputGamepad) {
-    if let Some((right, slot, which)) = mouse_combo() {
-        probe::maybe_validate();
-        if probe::validated() {
-            cast_slot(right, slot, which, pad);
+fn idle(pad: &mut XInputGamepad, now: u32) {
+    // Asking about the mouse is two `GetAsyncKeyState` calls — wineserver round-trips under Wine,
+    // on the very thread the game polls the pad from — for a click no human produces faster than
+    // a frame. The no-controller path must not be throttled here: it answers a *failed* poll
+    // inside the detour, and skipping reports there would hand the game a run of "disconnected"
+    // reports in the middle of a held click, which reads as release-then-press (a double cast).
+    if now.wrapping_sub(LAST_MOUSE_MS.load(Ordering::Relaxed)) >= MOUSE_POLL_MS {
+        LAST_MOUSE_MS.store(now, Ordering::Relaxed);
+        if let Some((right, slot, which)) = mouse_combo() {
+            probe::maybe_validate();
+            if probe::validated() {
+                cast_slot(right, slot, which, pad);
+            }
+            return;
         }
-        return;
     }
     release_borrowed();
     if UI_OPEN.load(Ordering::Relaxed) {
@@ -949,7 +964,6 @@ fn idle(pad: &mut XInputGamepad) {
     }
     // Mirroring is a HUD convenience, not an input path: 30 Hz is plenty, and each pass is a
     // weapon read plus a selection compare (three `VirtualQuery` calls each) on the poll thread.
-    let now = crate::millis();
     if now.wrapping_sub(LAST_MIRROR_MS.load(Ordering::Relaxed)) < 33 {
         return;
     }
