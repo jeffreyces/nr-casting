@@ -19,9 +19,8 @@ not either.
 
 [list]
 [*][b]Eight spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, a third on
-[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]. Ownership follows the weapon: a
-staff or seal never two-hands (all four chords cast), and any other weapon keeps the game's press
-entirely, so nothing is taken away from it.[/*]
+[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b], so two staves carry eight spells
+without opening a menu mid-fight.[/*]
 [*][b]Mouse and pad together[/b] — each input keeps its own layer: a click steers the spell and the
 game's own click casts it, with or without a controller attached, so a click is never an attack on
 top of a spell.[/*]
