@@ -98,7 +98,14 @@ unsafe fn bind_gesture(record: &mut [u8]) -> bool {
     if (!left && !right) || (left && right) {
         return false;
     }
-    if !key_down(VK_LWIN) && !key_down(VK_RWIN) {
+    // Configurable, because Super is grabbed by KDE/GNOME before the game process sees it.
+    let modifier = crate::config::load().bind_modifier_kb;
+    if modifier == 0 {
+        return false; // gesture disabled in the ini
+    }
+    let held_modifier = key_down(modifier)
+        || (modifier == VK_LWIN && key_down(VK_RWIN)); // both Windows keys count as Super
+    if !held_modifier {
         return false;
     }
     // `true` for the fourth slot: binding is our own data, so an Alt chord is bindable even on a

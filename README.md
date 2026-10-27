@@ -163,6 +163,7 @@ hud_mirror = off         ; on = force the game's wheel to slot 1 (fights your ow
 
 [input]
 bind_modifier = L3       ; L3 | R3 | LB | RB | DPAD_UP | DPAD_DOWN | none
+bind_modifier_kb = Super ; Super | Menu | F9 | F10 | F11 | F12 | none — held with a click
 chord_stage = 2          ; reports a chord spends with Y released before casting (2 safe, 1 faster)
 
 [recluse]
@@ -185,13 +186,15 @@ wheel* has selected and writes it to the slot you press.
 
 | input | mouse / keyboard |
 |---|---|
-| hold **L3** + R1 / R2 / L1 / L2 | hold **Super** (Windows key) + the same click |
-| hold **L3** + Y + R2 / Y + L2 | Super + ctrl + click |
-| hold **L3** + Y + R1 / Y + L1 | Super + alt + click |
+| hold **L3** + R1 / R2 / L1 / L2 | hold the keyboard modifier + the same click |
+| hold **L3** + Y + R2 / Y + L2 | modifier + ctrl + click |
+| hold **L3** + Y + R1 / Y + L1 | modifier + alt + click |
 
 The press is swallowed, so binding never also casts, and the modifier itself does not reach the
-game. `bind_modifier = none` turns the pad gesture off; the Super + click works regardless of
-whether a controller is attached.
+game. The two modifiers are configured separately — `bind_modifier` for the pad, `bind_modifier_kb`
+for the keyboard (default **Super**, but KDE and GNOME claim that key, so `Menu` or `F9`-`F12` is the
+safer choice on Linux). Either can be `none`, and the keyboard gesture works regardless of whether a
+controller is attached.
 
 `overlay` decides whether the hotkey can open the panel at all:
 

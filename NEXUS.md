@@ -55,10 +55,13 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 [*][b]R1 / R2 / Y + R1 / Y + R2[/b] — cast slots 1-4 of the right-hand catalyst[/*]
 [*][b]L1 / L2 / Y + L1 / Y + L2[/b] — cast slots 1-4 of the left-hand catalyst[/*]
 [*][b]Mouse[/b] — click, shift + click, ctrl + click, alt + click (left or right button) for the same eight slots, with or without a controller[/*]
-[*][b]Bind[/b] — hold [b]L3[/b] and press the input to bind the spell selected in your wheel, or hold [b]Super[/b] and click; the press never also casts[/*]
+[*][b]Bind[/b] — on a controller, hold [b]L3[/b] and press the input; on mouse and keyboard, hold
+[b]Super[/b] (or [code]Menu[/code] / [code]F9[/code]-[code]F12[/code] if your desktop claims Super)
+and click. It binds the spell selected in your own wheel, and the press never also casts.[/*]
 [/list]
 
-The panel hotkey, the bind modifier and the chord timing ([code]chord_stage[/code], for controllers
+The panel hotkey, both bind modifiers ([code]bind_modifier[/code] for the pad,
+[code]bind_modifier_kb[/code] for the keyboard) and the chord timing ([code]chord_stage[/code], for controllers
 that two-hand too easily on a fast chord) are configurable in [code]nr_casting.ini[/code], along with
 [code]hud_mirror[/code] if you want the game's own wheel pinned to slot 1. The panel window can be
 dragged by its title band.
