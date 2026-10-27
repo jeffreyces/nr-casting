@@ -1,13 +1,14 @@
-[center][size=6][b]Two Spells Per Catalyst[/b][/size]
+[center][size=6][b]Four Spells Per Catalyst[/b][/size]
 [size=4]Eight spells on two staves — with Elden Ring doing the casting[/size][/center]
 
 [line]
 
-[b]Two spells per staff.[/b] R1 and R2 cast the right-hand catalyst's two spells, L1 and L2 the
+[b]Four spells per staff.[/b] R1/R2/Y+R1/Y+R2 cast the right-hand catalyst's two spells, L1/L2/Y+L1/Y+L2 the
 left-hand one. That is four castable spells across two staves, swapped instantly, without opening
-the menu or touching the spell wheel mid-fight.
+the menu or touching the spell wheel mid-fight. For mouse/keyboard, you have native left/right + SHIFT/CTRL/ALT for a 
+total of four spells.
 
-This is not a custom casting implementation. The mod rewrites the R2/L2 reports into shoulder
+This is not a custom casting implementation. The mod rewrites the controller buttons reports into shoulder
 presses before the game reads the pad, so Elden Ring runs its own cast: real FP costs, real
 requirements, real animations, real i-frames. If the game would not let you cast it, the mod will
 not either.
@@ -22,9 +23,8 @@ not either.
 nothing, so those inputs carry spells instead.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast.[/*]
-[*][b]Ash of war still works[/b] — hold R3 and press L2 and the trigger passes through untouched.[/*]
-[*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
-two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
+[*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on[/*]
+[*]two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
 live in a small text file next to the DLL, one per character.[/*]
 [*][b]Safe to remove[/b] — no save file is ever written and nothing persists in memory, so the mod
@@ -40,29 +40,27 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 
 [list]
 [*][b]F8[/b] — open/close the assignment panel[/*]
-[*][b]R1 / R2 / Y + R2 / Y + R1[/b] — cast slots 1-4 of the right-hand catalyst[/*]
-[*][b]L1 / L2 / Y + L2 / Y + L1[/b] — cast slots 1-4 of the left-hand catalyst[/*]
-[*][b]R3 + L2[/b] — vanilla L2, for the weapon's ash of war[/*]
+[*][b]R1 / R2 / Y + R1 / Y + R2[/b] — cast slots 1-4 of the right-hand catalyst[/*]
+[*][b]L1 / L2 / Y + L1 / Y + L2[/b] — cast slots 1-4 of the left-hand catalyst[/*]
 [*][b]Mouse[/b] — click, shift + click, ctrl + click, alt + click (left or right button) for the same eight slots, with or without a controller[/*]
 [/list]
 
-The panel hotkey is configurable in [code]nr_casting.ini[/code]. Spells are assigned in the panel;
-there is no bind gesture on the pad.
+The panel hotkey is configurable in
+[code]nr_casting.ini[/code]
+Spells are assigned in the panel;there is no bind gesture on the pad.
 
 [line]
 
 [size=5][b]Requirements[/b][/size]
-
 [list]
 [*]ELDEN RING, offline. Online play and EAC are not supported and not tested.[/*]
 [*][url=https://github.com/garyttierney/me3]me3[/url] (Mod Engine 3) to load the DLL.[/*]
 [*]A controller — the mod works at the XInput layer.[/*]
-[*]Keyboard  / Mouse — Also works with Left/Right click (original) But added SHIFT / CTRL + Left / Right to reach full 6.[/*]
+[*]Keyboard  / Mouse — Also works with Left/Right click (original) But added SHIFT / CTRL / ALT + Left / Right to reach full 8.[/*]
 [/list]
 [line]
 
 [size=5][b]Installation[/b][/size]
-
 [list=1]
 [*]Extract the archive anywhere outside the game folder.[/*]
 [*]Keep the four files together — the profile already points at the DLL beside it.[/*]
@@ -104,10 +102,15 @@ recluse_chr_ids = 8131
 debug_log = off[/code]
 
 [code]y_bumper[/code]
-decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]: [code]auto[/code] takes them unless the Recluse mod is
+decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]:
+[code]auto[/code]
+takes them unless the Recluse mod is
 loaded and the character is a Recluse — there the chord goes to the class port's own
-[b]4[/b] / [b]5[/b] keys (the pad report is left alone; an Alt click is translated into that key) — [code]on[/code] always takes them, [code]off[/code] gives vanilla
-two-handing back.
+[b]4[/b] / [b]5[/b] keys (the pad report is left alone; an Alt click is translated into that key) —
+[code]on[/code]
+always takes them,
+[code]off[/code]
+gives vanilla two-handing back.
 
 [line]
 
@@ -122,7 +125,6 @@ spells, and a full spell wheel is never displaced.
 [line]
 
 [size=5][b]Compatibility[/b][/size]
-
 [list]
 [*][b]me3[/b] — supported, including me3 Manager.[/*]
 [*][b]Frame-generation and upscaling mods[/b] (FSR/FG) [url=https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766]https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766[/url]:
@@ -143,7 +145,6 @@ spells, and a full spell wheel is never displaced.
 [line]
 
 [size=5][b]Notes[/b][/size]
-
 [list]
 [*]Removing the mod is a clean revert: delete the DLL and the profile, and the game is back to
 vanilla. Nothing was added to your save file, and no game data was modified.[/*]
@@ -155,7 +156,9 @@ touching memory; if validation fails it stays out of the way and says so in its 
 records what the mod did, in order. Its
 [code]modules:[/code]
 line lists every DLL loaded besides Windows' own, with each DLL's load base, and any fatal fault
-is recorded automatically as a [code]crash:[/code] line naming the exception, the address, the DLL
+is recorded automatically as a
+[code]crash:[/code]
+line naming the exception, the address, the DLL
 that owns it and the offset inside it — no debug logging needed first. Please attach those lines to
 any bug report.[/*]
 [*]If the DLL sits somewhere read-only, the mod writes to
