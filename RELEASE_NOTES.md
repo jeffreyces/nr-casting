@@ -60,16 +60,80 @@ files is redistributed.
   asked about it in a pass; it is answered from a cache keyed to the 8 ms pass. And two
   `GetAsyncKeyState` calls ran on *every* raw mouse record — movement included — before anything
   checked whether a button was even down.
-- `fix(panel): list spells the character can cast with active effects` — requirements are checked
-  against INT/FAI/ARC including active `SpEffect` bonuses (`change_magic_point`,
-  `change_faith_point`, `change_luck_point`), so a Great Rune or a stat talisman is enough. The
-  strip says when effects are doing the work, and the load-time prune uses the same numbers so it
-  stops dropping an assignment the character can actually cast.
+- `feat(input): mouse and keyboard keep their own layer` — a click no longer goes through the pad
+  report when a controller is attached. The mod steers the selected spell and the game's own click
+  performs the cast, exactly as it does with no pad, so one click is one action and its timing no
+  longer depends on the pad poll. (v0.2.2 synthesised a pad press and left the click to the game,
+  which is how one click became an attack *and* a cast.) Shift is hidden from the game
+  unconditionally now, since ER keeps its mouse bindings live with a pad plugged in and reads
+  Shift + click as the strong attack.
+- `fix(input): a catalyst never two-hands, and everything else always can` — whether a Y chord was
+  the mod's depended on "is a spell bound to that slot", which made an empty chord on a staff
+  two-hand the staff and a stray assignment on a sword make the sword un-two-handable. It now
+  depends on the weapon: the param id bands `33xxxxxx` (glintstone staffs) and `34xxxxxx` (sacred
+  seals) hold every vanilla catalyst and nothing else — name matching was tried first and is a trap,
+  because `Watchdog's Staff`, `Rotten Staff`, `Devourer's Scepter` and `Barbed Staff-Spear` are a
+  colossal weapon, a colossal weapon, a hammer and a spear. A weapon outside those bands that the
+  name table does not know falls back to "has assignments", so a port's own catalyst still works. On a catalyst all four chords are the mod's — cast when bound, swallowed
+  when empty; on anything else the whole press is the game's, so two-hand works even on a weapon
+  carrying assignments.
+- `fix(input): a mouse click is the mod's cast, not an attack as well` — with a controller attached
+  ER keeps its mouse bindings live, so a click reached the game *and* the mod synthesised a pad
+  press: the click attacked, Shift + click arrived as the strong attack ("shift + RMB does a normal
+  attack, not the spell"), and whichever animation won decided the outcome. The raw record's button
+  bits are now cleared when the click addresses a slot that carries a spell, and only in the world
+  (never in a menu, where the game shows its cursor and clicks belong to the UI).
+- `fix(input): keep the borrowed spell for the whole click` — the new mouse-poll throttle meant some
+  idle passes never asked about the mouse, and those passes fell through to `release_borrowed()`,
+  putting the player's own selection back into the magic entry *mid-click*. The game then read the
+  restored entry, which is exactly "a spell right after another uses the last one cast". A cast in
+  flight now holds the borrow until the button comes up.
+- `fix(panel): stop the HUD mirror rewriting your spell selection` — the mirror forced the wheel to
+  slot 1 about 30 times a second, so the game's own "selected spell" line visibly cycled through
+  spells and any action that read the selection got the mirror's spell instead of the player's. It
+  is now opt-in: `hud_mirror = off` by default, `on` restores the old behaviour.
+- `fix(panel): read the game's own effective INT/FAI/ARC` — requirements are checked against the
+  values the game publishes after runes, talismans, physick and buffs (`effective_intelligence`,
+  `effective_faith`, `effective_arcane`). Summing the `SpEffect` rows by hand came out 8 short of
+  the character sheet (76 vs 84), so spells the character could actually cast stayed hidden and
+  could not be assigned. The strip says when effects are doing the work, and the load-time prune
+  uses the same numbers so it stops dropping an assignment the character can cast.
+
+## The two-hand latch, root-caused
+
+The report that carried this release was "Y + combo still two-hands the staff, and then the spell
+never comes out". Three separate causes were found, each hidden behind the previous one, and all
+three are fixed:
+
+- **The mod was rewriting a pad report the game never read.** ELDEN RING's import table is packed, so
+  the hook falls back to patching the export in `xinput1_4.dll` — where it patched ordinal 2,
+  `XInputGetState`. FromSoft reads gameplay input through **ordinal 100, `XInputGetStateEx`**, a
+  different function that also carries the guide button. Both are hooked now, each with its own
+  trampoline. Everything the mod did to the pad was previously applied to a copy that only Steam's
+  overlay and other mods consumed, which is why every input fix "worked" in the log and not in the
+  game.
+- **A feathered trigger was a swap input.** ER acts on any nonzero trigger with Y held, and buffers
+  that swap. The chord floor was 20/255, so a trigger easing through 1-19 reached the game untouched
+  as Y + trigger and two-handed the staff ~300 ms later. The floor is 1: with Y down, any trigger
+  movement is a chord.
+- **The cast press itself arms the buffered swap.** ER remembers the shoulder press as a swap
+  candidate and completes it when it next sees Y — including a report where the player is holding Y
+  on its own, which the mod passes through untouched. For 700 ms after a cast press, Y is therefore
+  cleared from reports that carry no trigger, so the swap has nothing to complete with. Chords are
+  unaffected: they carry a trigger or bumper, so they are routed normally inside that window.
+
+The two-hand *correction* (detect a two-handed catalyst, write `arm_style` back, re-send the press)
+that was written while chasing this is **removed**. It could not hold while Y was down — ER
+re-applies its own state every frame, which the player saw as the staff flickering in and out of
+both hands — and with the three causes above fixed it had nothing left to correct. One less thing
+running on the pad thread.
 
 ## Upgrading
 
 - `nr_casting.ini` gains a `[input]` section with `bind_modifier` (default `L3`; `none` disables the
-  gesture). An ini without it keeps working — the default is the same as the old v0.1 behaviour.
+  gesture) and `chord_stage` (default 2; reports a Y chord spends with Y released before the cast
+  press — lower is faster, higher is more forgiving of the game's own latch). An ini without either
+  keeps working: the defaults are the old behaviour.
 - Slot files are rewritten once on load: `33090010 = …` becomes `33090000 = …`. Two lines for the
   same catalyst at different upgrade levels are merged, keeping the first spell each line assigns.
 - The Y + bumper chords remain Recluse's on a Recluse character (`y_bumper = auto`). Super + click

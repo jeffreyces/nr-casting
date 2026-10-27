@@ -37,12 +37,18 @@ overlay = on
 hotkey = F8
 ; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
 show_all = off
+; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off by default:
+; on, it rewrites the selection ~30x a second and fights your D-pad scrolling.
+hud_mirror = off
 
 [input]
 ; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
 ; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. On mouse and keyboard the same gesture is
 ; Super (Windows key) + click.
 bind_modifier = L3
+; How many reports a Y chord spends with Y released before the shoulder press that casts. Higher is
+; more forgiving of the game's own weapon-swap latch, lower is faster to cast. 2 is the default.
+chord_stage = 2
 
 [recluse]
 ; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.

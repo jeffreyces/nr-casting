@@ -57,19 +57,22 @@ carry a third slot and **Y + R1 / Y + L1** a fourth, giving eight spells across 
 that carries a spell is never handed to the game as Y plus a shoulder press — the mod drops Y from
 the report and lets the game see a plain cast.
 
-A chord that carries **nothing** is not the mod's press: it goes to the game untouched, which is
-what keeps **two-handing** working. Y + R1/R2 is how the game two-hands the right-hand weapon and
-Y + L1/L2 the left, so the mod only claims a chord when the hand it addresses has a spell bound to
-that slot. The one thing you give up is two-handing a weapon that *does* have a spell bound on that
-same slot — the spell wins there, which is the trade for eight spells.
+**Two-handing** is decided by what is in the hand, not by what is bound to a slot. A catalyst
+(a glintstone staff or a sacred seal — param id bands `33xxxxxx` / `34xxxxxx`) never two-hands: all four of its chords belong to the mod, so a bound slot casts and
+an empty one does nothing. Any other weapon keeps the game's press entirely — Y + R1/R2 two-hands
+the right-hand weapon and Y + L1/L2 the left, exactly as without the mod, even if a stray assignment
+sits on its slots.
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which uses
 Y+R1 / Y+L1 itself. `y_bumper = auto` takes those chords **unless** the Recluse mod is loaded and
 the character is a Recluse, where they pass straight through to the class port instead — eight
 spells everywhere else, its own chords on its own character.
 
-The mouse uses the same eight slots with no separate configuration: the game performs the attack
-from its own click and the mod steers the selection first, exactly as it does for a pad press.
+The mouse uses the same eight slots with no separate configuration, and it *always* uses its own
+layer: the mod steers the selected spell and the game's own click performs the cast, with or without
+a controller attached. Nothing is synthesised for a click, so one click is one action. Shift is
+hidden from the game while the mod owns it (the game binds Shift + click to the strong attack, which
+does not cast); Ctrl and Alt are ignored by the game already.
 Clicks are ignored while the panel is open or another window has focus. With **no controller
 connected** the mod hides Shift from the game (`GetAsyncKeyState` and its raw keyboard records), so
 Shift + click arrives as a plain click and casts instead of being read as the game's strong attack;
@@ -156,9 +159,11 @@ Two Manager behaviours are worth knowing:
 overlay = on             ; on | off — the panel window (casting works either way)
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 show_all = off           ; list spells the character cannot cast yet (planning mode)
+hud_mirror = off         ; on = force the game's wheel to slot 1 (fights your own scrolling)
 
 [input]
 bind_modifier = L3       ; L3 | R3 | LB | RB | DPAD_UP | DPAD_DOWN | none
+chord_stage = 2          ; reports a chord spends with Y released before casting (2 safe, 1 faster)
 
 [recluse]
 y_bumper = auto          ; auto | on | off — who gets Y+R1 / Y+L1
@@ -224,8 +229,10 @@ With the panel installed:
   controller the pad report is simply left alone, so the port sees Y+R1 / Y+L1 itself; on
   keyboard and mouse the Alt click is swallowed and `4` / `5` is pressed in its place — passing
   the click through would only make the game perform a plain attack, since it ignores Alt.
-- **The HUD mirror is always on**: the right-hand weapon's first slot is mirrored onto the game's
-  own spell wheel, so the game shows what R1 will cast.
+- **The HUD mirror is off by default.** With `hud_mirror = on` the right-hand weapon's first slot is
+  forced onto the game's own spell wheel so its HUD shows what R1 will cast — but that rewrites
+  your selection ~30 times a second, so the wheel visibly cycles and a D-pad scroll is fought every
+  frame. Leave it off if you pick spells yourself (the default).
 
 ## Assignments are per character
 

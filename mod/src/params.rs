@@ -104,3 +104,19 @@ pub fn live_weapon_ids() -> Vec<i32> {
     }
     out
 }
+
+/// The weapon's `EquipParamWeapon.weaponCategory`, for the log.
+///
+/// Logged rather than used as a test: the Paramdex enum for this field is coarse and the numbers
+/// differ between builds, so classification is by weapon name (see `overlay::weapon_name_base`)
+/// and this is the evidence needed to tighten that later without guessing.
+pub fn weapon_category(id: i32) -> Option<u8> {
+    if id <= 0 {
+        return None;
+    }
+    let base = nr_casting_core::base_weapon_id(id);
+    let Ok(repo) = (unsafe { SoloParamRepository::instance() }) else {
+        return None;
+    };
+    Some(repo.get::<EquipParamWeapon>(base as u32)?.weapon_category())
+}

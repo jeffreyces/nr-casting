@@ -22,6 +22,11 @@ not either.
 [b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]. A chord the mod does not use
 for a spell is left to the game, so [b]two-handing works as usual[/b] whenever that slot is
 empty.[/*]
+[*][b]Mouse and pad together[/b] — each input keeps its own layer: a click steers the spell and the
+game's own click casts it, with or without a controller attached, so a click is never an attack on
+top of a spell.[/*]
+[*][b]Two-handing stays yours[/b] — a staff or seal never two-hands (its chords cast), and every
+other weapon two-hands exactly as the base game does.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast, or bind on the fly: hold
 [b]L3[/b] (or [b]Super[/b] on mouse and keyboard) and press the input you want.[/*]
