@@ -133,9 +133,10 @@ pub(crate) fn release_borrowed() {
     if !BORROW_ACTIVE.load(Ordering::Relaxed) {
         return;
     }
-    // A mouse cast asked for the entry to stay a little longer (see `hold_borrowed`). Wrapping
-    // comparison: still held while `now` has not reached the deadline.
-    if (now_ms().wrapping_sub(BORROW_HOLD_UNTIL.load(Ordering::Relaxed)) as i32) < 0 {
+    // A mouse cast asked for the entry to stay a little longer (see `hold_borrowed`). Same
+    // "zero means nothing armed" rule as the pad's Y suppression: an unset deadline here used to
+    // look pending for half of every clock wrap, which kept the borrow from ever being released.
+    if nr_casting_core::armed_until(now_ms(), BORROW_HOLD_UNTIL.load(Ordering::Relaxed)) {
         return;
     }
     let snapshot = {

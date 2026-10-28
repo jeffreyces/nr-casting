@@ -438,6 +438,17 @@ pub fn raw_hide_shift(record: &mut [u8]) -> bool {
     true
 }
 
+/// Is a saved deadline still in the future?
+///
+/// `until == 0` means "nothing has been armed yet", and must never be read as "the deadline is
+/// the epoch": that makes every timestamp look pending. A zeroed static once did exactly that to
+/// the pad's Y key and to the mouse-borrow hold — `now - 0` on a 32-bit clock is a *positive*
+/// number, but its `i32` reading is negative whenever the clock's high bit is set, which is half
+/// of every 49.7-day wrap.
+pub fn armed_until(now: u32, until: u32) -> bool {
+    until != 0 && (now.wrapping_sub(until) as i32) < 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -926,5 +937,30 @@ mod raw_tests {
         assert_eq!(raw_keyboard(&other), Some((0, 0x20)));
         let mut short = record(RAW_TYPE_KEYBOARD, 8, &[]);
         assert!(!raw_hide_shift(&mut short));
+    }
+
+    #[test]
+    fn an_unset_deadline_is_never_armed() {
+        assert!(!armed_until(0, 0));
+        assert!(!armed_until(1_700_000_000, 0));
+        // The value that made Y go dead at a Site of Grace: high bit set, subtraction positive,
+        // i32 reading negative.
+        assert!(!armed_until(0x8000_0000, 0));
+        assert!(!armed_until(0xFFFF_FFFF, 0));
+    }
+
+    #[test]
+    fn a_deadline_ahead_is_armed_and_one_behind_is_not() {
+        assert!(armed_until(1_000, 1_700));
+        assert!(!armed_until(1_700, 1_000));
+        assert!(!armed_until(1_700, 1_700));
+    }
+
+    #[test]
+    fn a_deadline_still_reads_correctly_across_the_clock_wrapping() {
+        // Armed 48 ms before the counter wraps, 64 ms later: still ahead.
+        assert!(armed_until(0xFFFF_FFF0, 0x20));
+        // Armed 0x40 before the wrap, now 0x50 past it: long gone.
+        assert!(!armed_until(0x50, 0xFFFF_FFC0));
     }
 }

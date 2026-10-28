@@ -1,42 +1,37 @@
-# v0.2.5 — the name reader, hardened
+# v0.2.6 — Y comes back
 
-A follow-up to v0.2.4. Nothing about casting, slots or chords changes, and nothing resolves to a
-different name than it did in v0.2.4 — this release makes the new name reader behave under two
-conditions that v0.2.4 handled badly.
+Two bugs, one cause: a saved deadline of `0` was read as "the deadline is the epoch", which on a
+32-bit millisecond clock looks like it is still in the future for half of every 49.7-day wrap.
 
-**The upgrade is the DLL and nothing else.**
-
-Offline only, as before.
+**Upgrade is the DLL only.** Nothing else changes.
 
 ## Fixed
 
-- **A panel open during a load could stutter.** The panel asks the game for a weapon's name while
-  it draws, and a lookup that found the text tables momentarily unreadable (which is what a
-  reload looks like) cached nothing — so every frame re-walked and re-parsed three message layers,
-  about ten thousand field reads each, on the render thread. A failed read is now remembered for
-  250 ms before the next attempt, and a successful one clears it.
-- **A corrupt text-table header could cost megabytes before being rejected.** The parser trusted
-  the header's group count up to 262k, which meant a garbage header could make it allocate ~3 MB
-  and walk ~780k fields before the structure check failed. The ceilings are now 65,536 groups and
-  1M strings, and a table claiming more groups than strings is rejected outright — impossible for
-  a real table, since every range covers at least one id.
+- **Y stopped working at a Site of Grace until you had cast once.** Every pad report without a
+  trigger or bumper had Y stripped from it, because the "quiet Y" window was armed by a zero
+  timestamp. The first cast replaced it with a real deadline and Y behaved from then on, which is
+  why it looked like a mod-specific quirk rather than a clock bug.
+- **A mouse cast could keep the borrowed player entry held indefinitely.** The same zero sentinel
+  guarded the 400 ms hold that keeps the character readable across a mouse cast, so the entry was
+  never considered expired once the clock's high bit was set.
 
-## Changed
+Both now go through one tested predicate, `armed_until(now, until)`, where `0` means "nothing is
+armed" and wrap-around is handled explicitly. Three new unit tests cover the unset case, both
+sides of the boundary, and a deadline that spans the wrap.
 
-- `docs(nexus): earlier page copy from the user` — the mod page source, committed as written.
+## Why it appeared now
+
+Nothing in v0.2.4 or v0.2.5 touched the input path (`mod/src/input.rs` is unchanged since v0.2.3).
+The bug has been latent since the "quiet Y" window was introduced; it needs the epoch-millisecond
+clock's bit 31 set, which happens for 24.8 days out of every 49.7. It crossed over during this
+play session.
 
 ## Upgrading
 
-Replace `nr_casting.dll`. The ini, the loader profile, your assignments and the cached spell
-catalogue are all reused as they are; no file needs deleting and no setting changes.
+Replace `nr_casting.dll`. Assignments, the ini, the loader profile and the cached spell catalogue
+are reused as they are.
 
-## Notes
+## Verified
 
-- The name reader still costs ~17 ms once per session (2,910 weapon and 214 spell rows on a
-  Recluse install) on the maintenance thread, and nothing afterwards — answers and misses are
-  cached, and the panel's render path only reads that cache.
-- If the text tables cannot be read at all, every caller keeps its compiled table and unnamed
-  rows show their id (`mod weapon 34070000`). The log distinguishes the two outcomes:
-  `text tables proven` versus `no FMG at …: <reason>`.
-- Verified on ELDEN RING 1.17.2 with the Recluse class port loaded, after the change: proof
-  passes, 2,910 + 214 names in 17 ms, no fault.
+Cold launch with the Recluse port loaded, no cast beforehand: Y works at a Site of Grace, chords
+still cast, 2,910 weapon and 214 spell names read from the game's text (18 ms), 39 unit tests green.
