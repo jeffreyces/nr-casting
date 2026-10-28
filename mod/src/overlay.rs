@@ -26,6 +26,10 @@ use std::collections::HashSet;
 
 use crate::logging::debug;
 
+/// First line of the cached catalogue. Bumping it makes an older cache get rebuilt instead of
+/// reused — the marker names the format, not the game build (that is the exe fingerprint).
+const CATALOGUE_MARKER: &str = "# names=2";
+
 
 
 #[derive(Clone)]
@@ -134,7 +138,7 @@ impl Panel {
             // A weapon the vanilla table does not know: the Recluse port adds its own, and a
             // total conversion adds hundreds. Their names are only in the game's own text, so
             // ask it once and let `msg` cache the answer.
-            .or_else(|| crate::msg::names(11, &[base]).remove(&base));
+            .or_else(|| crate::msg::name(11, base));
         match name {
             Some(name) if upgrade > 0 => format!("{name} +{upgrade}"),
             Some(name) => name,
@@ -164,7 +168,8 @@ impl Panel {
         }
         self.spells = rows;
         self.reindex();
-        self.fill_names_from_game();
+        // Names are filled by `refresh_owned` on every open (this runs from there): doing it in
+        // both places logged the same result twice per open.
         self.live_applied = true;
     }
 
@@ -181,10 +186,11 @@ impl Panel {
         let missing_spells: Vec<i32> = self
             .spells
             .iter()
-            .filter(|s| s.name == format!("Spell {}", s.id))
+            .filter(|s| placeholder_name(&s.name, s.id))
             .map(|s| s.id)
             .collect();
         if !missing_spells.is_empty() {
+            let started = std::time::Instant::now();
             let names = crate::msg::names(10, &missing_spells);
             if !names.is_empty() {
                 for spell in self.spells.iter_mut() {
@@ -193,14 +199,16 @@ impl Panel {
                     }
                 }
                 self.reindex();
+                // Only when it actually resolved something: a panel open on a settled install
+                // has nothing left to add, and logging that every time is noise.
+                crate::log(&format!(
+                    "table: {}/{} spell names read from the game's own text ({} ms)",
+                    names.len(),
+                    missing_spells.len(),
+                    started.elapsed().as_millis()
+                ));
             }
-            crate::log(&format!(
-                "table: {}/{} spell names read from the game's own text",
-                names.len(),
-                missing_spells.len()
-            ));
         }
-
         let live = crate::params::live_weapon_ids();
         let missing_weapons: Vec<i32> = live
             .iter()
@@ -208,15 +216,19 @@ impl Panel {
             .filter(|id| !self.weapons.contains_key(id))
             .collect();
         if !missing_weapons.is_empty() {
+            let started = std::time::Instant::now();
             let names = crate::msg::names(11, &missing_weapons);
-            for (id, name) in &names {
-                self.weapons.insert(*id, name.clone());
+            if !names.is_empty() {
+                for (id, name) in &names {
+                    self.weapons.insert(*id, name.clone());
+                }
+                crate::log(&format!(
+                    "table: {}/{} weapon names read from the game's own text ({} ms)",
+                    names.len(),
+                    missing_weapons.len(),
+                    started.elapsed().as_millis()
+                ));
             }
-            crate::log(&format!(
-                "table: {}/{} weapon names read from the game's own text",
-                names.len(),
-                missing_weapons.len()
-            ));
         }
     }
 
@@ -448,10 +460,12 @@ fn load_weapon_names() -> std::collections::HashMap<i32, String> {
 /// catalogue cannot outlive the build it describes. Returns `None` while the game has not
 /// loaded its regulation yet.
 pub(crate) fn ensure_catalogue() -> Option<String> {
-    // Read from either location, but always write into the mod's own folder.
+    // Read from either location, but always write into the mod's own folder. The marker line
+    // names the format: a file written before the mod read names from the game's own text holds
+    // `Spell <id>` placeholders for rows it could not name, so it is rebuilt rather than reused.
     let cache = crate::config::path("nr_casting_catalogue.txt");
     if let Ok(text) = std::fs::read_to_string(crate::config::read_path("nr_casting_catalogue.txt")) {
-        if !text.trim().is_empty() {
+        if !text.trim().is_empty() && text.starts_with(CATALOGUE_MARKER) {
             return Some(text);
         }
     }
@@ -498,10 +512,11 @@ pub(crate) fn ensure_catalogue() -> Option<String> {
     if crate::msg::ready() {
         let missing: Vec<i32> = spells
             .iter()
-            .filter(|s| s.name == format!("Spell {}", s.id))
+            .filter(|s| placeholder_name(&s.name, s.id))
             .map(|s| s.id)
             .collect();
         if !missing.is_empty() {
+            let started = std::time::Instant::now();
             let names = crate::msg::names(10, &missing);
             for spell in spells.iter_mut() {
                 if let Some(name) = names.get(&spell.id) {
@@ -509,15 +524,17 @@ pub(crate) fn ensure_catalogue() -> Option<String> {
                 }
             }
             crate::log(&format!(
-                "catalogue: {}/{} spell names read from the game's own text",
+                "catalogue: {}/{} spell names read from the game's own text ({} ms)",
                 names.len(),
-                missing.len()
+                missing.len(),
+                started.elapsed().as_millis()
             ));
         }
     }
 
     let mut out = String::from(
-        "# generated from the running game's Magic param\n\
+        "# names=2 (spell names may come from the game's own text)\n\
+         # generated from the running game's Magic param\n\
          # spell_id = Name | school | int | fai | arc | fp\n",
     );
     for spell in &spells {
@@ -562,14 +579,17 @@ fn report_weapon_drift() {
     let from_game = if crate::msg::ready() && !unknown.is_empty() {
         let resolved = crate::msg::names(11, &unknown);
         // Sample what came back: a wrong layer/slot pairing would return another item's title,
-        // and three lines of evidence beat trusting the count.
-        let mut pairs: Vec<String> = resolved
-            .iter()
-            .take(3)
-            .map(|(id, name)| format!("{id}={name}"))
-            .collect();
-        pairs.sort();
-        debug!("weapons: game-supplied names {}", pairs.join(", "));
+        // and three lines of evidence beat trusting the count. Built only when the debug log is
+        // on — the flag is checked before any formatting, as everywhere else.
+        if crate::debug_enabled() {
+            let mut pairs: Vec<String> = resolved
+                .iter()
+                .take(3)
+                .map(|(id, name)| format!("{id}={name}"))
+                .collect();
+            pairs.sort();
+            debug!("weapons: game-supplied names {}", pairs.join(", "));
+        }
         resolved.len()
     } else {
         0
@@ -586,6 +606,16 @@ fn report_weapon_drift() {
             format!(" (e.g. {})", sample.join(", "))
         }
     ));
+}
+
+/// The catalogue's own placeholder for a row the shipped table never had: `Spell <id>`.
+///
+/// Matched by parsing the number instead of formatting one per row per panel open, and exact, so
+/// a spell whose real name happens to start with `Spell ` is not mistaken for a placeholder.
+fn placeholder_name(name: &str, id: i32) -> bool {
+    name.strip_prefix("Spell ")
+        .and_then(|rest| rest.parse::<i32>().ok())
+        == Some(id)
 }
 
 fn parse_spells(text: &str) -> Vec<Spell> {

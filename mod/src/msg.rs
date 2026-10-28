@@ -306,6 +306,11 @@ fn placeholder(text: &str) -> bool {
 /// Name for one id of one FMG group, walking the layers in the game's own priority order.
 fn lookup(mem: &mut Mem, group: u32, id: u32) -> Option<String> {
     let slots = slots(mem)?;
+    lookup_with(mem, &slots, group, id)
+}
+
+/// The same walk with the repository already resolved, for callers asking about many ids.
+fn lookup_with(mem: &mut Mem, slots: &Slots, group: u32, id: u32) -> Option<String> {
     for offset in LAYER_OFFSETS {
         let slot = group as usize + offset;
         if slot >= slots.count as usize {
@@ -406,6 +411,7 @@ pub fn names(group: u32, wanted: &[i32]) -> HashMap<i32, String> {
     if wanted.is_empty() || !ready() {
         return out;
     }
+    let mut misses: HashSet<i32> = HashSet::new();
     {
         let Ok(cache) = CACHE.lock() else {
             return out;
@@ -419,7 +425,7 @@ pub fn names(group: u32, wanted: &[i32]) -> HashMap<i32, String> {
                 .and_then(|m| m.as_ref())
                 .is_some_and(|m| m.contains(&(group, id)))
             {
-                // Already known to be absent from this group.
+                misses.insert(id);
             }
         }
     }
@@ -427,35 +433,75 @@ pub fn names(group: u32, wanted: &[i32]) -> HashMap<i32, String> {
     let todo: Vec<i32> = wanted
         .iter()
         .copied()
-        .filter(|id| !out.contains_key(id))
+        .filter(|id| !out.contains_key(id) && !misses.contains(id))
         .collect();
-
-    let mut mem = Mem::new();
-    let mut miss_this_round: Vec<i32> = Vec::new();
-    for id in todo {
-        match lookup(&mut mem, group, id as u32) {
-            Some(name) if !name.is_empty() => {
-                out.insert(id, name);
-            }
-            _ => miss_this_round.push(id),
-        }
+    if todo.is_empty() {
+        return out;
     }
 
+    let (found, answered) = scan(group, &todo);
+    record(group, &todo, &found, answered);
+    out.extend(found);
+    out
+}
+
+/// One id, for a caller on a render path: cached answers cost two mutex locks and no game reads.
+pub fn name(group: u32, id: i32) -> Option<String> {
+    if !ready() {
+        return None;
+    }
+    if let Some(cached) = CACHE.lock().ok().and_then(|c| c.as_ref()?.get(&(group, id)).cloned()) {
+        return Some(cached);
+    }
+    if MISSES
+        .lock()
+        .ok()
+        .is_some_and(|m| m.as_ref().is_some_and(|s| s.contains(&(group, id))))
+    {
+        return None;
+    }
+    let (found, answered) = scan(group, &[id]);
+    record(group, &[id], &found, answered);
+    found.get(&id).cloned()
+}
+
+/// Store what a scan learned. A miss is only final when the scan actually got an answer from a
+/// proven layout — otherwise it is "not readable yet" and must be retried.
+fn record(group: u32, asked: &[i32], found: &HashMap<i32, String>, answered: bool) {
+    if !answered {
+        return;
+    }
     if let Ok(mut cache) = CACHE.lock() {
         let map = cache.get_or_insert_with(HashMap::new);
-        for (id, name) in &out {
+        for (id, name) in found {
             map.insert((group, *id), name.clone());
         }
     }
-    // A miss is only final once a name has been found for this group at least once: before that
-    // the repository may simply not have been ready.
-    if !out.is_empty() {
-        if let Ok(mut miss) = MISSES.lock() {
-            let set = miss.get_or_insert_with(HashSet::new);
-            for id in miss_this_round {
-                set.insert((group, id));
+    if let Ok(mut miss) = MISSES.lock() {
+        let set = miss.get_or_insert_with(HashSet::new);
+        for id in asked {
+            if !found.contains_key(id) {
+                set.insert((group, *id));
             }
         }
     }
-    out
+}
+
+/// One sweep of the repository for `wanted` ids of one group.
+///
+/// Returns the names found and whether the walk actually reached the record vector: a layout that
+/// is proven but whose repository is momentarily unreadable (a reload) must not be recorded as
+/// "this id has no name".
+fn scan(group: u32, wanted: &[i32]) -> (HashMap<i32, String>, bool) {
+    let mut out = HashMap::new();
+    let mut mem = Mem::new();
+    let Some(slots) = slots(&mut mem) else {
+        return (out, false);
+    };
+    for &id in wanted {
+        if let Some(text) = lookup_with(&mut mem, &slots, group, id as u32) {
+            out.insert(id, text);
+        }
+    }
+    (out, true)
 }
