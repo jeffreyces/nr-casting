@@ -232,6 +232,9 @@ impl Panel {
 
     fn refresh_owned(&mut self) {
         self.apply_live_catalogue();
+        // The text tables are only proven once the game is up; a panel opened before that would
+        // otherwise keep its placeholders for the whole session.
+        self.fill_names_from_game();
         let goods: HashSet<i32> = crate::inventory_goods_ids().into_iter().collect();
         let spells: HashSet<i32> = goods
             .iter()
