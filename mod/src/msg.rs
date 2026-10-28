@@ -296,6 +296,13 @@ impl Fmg {
     }
 }
 
+/// The game's own "no text here" marker. An FMG entry that exists but holds this is a missing
+/// name, not a name: every mod that ships a msg file leaves rows like this behind, and the game
+/// renders the marker instead of a title.
+fn placeholder(text: &str) -> bool {
+    text.is_empty() || text == "[ERROR]"
+}
+
 /// Name for one id of one FMG group, walking the layers in the game's own priority order.
 fn lookup(mem: &mut Mem, group: u32, id: u32) -> Option<String> {
     let slots = slots(mem)?;
@@ -311,7 +318,9 @@ fn lookup(mem: &mut Mem, group: u32, id: u32) -> Option<String> {
             continue;
         };
         if let Some(text) = fmg.text(mem, id) {
-            return Some(text);
+            if !placeholder(&text) {
+                return Some(text);
+            }
         }
     }
     None
