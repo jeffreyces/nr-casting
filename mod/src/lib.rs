@@ -262,14 +262,14 @@ fn run() {
         }
         // Build the spell catalogue as soon as the regulation is loaded, so the generated file
         // exists whether or not the player ever opens the panel.
+        // Prove the text-table layout before the catalogue is built, so the spell names written
+        // into the cached catalogue can come from the game rather than from placeholders. The
+        // probe self-throttles and only needs the repository, which loads with the regulation.
+        if !msg::ready() {
+            msg::probe();
+        }
         if !catalogue_ready {
             catalogue_ready = overlay::ensure_catalogue().is_some();
-        }
-        // Once per session (it self-throttles): prove the text-table layout from the running
-        // game. Proving it is what lets a mod-added item be named instead of shown as
-        // `mod weapon <id>` — the verbose dump only goes to the log with debug_log on.
-        if catalogue_ready && !msg::ready() {
-            msg::probe();
         }
         if let Some((l, r)) = weapon_ids() {
             let memory = memory_mib()

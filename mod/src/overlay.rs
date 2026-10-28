@@ -24,6 +24,8 @@
 
 use std::collections::HashSet;
 
+use crate::logging::debug;
+
 
 
 #[derive(Clone)]
@@ -490,6 +492,30 @@ pub(crate) fn ensure_catalogue() -> Option<String> {
     }
     spells.sort_by_key(|s| s.id);
 
+    // Names the table has never seen read as `Spell <id>`. The game's own text knows them, so
+    // resolve them here, before the catalogue is written: the cached file then holds the name
+    // the player sees instead of a placeholder that would outlive the session.
+    if crate::msg::ready() {
+        let missing: Vec<i32> = spells
+            .iter()
+            .filter(|s| s.name == format!("Spell {}", s.id))
+            .map(|s| s.id)
+            .collect();
+        if !missing.is_empty() {
+            let names = crate::msg::names(10, &missing);
+            for spell in spells.iter_mut() {
+                if let Some(name) = names.get(&spell.id) {
+                    spell.name = name.clone();
+                }
+            }
+            crate::log(&format!(
+                "catalogue: {}/{} spell names read from the game's own text",
+                names.len(),
+                missing.len()
+            ));
+        }
+    }
+
     let mut out = String::from(
         "# generated from the running game's Magic param\n\
          # spell_id = Name | school | int | fai | arc | fp\n",
@@ -530,11 +556,30 @@ fn report_weapon_drift() {
     // the live total — a patch that adds player weapons raises it, and those ids are the ones
     // a regenerated table would newly cover.
     let sample: Vec<String> = unknown.iter().take(6).map(|id| id.to_string()).collect();
+    // Of the rows the compiled table cannot name, how many can the game itself name? That is the
+    // number that matters for a modded install, and it is the one to quote when a port adds
+    // weapons: an unnamed row that the game also cannot name is a dummy row, not a missing name.
+    let from_game = if crate::msg::ready() && !unknown.is_empty() {
+        let resolved = crate::msg::names(11, &unknown);
+        // Sample what came back: a wrong layer/slot pairing would return another item's title,
+        // and three lines of evidence beat trusting the count.
+        let mut pairs: Vec<String> = resolved
+            .iter()
+            .take(3)
+            .map(|(id, name)| format!("{id}={name}"))
+            .collect();
+        pairs.sort();
+        debug!("weapons: game-supplied names {}", pairs.join(", "));
+        resolved.len()
+    } else {
+        0
+    };
     crate::log(&format!(
-        "weapons: {} live rows, {} named, {} unnamed{} (unnamed = dummy/NPC rows; regenerate only if a patch adds weapons)",
+        "weapons: {} live rows, {} named, {} unnamed ({} of those named by the game's own text){} (unnamed = dummy/NPC rows; regenerate only if a patch adds weapons)",
         live.len(),
         live.len() - unknown.len(),
         unknown.len(),
+        from_game,
         if unknown.is_empty() {
             String::new()
         } else {
