@@ -7,57 +7,56 @@
 //!
 //! The loaded text is reachable in-process through the `MsgRepository` singleton. The vendored
 //! crate already declares it (`#[shared::singleton("MsgRepository")]`), and singleton lookup goes
-//! through the executable's DLRF reflection data by *name*, so the pointer resolves on any build
-//! without an RVA entry — only the layout was missing, and it is:
+//! through the executable's DLRF reflection data by name, so the pointer resolves on any build
+//! without an RVA entry. Only the layout was missing:
 //!
 //! ```text
 //! MsgRepositoryImp
-//!   +0x08  u8***  slots-by-layer: [layer][slot] -> FMG buffer
+//!   +0x08  u8***  slots-by-layer: [layer][slot] -> FMG buffer     (layer 0 = base game)
 //!   +0x14  i32    slot count
-//!
-//! FMG buffer (the .fmg body exactly as it sits in a msgbnd, minus the "FMG " magic)
-//!   +0x02  u8     version (2)
-//!   +0x0C  u32    group count
-//!   +0x10  u32    string count
-//!   +0x18  u64    string-offset table: absolute pointer if > 0x1000000, else an
-//!                 offset from the FMG base
-//!   +0x28  groups, 16 bytes each: { i32 string_index, i32 first_id, i32 last_id, i32 pad }
-//!   string_offsets: u64[string_count], each an absolute pointer or a base-relative
-//!                   offset to a NUL-terminated UTF-16LE string
 //! ```
 //!
-//! Name ids are the param row ids (`7140000` = Scimitar in both `EquipParamWeapon` and
-//! `WeaponName`; spells are goods ids, `4431` = Adula's Moonblade), so a lookup is
-//! `(group, row id)` with group 10 = `GoodsName` and 11 = `WeaponName`.
+//! The FMG buffer itself is parsed by [`nr_casting_core::fmg`], which is where the header, the
+//! group table and the string-offset rules live — and where they are tested without a game.
+//! Those offsets are also encoded in `tools/msgdump.py` for reading the same files offline; keep
+//! the two in step when either changes.
 //!
-//! Two things this has to get right, both learned the hard way:
+//! Two things this has to get right:
 //!
 //! * **Every msgbnd layer is its own slot** — base `g`, `_dlc01` at `g + 310`, `_dlc02` at
-//!   `g + 410` — and the game merges them at lookup time, highest layer first. A mod can put
-//!   its added strings in a DLC layer, so reading the base slot alone silently misses them.
-//! * **A layout is only trusted after it answers a known question.** `probe()` looks up two
-//!   base-game rows and compares the text before any of this is used; until then every caller
-//!   keeps its compiled table.
+//!   `g + 410` — and the game merges them at lookup time, highest layer first. A mod can put its
+//!   added strings in a DLC layer, so reading the base slot alone silently misses them.
+//! * **A layout is only trusted after it proves itself**, and the proof is structural: a coherent
+//!   group table plus two known ids returning two distinct, non-empty strings. It is deliberately
+//!   *not* a comparison against English text: on a German install those same rows read
+//!   "Krummsäbel" and "Adulas Mondklinge", and an English expectation would switch the feature off
+//!   for everyone who does not play in English.
+//!
+//! When nothing can be proven, every caller keeps its compiled table and the panel falls back to
+//! the raw id (`mod weapon 1234`), exactly as before any of this existed.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use eldenring::cs::MsgRepositoryImp;
 use fromsoftware_shared::FromStatic;
+use nr_casting_core::fmg::{self, Group};
 
 use crate::logging::debug;
 
-/// FMG slot for a group in the base layer, `_dlc01` and `_dlc02`: the runtime keeps each layer
-/// in its own slot and merges them at lookup time. Highest layer first, like the game does.
+/// FMG slot for a group in the base layer, `_dlc01` and `_dlc02`: the runtime keeps each layer in
+/// its own slot and merges them at lookup time. Highest layer first, like the game does.
 const LAYER_OFFSETS: [usize; 3] = [410, 310, 0];
 
-/// `(group, id, expected text)`: base-game rows every install has, in the player's own language.
-const KNOWN: [(u32, u32, &str); 2] = [
+/// Two ids from two different groups that every install has. They are used only to prove the
+/// table is readable and self-consistent, never to match a particular language: the two texts are
+/// compared *with each other*, not against expected strings.
+const PROBE_IDS: [(u32, u32); 2] = [
     // GoodsName: the spell "Adula's Moonblade" (spell ids are goods ids).
-    (10, 4431, "Adula's Moonblade"),
+    (10, 4431),
     // WeaponName: "Scimitar".
-    (11, 7_140_000, "Scimitar"),
+    (11, 7_140_000),
 ];
 
 /// Header offsets inside an FMG buffer.
@@ -70,8 +69,12 @@ const GROUP_SIZE: usize = 0x10;
 /// A value below this is a base-relative offset, above it an absolute pointer (the runtime
 /// relocates the offset table on load; the game's own reader does the same test).
 const ABSOLUTE_POINTER: u64 = 0x100_0000;
+/// More groups than this means the header is not one; the largest real table is in the low
+/// thousands.
+const MAX_GROUPS: u32 = 0x4_0000;
 
-static LAYOUT: Mutex<Option<()>> = Mutex::new(None);
+/// Whether the layout has been proven this session.
+static PROVEN: AtomicBool = AtomicBool::new(false);
 
 /// Page-granular readability cache: `probe::readable` is a `VirtualQuery` per call, and a lookup
 /// touches the header, the group table, the offset table and the string. Remembering which pages
@@ -93,6 +96,7 @@ impl Mem {
         if addr == 0 || len == 0 {
             return false;
         }
+        // Windows regions are page-aligned and page-multiples, so one probe settles a whole page.
         let first = addr & !0xFFF;
         let last = (addr + len - 1) & !0xFFF;
         let mut page = first;
@@ -140,13 +144,15 @@ impl Mem {
         Some(unsafe { (addr as *const u64).read_unaligned() })
     }
 
-    /// NUL-terminated UTF-16, bounded, rejecting anything that decodes to binary noise (an
-    /// offset that lands in the middle of a string table must not produce a name).
-    fn utf16(&mut self, addr: usize) -> Option<String> {
+    /// A string from game memory: collect the UTF-16 units (terminator included, because the
+    /// decoder in `nr_casting_core::fmg` refuses a string that runs off the end of its slice),
+    /// then let that tested decoder decide whether what came back is text or binary noise.
+    fn text(&mut self, addr: usize) -> Option<String> {
         if addr < 0x10000 {
             return None;
         }
-        let mut units = Vec::with_capacity(48);
+        let mut raw = Vec::with_capacity(64);
+        let mut terminated = false;
         for i in 0..256 {
             let at = addr.checked_add(i * 2)?;
             if !self.readable(at, 2) {
@@ -154,24 +160,21 @@ impl Mem {
             }
             // SAFETY: checked readable for two bytes.
             let unit = unsafe { (at as *const u16).read_unaligned() };
+            raw.extend_from_slice(&unit.to_le_bytes());
             if unit == 0 {
-                return if units.is_empty() {
-                    None
-                } else {
-                    Some(String::from_utf16_lossy(&units))
-                };
+                terminated = true;
+                break;
             }
-            if (unit < 0x20 && unit != u16::from(b'\n')) || unit == 0xFFFF {
-                return None;
-            }
-            units.push(unit);
         }
-        None
+        if !terminated {
+            return None;
+        }
+        fmg::decode_utf16(&raw)
     }
 }
 
-/// The repository and its slot table, resolved fresh on every use: a reload replaces both, and
-/// caching the addresses across one would be reading a freed object.
+/// The repository's slot table, resolved fresh on every use: a reload replaces it, and caching the
+/// address across one would be reading a freed object.
 struct Slots {
     slots: usize,
     count: u32,
@@ -196,144 +199,113 @@ fn slots(mem: &mut Mem) -> Option<Slots> {
     Some(Slots { slots, count })
 }
 
-/// An FMG buffer's header, validated.
+/// One layer's FMG buffer for a group: its header, and its group table read once so a sweep over
+/// many ids does not re-read it per id.
 struct Fmg {
     base: usize,
-    groups: usize,
-    group_count: u32,
     offsets: usize,
     string_count: u32,
+    groups: Vec<Group>,
 }
 
 impl Fmg {
-    fn at(mem: &mut Mem, base: usize) -> Option<Fmg> {
+    /// Parse one layer's buffer.
+    ///
+    /// A `Result` with a reason, not a bare `Option`: "the table did not parse" is the one thing
+    /// that makes every name disappear, and a reason in the debug log turns that from a mystery
+    /// into a line. The public shape stays `Option` — callers only care whether it worked.
+    fn parse(mem: &mut Mem, base: usize) -> Result<Fmg, &'static str> {
         if base < 0x10000 {
-            return None;
+            return Err("pointer below the image");
         }
-        // A stale or foreign slot pointer would otherwise send us through a garbage group table.
-        if mem.u8(base + FMG_VERSION)? != 2 {
-            return None;
+        if mem.u8(base + FMG_VERSION).ok_or("version unreadable")? != 2 {
+            return Err("not an FMG v2 buffer");
         }
-        let group_count = mem.u32(base + FMG_GROUP_COUNT)?;
-        let string_count = mem.u32(base + FMG_STRING_COUNT)?;
-        if group_count == 0 || group_count > 0x10_0000 || string_count > 0x10_0000 {
-            return None;
+        let group_count = mem.u32(base + FMG_GROUP_COUNT).ok_or("group count unreadable")?;
+        let string_count = mem.u32(base + FMG_STRING_COUNT).ok_or("string count unreadable")?;
+        if group_count == 0 || group_count > MAX_GROUPS {
+            return Err("implausible group count");
         }
-        let raw = mem.u64(base + FMG_OFFSETS)?;
-        let offsets = if raw > ABSOLUTE_POINTER {
-            raw as usize
-        } else {
-            base.checked_add(raw as usize)?
-        };
+        if string_count == 0 || string_count > MAX_GROUPS * 4 {
+            return Err("implausible string count");
+        }
+        let raw = mem.u64(base + FMG_OFFSETS).ok_or("offset table unreadable")?;
+        let offsets = fmg::resolve(raw, base, ABSOLUTE_POINTER).ok_or("offset table pointer")?;
         if !mem.readable(offsets, 8) {
-            return None;
+            return Err("offset table not mapped");
         }
-        Some(Fmg {
+
+        let mut groups = Vec::with_capacity((group_count as usize).min(4096));
+        for i in 0..group_count {
+            let at = base + FMG_GROUPS + i as usize * GROUP_SIZE;
+            let group = mem
+                .u32(at)
+                .zip(mem.u32(at + 4))
+                .zip(mem.u32(at + 8))
+                .map(|((si, first), last)| (si, first, last))
+                .ok_or("group table unreadable")?;
+            groups.push(group);
+        }
+        // The table has to describe itself before anything is indexed with it.
+        if !fmg::groups_are_coherent(&groups, string_count) {
+            debug!(
+                "msg: group table at {base:#x} incoherent (groups={group_count} strings={string_count} first={:?})",
+                groups.first()
+            );
+            return Err("incoherent group table");
+        }
+        Ok(Fmg {
             base,
-            groups: base + FMG_GROUPS,
-            group_count,
             offsets,
             string_count,
+            groups,
         })
     }
 
-    /// `(string_index, first_id, last_id)` of the group holding `id`, by binary search over a
-    /// group table that is sorted by first id.
-    fn group_of(&self, mem: &mut Mem, id: u32) -> Option<(u32, u32, u32)> {
-        let group = |mem: &mut Mem, i: u32| -> Option<(u32, u32, u32)> {
-            let at = self.groups + i as usize * GROUP_SIZE;
-            let string_index = mem.u32(at)?;
-            let first = mem.u32(at + 4)?;
-            let last = mem.u32(at + 8)?;
-            Some((string_index, first, last))
-        };
-        let (mut lo, mut hi) = (0u32, self.group_count);
-        let mut candidate: Option<(u32, u32, u32)> = None;
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            let (si, first, last) = group(mem, mid)?;
-            if id < first {
-                hi = mid;
-            } else if id > last {
-                lo = mid + 1;
-            } else {
-                // Group tables can cover an id in more than one range; the first hit is fine,
-                // the game takes the same one.
-                candidate = Some((si, first, last));
-                break;
+    fn at(mem: &mut Mem, base: usize) -> Option<Fmg> {
+        match Self::parse(mem, base) {
+            Ok(fmg) => Some(fmg),
+            Err(reason) => {
+                debug!("msg: no FMG at {base:#x}: {reason}");
+                None
             }
         }
-        // Fall back to a bounded linear scan only when the table is small: a table whose ranges
-        // overlap in a way binary search misses should still not cost a full walk per name.
-        if candidate.is_none() && self.group_count <= 4096 {
-            for i in 0..self.group_count {
-                let (si, first, last) = group(mem, i)?;
-                if id >= first && id <= last {
-                    candidate = Some((si, first, last));
-                    break;
-                }
-            }
-        }
-        candidate
     }
 
     fn text(&self, mem: &mut Mem, id: u32) -> Option<String> {
-        let (string_index, first, _) = self.group_of(mem, id)?;
-        let index = string_index.checked_add(id.checked_sub(first)?)?;
-        if index >= self.string_count {
-            return None;
-        }
+        let group = *self.groups.get(fmg::group_index(&self.groups, id)?)?;
+        let index = fmg::string_index(group, id, self.string_count)?;
         let raw = mem.u64(self.offsets + index as usize * 8)?;
-        if raw == 0 {
-            return None;
-        }
-        let at = if raw > ABSOLUTE_POINTER {
-            raw as usize
-        } else {
-            self.base.checked_add(raw as usize)?
-        };
-        mem.utf16(at)
+        let at = fmg::resolve(raw, self.base, ABSOLUTE_POINTER)?;
+        mem.text(at).filter(|text| !fmg::is_error_marker(text))
     }
 }
 
-/// The game's own "no text here" marker. An FMG entry that exists but holds this is a missing
-/// name, not a name: every mod that ships a msg file leaves rows like this behind, and the game
-/// renders the marker instead of a title.
-fn placeholder(text: &str) -> bool {
-    text.is_empty() || text == "[ERROR]"
-}
-
-/// Name for one id of one FMG group, walking the layers in the game's own priority order.
-fn lookup(mem: &mut Mem, group: u32, id: u32) -> Option<String> {
-    let slots = slots(mem)?;
-    lookup_with(mem, &slots, group, id)
-}
-
-/// The same walk with the repository already resolved, for callers asking about many ids.
-fn lookup_with(mem: &mut Mem, slots: &Slots, group: u32, id: u32) -> Option<String> {
+/// The FMG buffers for one group across the layers, in the game's own priority order.
+fn layer_fmgs(mem: &mut Mem, slots: &Slots, group: u32) -> Vec<Fmg> {
+    let mut out = Vec::with_capacity(LAYER_OFFSETS.len());
     for offset in LAYER_OFFSETS {
         let slot = group as usize + offset;
         if slot >= slots.count as usize {
             continue;
         }
-        let Some(fmg_ptr) = mem.u64(slots.slots + slot * 8) else {
-            continue;
-        };
-        let Some(fmg) = Fmg::at(mem, fmg_ptr as usize) else {
-            continue;
-        };
-        if let Some(text) = fmg.text(mem, id) {
-            if !placeholder(&text) {
-                return Some(text);
+        if let Some(ptr) = mem.u64(slots.slots + slot * 8) {
+            if let Some(fmg) = Fmg::at(mem, ptr as usize) {
+                out.push(fmg);
             }
         }
     }
-    None
+    out
 }
 
-/// True once the layout has answered a known question on this session.
+/// Name for one id, walking the layers highest-first like the engine does.
+fn lookup_in(mem: &mut Mem, fmgs: &mut [Fmg], id: u32) -> Option<String> {
+    fmgs.iter_mut().find_map(|fmg| fmg.text(mem, id))
+}
+
+/// True once the layout has been proven on this session.
 pub fn ready() -> bool {
-    LAYOUT.lock().map(|l| l.is_some()).unwrap_or(false)
+    PROVEN.load(Ordering::Relaxed)
 }
 
 /// Attempts made this session, and when the last one ran: the repository is empty until the
@@ -348,7 +320,11 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Prove the layout against rows the game itself can confirm. Returns `true` once proven.
+/// Prove the layout from the live process. Returns `true` once proven.
+///
+/// The proof is structural, in this order: the repository resolves, both known groups parse with a
+/// coherent group table, and two known ids from two different groups return two distinct,
+/// non-empty strings. Text is never compared against English — see the module docs for why.
 pub fn probe() -> bool {
     if ready() {
         return true;
@@ -369,27 +345,31 @@ pub fn probe() -> bool {
         debug!("msg: MsgRepository not ready yet");
         return false;
     };
-    debug!("msg: repository slots={:#x} count={}", slot_table.slots, slot_table.count);
 
-    for (group, id, want) in KNOWN {
-        match lookup(&mut mem, group, id) {
-            Some(text) if text == want => {}
-            Some(text) => {
-                crate::log(&format!(
-                    "msg: layout mismatch — group {group} id {id} read {text:?}, expected {want:?}; keeping the table"
-                ));
-                return false;
-            }
-            None => {
-                debug!("msg: group {group} id {id} not found yet");
-                return false;
-            }
+    let mut seen: Vec<String> = Vec::with_capacity(PROBE_IDS.len());
+    for (group, id) in PROBE_IDS {
+        let mut fmgs = layer_fmgs(&mut mem, &slot_table, group);
+        if fmgs.is_empty() {
+            debug!("msg: group {group} table not readable yet");
+            return false;
         }
+        let Some(text) = lookup_in(&mut mem, &mut fmgs, id) else {
+            debug!("msg: group {group} id {id} not found yet");
+            return false;
+        };
+        if seen.contains(&text) {
+            // Two different ids resolving to the same text means the index arithmetic or the
+            // slot pairing is wrong, whatever the strings themselves say.
+            crate::log(&format!(
+                "msg: layout rejected — {PROBE_IDS:?} both read {text:?}; keeping the compiled table"
+            ));
+            return false;
+        }
+        debug!("msg: group {group} id {id} reads {text:?}");
+        seen.push(text);
     }
 
-    if let Ok(mut guard) = LAYOUT.lock() {
-        *guard = Some(());
-    }
+    PROVEN.store(true, Ordering::Relaxed);
     crate::log(&format!(
         "msg: text tables proven ({} slots); mod-added names will be read from the game",
         slot_table.count
@@ -405,7 +385,7 @@ static MISSES: Mutex<Option<HashSet<(u32, i32)>>> = Mutex::new(None);
 /// Names for the requested ids of one FMG group, straight out of the game's loaded text.
 ///
 /// Returns only what it could resolve: callers keep their own table and use this to fill gaps, so
-/// an unproven layout or a reload costs a placeholder, never a wrong name.
+/// an unproven layout or a reload costs the fallback (`mod weapon <id>`), never a wrong name.
 pub fn names(group: u32, wanted: &[i32]) -> HashMap<i32, String> {
     let mut out = HashMap::new();
     if wanted.is_empty() || !ready() {
@@ -445,12 +425,16 @@ pub fn names(group: u32, wanted: &[i32]) -> HashMap<i32, String> {
     out
 }
 
-/// One id, for a caller on a render path: cached answers cost two mutex locks and no game reads.
+/// One id, for a caller on a render path: a cached answer costs two mutex locks and no game reads.
 pub fn name(group: u32, id: i32) -> Option<String> {
     if !ready() {
         return None;
     }
-    if let Some(cached) = CACHE.lock().ok().and_then(|c| c.as_ref()?.get(&(group, id)).cloned()) {
+    if let Some(cached) = CACHE
+        .lock()
+        .ok()
+        .and_then(|c| c.as_ref()?.get(&(group, id)).cloned())
+    {
         return Some(cached);
     }
     if MISSES
@@ -487,19 +471,23 @@ fn record(group: u32, asked: &[i32], found: &HashMap<i32, String>, answered: boo
     }
 }
 
-/// One sweep of the repository for `wanted` ids of one group.
+/// One sweep for `wanted` ids of one group: the layer tables are read once, then each id costs an
+/// offset read and a string.
 ///
-/// Returns the names found and whether the walk actually reached the record vector: a layout that
-/// is proven but whose repository is momentarily unreadable (a reload) must not be recorded as
-/// "this id has no name".
+/// Returns the names found and whether the walk reached the repository at all: a proven layout
+/// whose repository is momentarily unreadable (a reload) must not be recorded as "no name".
 fn scan(group: u32, wanted: &[i32]) -> (HashMap<i32, String>, bool) {
     let mut out = HashMap::new();
     let mut mem = Mem::new();
     let Some(slots) = slots(&mut mem) else {
         return (out, false);
     };
+    let mut fmgs = layer_fmgs(&mut mem, &slots, group);
+    if fmgs.is_empty() {
+        return (out, false);
+    }
     for &id in wanted {
-        if let Some(text) = lookup_with(&mut mem, &slots, group, id as u32) {
+        if let Some(text) = lookup_in(&mut mem, &mut fmgs, id as u32) {
             out.insert(id, text);
         }
     }
