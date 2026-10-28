@@ -37,12 +37,18 @@ Offline only, as before.
 ## Upgrading
 
 Replace `nr_casting.dll`. The ini, the loader profile and your assignments are unchanged. The
-cached spell catalogue is rebuilt once on the first launch after upgrading (its format marker
-changed), which happens on its own.
+cached spell catalogue is rebuilt once after upgrading, and again whenever the executable **or the
+regulation the game actually loads** changes — that is what keeps a swapped `regulation.bin` (how
+every overhaul ships its data) from leaving a mod's added spells out of the panel. The file is
+otherwise reused untouched: it holds only what the params say, never names.
 
 ## Notes
 
 - The lookup costs about 10 ms on the first panel open of a session and nothing after that:
   answers and misses are both cached, and the panel's render path only ever reads that cache.
+- If the text tables cannot be read — an unknown future game build, a reload, a mod that moved
+  them — nothing breaks: every caller keeps its compiled table and rows without a name show their
+  id (`mod weapon 34070000`), exactly as before this release. The log says which of the two
+  happened (`text tables proven` versus `no FMG at …` with the reason).
 - Play-tested on ELDEN RING 1.17.2 with the Recluse class port loaded: 3637 live weapon rows,
   3448 named from the shipped table, 81 more named from the game's own text.

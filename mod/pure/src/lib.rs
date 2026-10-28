@@ -9,6 +9,8 @@
 //! Everything else (the hook, the panel, the parameter reads) needs a running game and stays in
 //! the DLL.
 
+pub mod fmg;
+
 /// Spells per catalyst: bumper, trigger, the Y chord on the trigger, and the Y chord on the
 /// bumper. The fourth only exists when the Y+bumper chords are ours to take (no Recluse mod, or
 /// not on a Recluse character); otherwise the game and Recluse keep them.

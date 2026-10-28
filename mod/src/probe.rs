@@ -72,6 +72,32 @@ pub(crate) fn exe_fingerprint() -> (u64, u64) {
     *CACHED.get_or_init(read_fingerprint)
 }
 
+/// Identity of the regulation the game loads: size and modification time.
+///
+/// The spell catalogue is built from live param rows, so it goes stale when a mod swaps
+/// `regulation.bin` — the way every overhaul ships its data — even though the executable has not
+/// changed. Size plus mtime is enough to notice that without hashing 2 MB at every startup. Under
+/// me3 a package's override may be hidden from the metadata call; when it is (or the file cannot
+/// be read at all) both values are zero, and a zero stamp never invalidates a cache on its own.
+pub(crate) fn regulation_fingerprint() -> (u64, u64) {
+    static CACHED: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        let mut path = std::env::current_exe().unwrap_or_default();
+        path.pop();
+        path.push("regulation.bin");
+        let Ok(meta) = std::fs::metadata(path) else {
+            return (0, 0);
+        };
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        (meta.len(), modified)
+    })
+}
+
 fn read_fingerprint() -> (u64, u64) {
     // FNV-1a over the first 4 MiB plus the file size: enough to notice a patch, cheap
     // enough to run at every startup.
