@@ -947,7 +947,10 @@ fn adjust_inner(state: &mut XInputState) {
     let quiet_y = pad.right_trigger == 0
         && pad.left_trigger == 0
         && pad.buttons & (XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER) == 0;
-    if quiet_y && (now.wrapping_sub(Y_SUPPRESS_UNTIL.load(Ordering::Relaxed)) as i32) < 0 {
+    // `armed_until` treats a zero deadline as "not armed". Reading it as a deadline instead made
+    // every trigger-less report drop Y for the first half of every 49.7-day clock wrap, which is
+    // the Site of Grace that would not take Y until a cast had happened once.
+    if quiet_y && nr_casting_core::armed_until(now, Y_SUPPRESS_UNTIL.load(Ordering::Relaxed)) {
         // Only the "Y on its own" report: that is the one that completes the buffered swap. A chord
         // press is left alone so chords keep working (and keep mapping to their own slots) even in
         // the window right after a cast.
