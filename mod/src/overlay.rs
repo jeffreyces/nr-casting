@@ -144,18 +144,16 @@ impl Panel {
     }
 
     /// `"Carian Regal Scepter +10"` for an equipped weapon id, or `mod weapon <id>` if unknown.
+    ///
+    /// The game's own text wins whenever it is available, so a non-English install reads its own
+    /// language and a mod's own weapons read their own names; the compiled table is the fallback
+    /// for anything the text tables cannot resolve.
     fn weapon_label(&self, id: i32) -> String {
         let upgrade = id % 100;
         let base = id - upgrade;
-        let name = self
-            .weapons
-            .get(&base)
-            .or_else(|| self.weapons.get(&id))
-            .cloned()
-            // A weapon the vanilla table does not know: the Recluse port adds its own, and a
-            // total conversion adds hundreds. Their names are only in the game's own text, so
-            // ask it once and let `msg` cache the answer.
-            .or_else(|| crate::msg::name(11, base));
+        let name = crate::msg::name(11, base)
+            .or_else(|| self.weapons.get(&base).cloned())
+            .or_else(|| self.weapons.get(&id).cloned());
         match name {
             Some(name) if upgrade > 0 => format!("{name} +{upgrade}"),
             Some(name) => name,
@@ -590,39 +588,47 @@ fn report_weapon_drift() {
     ));
 }
 
-/// The catalogue's own placeholder for a row the shipped table never had: `Spell <id>`.
+/// Read every name the panel can show from the game's own text, once per session.
 ///
-/// Matched by parsing the number instead of formatting one per row per panel open, and exact, so
-/// a spell whose real name happens to start with `Spell ` is not mistaken for a placeholder.
-fn is_spell_placeholder(name: &str, id: i32) -> bool {
-    name.strip_prefix("Spell ")
-        .and_then(|rest| rest.parse::<i32>().ok())
-        == Some(id)
-}
-
-/// Replace placeholder names with the game's own text; returns `(named, asked)`.
-///
-/// One function for the whole panel, so the "which rows still need a name" rule lives in a single
-/// place instead of being copied per call site.
-fn fill_spell_names(spells: &mut [Spell]) -> (usize, usize) {
-    let missing: Vec<i32> = spells
-        .iter()
-        .filter(|s| is_spell_placeholder(&s.name, s.id))
-        .map(|s| s.id)
-        .collect();
-    if missing.is_empty() {
+/// Called from the heartbeat, not the panel thread: the first sweep is the only expensive one
+/// (~4k ids), and afterwards every lookup is a cache hit. Returns `(weapon ids, spell ids)`
+/// resolved, for the log.
+pub(crate) fn warm_names() -> (usize, usize) {
+    if !crate::msg::ready() {
         return (0, 0);
     }
-    let names = crate::msg::names(10, &missing);
-    if names.is_empty() {
-        return (0, missing.len());
+    let weapons = crate::params::live_weapon_ids();
+    let spells: Vec<i32> = crate::params::live_spells().into_iter().map(|s| s.id).collect();
+    let named_weapons = crate::msg::names(11, &weapons).len();
+    let named_spells = crate::msg::names(10, &spells).len();
+    (named_weapons, named_spells)
+}
+
+/// Replace the compiled English names with the game's own text; returns `(replaced, asked)`.
+///
+/// The tables are English by construction, so on any other language install they showed English
+/// names for rows the game itself names natively. Every row the game can name is now taken from
+/// the game — which also covers rows the tables never had — and anything it cannot name keeps the
+/// table's name (or, if the table has none either, its id).
+fn fill_spell_names(spells: &mut [Spell]) -> (usize, usize) {
+    let ids: Vec<i32> = spells.iter().map(|s| s.id).collect();
+    if ids.is_empty() {
+        return (0, 0);
     }
+    let names = crate::msg::names(10, &ids);
+    if names.is_empty() {
+        return (0, ids.len());
+    }
+    let mut replaced = 0;
     for spell in spells.iter_mut() {
         if let Some(name) = names.get(&spell.id) {
-            spell.name = name.clone();
+            if spell.name != *name {
+                spell.name = name.clone();
+                replaced += 1;
+            }
         }
     }
-    (names.len(), missing.len())
+    (replaced, ids.len())
 }
 
 fn parse_spells(text: &str) -> Vec<Spell> {

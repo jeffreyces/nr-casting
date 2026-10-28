@@ -66,7 +66,7 @@ pub(crate) use logging::{debug_enabled, log};
 pub(crate) use store::{store_get, store_set};
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eldenring::util::system::{wait_for_system_init, SystemInitError};
 use fromsoftware_shared::Program;
@@ -232,6 +232,7 @@ fn run() {
     // Low-rate readout: mapping state, the player's current spell, slots file changes.
     let mut last_mtime = file_mtime();
     let mut catalogue_ready = false;
+    let mut names_warmed = false;
     let mut world_was_live = false;
     let mut last_polls = 0u32;
     let mut last_passes = 0u32;
@@ -270,6 +271,18 @@ fn run() {
         }
         if !catalogue_ready {
             catalogue_ready = overlay::ensure_catalogue().is_some();
+        }
+        // Once the tables are proven, read every name the panel can show. Doing it here rather
+        // than on panel open keeps the first open a cache read, and it is what makes names follow
+        // the player's language and any mod's own text instead of the compiled English table.
+        if !names_warmed && catalogue_ready && msg::ready() {
+            let started = Instant::now();
+            let (weapons, spells) = overlay::warm_names();
+            log(&format!(
+                "names: {weapons} weapon and {spells} spell names read from the game's own text ({} ms)",
+                started.elapsed().as_millis()
+            ));
+            names_warmed = true;
         }
         if let Some((l, r)) = weapon_ids() {
             let memory = memory_mib()

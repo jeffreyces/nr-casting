@@ -20,10 +20,15 @@ Offline only, as before.
 - **Every message layer is read, not just the base game's.** The runtime keeps one text table per
   layer (base, `_dlc01`, `_dlc02`) and merges them at lookup time; the mod walks them in the same
   order, which is where overhaul mods put their added strings.
+- **Names follow your language, not ours.** The compiled tables are English, so a German, French
+  or Japanese install used to read English names in the panel. Every row the game can name is now
+  taken from the game's own text at startup — about 3,100 rows in 17 ms, once per session — and the
+  table is only the fallback for rows the game does not name. That is also what makes a content
+  mod's items read whatever the mod calls them, in whatever language the mod ships.
 - **The compiled tables stay as the fallback.** Nothing is used until two known rows resolve to
-  their known text (`Scimitar`, `Adula's Moonblade`); if a future game build changes the layout,
-  the mod says so in the log and keeps naming from the table it shipped with. A row whose text is
-  the game's own `[ERROR]` placeholder is treated as nameless rather than shown as a title.
+  two distinct, non-empty strings from a coherent group table; if a future game build changes the
+  layout, the mod says so in the log and keeps naming from the table it shipped with. A row whose
+  text is the game's own `[ERROR]` placeholder is treated as nameless rather than shown as a title.
 
 ## Changed
 
