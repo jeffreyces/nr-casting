@@ -46,6 +46,7 @@ mod crash;
 mod game;
 mod input;
 mod rawinput;
+mod msg;
 mod stats;
 mod logging;
 mod overlay;
@@ -263,6 +264,12 @@ fn run() {
         // exists whether or not the player ever opens the panel.
         if !catalogue_ready {
             catalogue_ready = overlay::ensure_catalogue().is_some();
+        }
+        // Once per session (it self-throttles): prove the text-table layout from the running
+        // game. Proving it is what lets a mod-added item be named instead of shown as
+        // `mod weapon <id>` — the verbose dump only goes to the log with debug_log on.
+        if catalogue_ready && !msg::ready() {
+            msg::probe();
         }
         if let Some((l, r)) = weapon_ids() {
             let memory = memory_mib()

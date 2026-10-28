@@ -120,15 +120,22 @@ impl Panel {
         }
     }
 
-    /// "Carian Regal Scepter +10" for an equipped weapon id, or "weapon <id>" if unknown.
+    /// `"Carian Regal Scepter +10"` for an equipped weapon id, or `mod weapon <id>` if unknown.
     fn weapon_label(&self, id: i32) -> String {
         let upgrade = id % 100;
         let base = id - upgrade;
-        match self.weapons.get(&base).or_else(|| self.weapons.get(&id)) {
+        let name = self
+            .weapons
+            .get(&base)
+            .or_else(|| self.weapons.get(&id))
+            .cloned()
+            // A weapon the vanilla table does not know: the Recluse port adds its own, and a
+            // total conversion adds hundreds. Their names are only in the game's own text, so
+            // ask it once and let `msg` cache the answer.
+            .or_else(|| crate::msg::names(11, &[base]).remove(&base));
+        match name {
             Some(name) if upgrade > 0 => format!("{name} +{upgrade}"),
-            Some(name) => name.clone(),
-            // A weapon the vanilla table does not know: the Recluse port adds its own, and those
-            // names live in the port's data, not in Paramdex.
+            Some(name) => name,
             None => format!("mod weapon {id}"),
         }
     }
@@ -155,7 +162,60 @@ impl Panel {
         }
         self.spells = rows;
         self.reindex();
+        self.fill_names_from_game();
         self.live_applied = true;
+    }
+
+    /// Replace placeholder names (`Spell <id>`, `mod weapon <id>`) with what the game itself
+    /// displays.
+    ///
+    /// The tables are Paramdex, so they only know vanilla rows: a modified spell or an added
+    /// weapon reads as a placeholder. The game's FMG text knows them, and it is already loaded
+    /// in-process, so each group's missing ids are resolved in one sweep and cached in `msg`.
+    fn fill_names_from_game(&mut self) {
+        if !crate::msg::ready() {
+            return;
+        }
+        let missing_spells: Vec<i32> = self
+            .spells
+            .iter()
+            .filter(|s| s.name == format!("Spell {}", s.id))
+            .map(|s| s.id)
+            .collect();
+        if !missing_spells.is_empty() {
+            let names = crate::msg::names(10, &missing_spells);
+            if !names.is_empty() {
+                for spell in self.spells.iter_mut() {
+                    if let Some(name) = names.get(&spell.id) {
+                        spell.name = name.clone();
+                    }
+                }
+                self.reindex();
+            }
+            crate::log(&format!(
+                "table: {}/{} spell names read from the game's own text",
+                names.len(),
+                missing_spells.len()
+            ));
+        }
+
+        let live = crate::params::live_weapon_ids();
+        let missing_weapons: Vec<i32> = live
+            .iter()
+            .copied()
+            .filter(|id| !self.weapons.contains_key(id))
+            .collect();
+        if !missing_weapons.is_empty() {
+            let names = crate::msg::names(11, &missing_weapons);
+            for (id, name) in &names {
+                self.weapons.insert(*id, name.clone());
+            }
+            crate::log(&format!(
+                "table: {}/{} weapon names read from the game's own text",
+                names.len(),
+                missing_weapons.len()
+            ));
+        }
     }
 
     fn reindex(&mut self) {
