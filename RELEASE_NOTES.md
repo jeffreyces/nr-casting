@@ -1,59 +1,42 @@
-# v0.2.4 — modded items get their real names
+# v0.2.5 — the name reader, hardened
 
-A small release with one visible effect: a weapon or spell that a mod adds now shows the name the
-game shows, instead of `mod weapon 33790000`.
+A follow-up to v0.2.4. Nothing about casting, slots or chords changes, and nothing resolves to a
+different name than it did in v0.2.4 — this release makes the new name reader behave under two
+conditions that v0.2.4 handled badly.
 
-Nothing about casting changes. Same four slots per catalyst, same chords, same files —
-**the upgrade is the DLL and nothing else.**
+**The upgrade is the DLL and nothing else.**
 
 Offline only, as before.
 
-## Highlights
+## Fixed
 
-- **Names come from the game, not from a table.** Item names are not in the params and not in
-  `regulation.bin`: the game reads them from FMG text (`msg/<language>/*.msgbnd.dcx`), and a mod
-  that adds items ships its own copy of those files. The mod now reads that text out of the
-  running game, so a class port's own staff reads **Recluse's Staff** instead of an id, and a total
-  conversion's weapons read whatever the conversion calls them. This also picks up DLC weapons and
-  infusion variants the compiled table never had (`Magic Silver Grooved Shield`,
-  `Blood Reed Great Katana`).
-- **Every message layer is read, not just the base game's.** The runtime keeps one text table per
-  layer (base, `_dlc01`, `_dlc02`) and merges them at lookup time; the mod walks them in the same
-  order, which is where overhaul mods put their added strings.
-- **Names follow your language, not ours.** The compiled tables are English, so a German, French
-  or Japanese install used to read English names in the panel. Every row the game can name is now
-  taken from the game's own text at startup — about 3,100 rows in 17 ms, once per session — and the
-  table is only the fallback for rows the game does not name. That is also what makes a content
-  mod's items read whatever the mod calls them, in whatever language the mod ships.
-- **The compiled tables stay as the fallback.** Nothing is used until two known rows resolve to
-  two distinct, non-empty strings from a coherent group table; if a future game build changes the
-  layout, the mod says so in the log and keeps naming from the table it shipped with. A row whose
-  text is the game's own `[ERROR]` placeholder is treated as nameless rather than shown as a title.
+- **A panel open during a load could stutter.** The panel asks the game for a weapon's name while
+  it draws, and a lookup that found the text tables momentarily unreadable (which is what a
+  reload looks like) cached nothing — so every frame re-walked and re-parsed three message layers,
+  about ten thousand field reads each, on the render thread. A failed read is now remembered for
+  250 ms before the next attempt, and a successful one clears it.
+- **A corrupt text-table header could cost megabytes before being rejected.** The parser trusted
+  the header's group count up to 262k, which meant a garbage header could make it allocate ~3 MB
+  and walk ~780k fields before the structure check failed. The ceilings are now 65,536 groups and
+  1M strings, and a table claiming more groups than strings is rejected outright — impossible for
+  a real table, since every range covers at least one id.
 
 ## Changed
 
-- `feat(names): read item names from the game's own text tables` — the repository walk, proven
-  against known rows before it is used for anything.
-- `feat(names): reject the game's [ERROR] marker, fill names before the catalogue is written` —
-  the cached `nr_casting_catalogue.txt` now carries game-supplied spell names.
-- `fix(panel): retry the text-table name fill on every panel open` — a panel opened before the
-  tables were readable no longer keeps placeholders for the session.
+- `docs(nexus): earlier page copy from the user` — the mod page source, committed as written.
 
 ## Upgrading
 
-Replace `nr_casting.dll`. The ini, the loader profile and your assignments are unchanged. The
-cached spell catalogue is rebuilt once after upgrading, and again whenever the executable **or the
-regulation the game actually loads** changes — that is what keeps a swapped `regulation.bin` (how
-every overhaul ships its data) from leaving a mod's added spells out of the panel. The file is
-otherwise reused untouched: it holds only what the params say, never names.
+Replace `nr_casting.dll`. The ini, the loader profile, your assignments and the cached spell
+catalogue are all reused as they are; no file needs deleting and no setting changes.
 
 ## Notes
 
-- The lookup costs about 10 ms on the first panel open of a session and nothing after that:
-  answers and misses are both cached, and the panel's render path only ever reads that cache.
-- If the text tables cannot be read — an unknown future game build, a reload, a mod that moved
-  them — nothing breaks: every caller keeps its compiled table and rows without a name show their
-  id (`mod weapon 34070000`), exactly as before this release. The log says which of the two
-  happened (`text tables proven` versus `no FMG at …` with the reason).
-- Play-tested on ELDEN RING 1.17.2 with the Recluse class port loaded: 3637 live weapon rows,
-  3448 named from the shipped table, 81 more named from the game's own text.
+- The name reader still costs ~17 ms once per session (2,910 weapon and 214 spell rows on a
+  Recluse install) on the maintenance thread, and nothing afterwards — answers and misses are
+  cached, and the panel's render path only reads that cache.
+- If the text tables cannot be read at all, every caller keeps its compiled table and unnamed
+  rows show their id (`mod weapon 34070000`). The log distinguishes the two outcomes:
+  `text tables proven` versus `no FMG at …: <reason>`.
+- Verified on ELDEN RING 1.17.2 with the Recluse class port loaded, after the change: proof
+  passes, 2,910 + 214 names in 17 ms, no fault.
