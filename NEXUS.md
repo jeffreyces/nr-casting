@@ -3,40 +3,26 @@
 
 [line]
 
-[b]Four spells per staff.[/b] R1/R2/Y+R1/Y+R2 cast the right-hand catalyst's four spells,
-L1/L2/Y+L1/Y+L2 the left-hand one. That is eight castable spells across two staves, swapped
-instantly, without opening the menu or touching the spell wheel mid-fight. Keyboard and mouse get
-the same eight: click for the first slot, then SHIFT, CTRL and ALT on either button.
+[b]Four spells per staff.[/b] R1/R2/Y+R1/Y+R2 cast the right-hand catalyst's two spells, L1/L2/Y+L1/Y+L2 the
+left-hand one. That is four castable spells across two staves, swapped instantly, without opening
+the menu or touching the spell wheel mid-fight. For mouse/keyboard, you have native left/right + SHIFT/CTRL/ALT for a 
+total of four spells.
 
-This is not a custom casting implementation. The mod rewrites the pad reports into shoulder
-presses before the game reads them, so Elden Ring runs its own cast: real FP costs, real
+This is not a custom casting implementation. The mod rewrites the controller buttons reports into shoulder
+presses before the game reads the pad, so Elden Ring runs its own cast: real FP costs, real
 requirements, real animations, real i-frames. If the game would not let you cast it, the mod will
 not either.
 
 [line]
 
 [size=5][b]Features[/b][/size]
-
 [list]
 [*][b]Eight spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, a third on
-[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b], so two staves carry eight spells
-without opening a menu mid-fight.[/*]
-[*][b]Mouse and pad together[/b] — each input keeps its own layer: a click steers the spell and the
-game's own click casts it, with or without a controller attached, so a click is never an attack on
-top of a spell.[/*]
-[*][b]Two-handing stays yours[/b] — a staff or seal never two-hands (its chords cast), and every
-other weapon two-hands exactly as the base game does.[/*]
+[b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]; two-handing a staff does nothing, so those inputs carry spells instead.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
-either slot from the spells your character actually owns and can cast, or bind on the fly: hold
-[b]L3[/b] (or [b]Super[/b] on mouse and keyboard) and press the input you want.[/*]
+either slot from the spells your character actually owns and can cast.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
-[*][b]Survives the smith[/b] — assignments are filed on the weapon's base id, so upgrading a staff or
-seal keeps its spells instead of emptying it. Slot files from older versions are folded onto base
-ids once, on the next load.[/*]
-[*][b]Reads your real stats[/b] — the panel checks requirements against the INT/FAI/ARC the game
-publishes after Great Runes, talismans and buffs, so a spell you can only cast with a rune on can be
-assigned from the panel as well as bound from the wheel.[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
 live in a small text file next to the DLL, one per character.[/*]
 [*][b]Safe to remove[/b] — no save file is ever written and nothing persists in memory, so the mod
@@ -49,22 +35,16 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 [line]
 
 [size=5][b]Controls[/b][/size]
-
 [list]
 [*][b]F8[/b] — open/close the assignment panel[/*]
 [*][b]R1 / R2 / Y + R1 / Y + R2[/b] — cast slots 1-4 of the right-hand catalyst[/*]
 [*][b]L1 / L2 / Y + L1 / Y + L2[/b] — cast slots 1-4 of the left-hand catalyst[/*]
 [*][b]Mouse[/b] — click, shift + click, ctrl + click, alt + click (left or right button) for the same eight slots, with or without a controller[/*]
-[*][b]Bind[/b] — on a controller, hold [b]L3[/b] and press the input; on mouse and keyboard, hold
-[b]Super[/b] (or [code]Menu[/code] / [code]F9[/code]-[code]F12[/code] if your desktop claims Super)
-and click. It binds the spell selected in your own wheel, and the press never also casts.[/*]
 [/list]
 
-The panel hotkey, both bind modifiers ([code]bind_modifier[/code] for the pad,
-[code]bind_modifier_kb[/code] for the keyboard) and the chord timing ([code]chord_stage[/code], for controllers
-that two-hand too easily on a fast chord) are configurable in [code]nr_casting.ini[/code], along with
-[code]hud_mirror[/code] if you want the game's own wheel pinned to slot 1. The panel window can be
-dragged by its title band.
+The panel hotkey is configurable in
+[code]nr_casting.ini[/code]
+Spells are assigned in the panel; there is no bind gesture on the pad.
 
 [line]
 
@@ -72,8 +52,8 @@ dragged by its title band.
 [list]
 [*]ELDEN RING, offline. Online play and EAC are not supported and not tested.[/*]
 [*][url=https://github.com/garyttierney/me3]me3[/url] (Mod Engine 3) to load the DLL.[/*]
-[*]A controller, keyboard and mouse, or both — the mod drives whichever is present. With no controller connected it reads the mouse through raw input instead.[/*]
-[*]Mouse — click for slot 1, then SHIFT, CTRL and ALT on either button for slots 2-4.[/*]
+[*]A controller — the mod works at the XInput layer.[/*]
+[*]Keyboard  / Mouse — Also works with Left/Right click (original) But added SHIFT / CTRL / ALT + Left / Right to reach full 8.[/*]
 [/list]
 [line]
 
@@ -127,7 +107,7 @@ loaded and the character is a Recluse — there the chord goes to the class port
 [code]on[/code]
 always takes them,
 [code]off[/code]
-never does — the chords stay the game's two-hand command everywhere.
+gives vanilla two-handing back.
 
 [line]
 
