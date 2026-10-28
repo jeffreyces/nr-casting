@@ -69,9 +69,11 @@ const GROUP_SIZE: usize = 0x10;
 /// A value below this is a base-relative offset, above it an absolute pointer (the runtime
 /// relocates the offset table on load; the game's own reader does the same test).
 const ABSOLUTE_POINTER: u64 = 0x100_0000;
-/// More groups than this means the header is not one; the largest real table is in the low
-/// thousands.
-const MAX_GROUPS: u32 = 0x4_0000;
+/// Sanity ceilings for the two header counts. The largest real table in the groups this module
+/// reads is 3,295 ranges over 4,285 strings, so these are ~20x headroom; they exist so a corrupt
+/// header cannot make the parser allocate or walk megabytes before it is rejected.
+const MAX_GROUPS: u32 = 0x1_0000;
+const MAX_STRINGS: u32 = 0x10_0000;
 
 /// Whether the layout has been proven this session.
 static PROVEN: AtomicBool = AtomicBool::new(false);
@@ -226,8 +228,12 @@ impl Fmg {
         if group_count == 0 || group_count > MAX_GROUPS {
             return Err("implausible group count");
         }
-        if string_count == 0 || string_count > MAX_GROUPS * 4 {
+        if string_count == 0 || string_count > MAX_STRINGS {
             return Err("implausible string count");
+        }
+        // Every range covers at least one id, so more ranges than strings is not a table.
+        if group_count > string_count {
+            return Err("more groups than strings");
         }
         let raw = mem.u64(base + FMG_OFFSETS).ok_or("offset table unreadable")?;
         let offsets = fmg::resolve(raw, base, ABSOLUTE_POINTER).ok_or("offset table pointer")?;
@@ -425,6 +431,14 @@ pub fn names(group: u32, wanted: &[i32]) -> HashMap<i32, String> {
     out
 }
 
+/// When the last scan found the repository unreadable. A reload frees the tables for a moment,
+/// and this call sits on a render path: without the floor, every frame of a panel open during a
+/// load would walk and re-parse the group tables.
+static LAST_UNREADABLE_MS: AtomicU64 = AtomicU64::new(0);
+
+/// How long to trust "not readable" before trying again.
+const UNREADABLE_RETRY_MS: u64 = 250;
+
 /// One id, for a caller on a render path: a cached answer costs two mutex locks and no game reads.
 pub fn name(group: u32, id: i32) -> Option<String> {
     if !ready() {
@@ -444,7 +458,19 @@ pub fn name(group: u32, id: i32) -> Option<String> {
     {
         return None;
     }
+    // A recent failed read means the repository is between lives; do not pay for it again on
+    // the next frame.
+    let now = now_ms();
+    let unreadable_at = LAST_UNREADABLE_MS.load(Ordering::Relaxed);
+    if unreadable_at != 0 && now.wrapping_sub(unreadable_at) < UNREADABLE_RETRY_MS {
+        return None;
+    }
     let (found, answered) = scan(group, &[id]);
+    if answered {
+        LAST_UNREADABLE_MS.store(0, Ordering::Relaxed);
+    } else {
+        LAST_UNREADABLE_MS.store(now, Ordering::Relaxed);
+    }
     record(group, &[id], &found, answered);
     found.get(&id).cloned()
 }
