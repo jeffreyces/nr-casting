@@ -248,6 +248,9 @@ fn run() {
             world_was_live = world_live;
             if world_live {
                 log("world: character present");
+                // The frame series belongs to this character: start the five minutes the report
+                // wants from here, and let the diagnostics button count them down.
+                crate::perf::restart_series();
                 // Assignments are per character: switch the store to this one's file before
                 // anything reads a slot.
                 crate::store::sync_character();

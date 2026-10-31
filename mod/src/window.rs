@@ -420,6 +420,8 @@ enum Resize {
 const HOTKEY_ID: i32 = 1;
 /// The timer that opens the file manager once the browser has had a moment.
 const REVEAL_TIMER_ID: usize = 2;
+/// The one-second timer that samples the frame series, whether or not a pad is being polled.
+const SAMPLER_TIMER_ID: usize = 3;
 /// `MOD_NOREPEAT`: holding the key must not toggle the panel on every auto-repeat.
 const MOD_NOREPEAT: u32 = 0x4000;
 
@@ -924,8 +926,22 @@ impl App {
                 ui.same_line();
                 // One button, in the order a report actually needs: the file first, then the issue
                 // page, then the file manager opened on that file so it can be dragged into the
-                // page. Nothing is uploaded — there is no endpoint — the player attaches it.
-                if ui.button("diagnostics & report") {
+                // page. Nothing is uploaded - there is no endpoint - the player attaches it.
+                //
+                // It counts down the five minutes the report wants of frame data, measured from
+                // the character loading. A report that says "300 s sampled" should have 300
+                // seconds in it, so the button is disabled until it does.
+                let waiting = crate::perf::remaining_seconds();
+                if waiting > 0 {
+                    ui.disabled(true, || {
+                        ui.button(format!("diagnostics & report ({}s)", waiting));
+                    });
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(format!(
+                            "collecting frame data since the character loaded - ready in {waiting}s"
+                        ));
+                    }
+                } else if ui.button("diagnostics & report") {
                     diagnostics = true;
                 }
                 ui.same_line();
@@ -1361,6 +1377,10 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             let app = guard.as_mut()?;
             match msg {
                 WM_TIMER => {
+                    if wparam.0 == SAMPLER_TIMER_ID {
+                        crate::perf::tick();
+                        return Some(LRESULT(0));
+                    }
                     if wparam.0 == REVEAL_TIMER_ID {
                         let _ = unsafe { KillTimer(Some(app.hwnd), REVEAL_TIMER_ID) };
                         if let Some(path) = app.reveal.take() {
@@ -1873,6 +1893,11 @@ pub fn start() {
                 app.hotkey_registered = registered;
             }
         });
+        // One wake a second, for the frame series: the pad poll cannot be the only clock, because
+        // a keyboard-and-mouse player never produces one.
+        unsafe {
+            SetTimer(Some(hwnd), SAMPLER_TIMER_ID, 1000, None);
+        }
         crate::log(if registered {
             "panel: ready (hotkey registered; the thread idles on its message queue)"
         } else {

@@ -39,6 +39,44 @@ static SERIES_FILLED: AtomicU32 = AtomicU32::new(0);
 static SECOND_MAX_US: AtomicU32 = AtomicU32::new(0);
 static SECOND_START: AtomicU64 = AtomicU64::new(0);
 
+/// Advance the one-second series by one sample.
+///
+/// Driven by a one-second window timer, not by the pad poll: a keyboard-and-mouse player never
+/// produces a pad poll, and their report must still fill (and the button must still count down).
+pub fn tick() {
+    let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
+    SERIES[head].store(SECOND_MAX_US.swap(0, Ordering::Relaxed), Ordering::Relaxed);
+    SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// How long the series still needs before it holds a full five minutes, in seconds.
+///
+/// The diagnostics button waits on this: a report that says "300 s sampled" should have
+/// 300 seconds in it.
+pub fn remaining_seconds() -> u32 {
+    let filled = SERIES_FILLED.load(Ordering::Relaxed).min(SERIES_LEN as u32);
+    (SERIES_LEN as u32).saturating_sub(filled)
+}
+
+/// Start the series again, as of a character loading: the samples of the last character say
+/// nothing about this one.
+pub fn restart_series() {
+    for sample in SERIES.iter() {
+        sample.store(0, Ordering::Relaxed);
+    }
+    SERIES_HEAD.store(0, Ordering::Relaxed);
+    SERIES_FILLED.store(0, Ordering::Relaxed);
+    SECOND_MAX_US.store(0, Ordering::Relaxed);
+    SECOND_START.store(0, Ordering::Relaxed);
+    LAST.store(0, Ordering::Relaxed);
+    WINDOW.store(0, Ordering::Relaxed);
+    GAP_MAX_US.store(0, Ordering::Relaxed);
+    GAP_SUM_US.store(0, Ordering::Relaxed);
+    POLLS.store(0, Ordering::Relaxed);
+    GAP_OVER_32MS.store(0, Ordering::Relaxed);
+    DETOUR_MAX_US.store(0, Ordering::Relaxed);
+}
+
 /// One line summarising the series, for the report header.
 pub fn summary() -> String {
     let filled = (SERIES_FILLED.load(Ordering::Relaxed) as usize).min(SERIES_LEN);
@@ -137,19 +175,8 @@ pub fn report(started: u64) {
         if gap > 32_000 {
             GAP_OVER_32MS.fetch_add(1, Ordering::Relaxed);
         }
-        // One sample a second, for the report: the worst gap in that second.
-        let second_start = SECOND_START.load(Ordering::Relaxed);
-        if second_start == 0 {
-            SECOND_START.store(now, Ordering::Relaxed);
-        } else if micros(now.saturating_sub(second_start)) >= 1_000_000 {
-            SECOND_START.store(now, Ordering::Relaxed);
-            let sample = SECOND_MAX_US.swap(0, Ordering::Relaxed);
-            let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
-            SERIES[head].store(sample, Ordering::Relaxed);
-            SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
-        } else {
-            SECOND_MAX_US.fetch_max(gap, Ordering::Relaxed);
-        }
+        // The worst gap in this second; `tick` files it and moves the series on.
+        SECOND_MAX_US.fetch_max(gap, Ordering::Relaxed);
     }
     DETOUR_MAX_US.fetch_max(cost, Ordering::Relaxed);
 
