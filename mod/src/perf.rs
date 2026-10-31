@@ -93,7 +93,7 @@ pub fn report(started: u64) {
     let mean = if polls > 0 { sum / polls as u64 } else { 0 };
     crate::log(&format!(
         "perf: {polls} polls in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), our detour max {}us, panel {}",
-        elapsed as f64 / 1000.0,
+        elapsed as f64 / 1_000_000.0,
         mean as f64 / 1000.0,
         peak as f64 / 1000.0,
         over,
