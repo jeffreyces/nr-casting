@@ -134,6 +134,8 @@ struct Model {
     /// Rebuilt only when the filter or the character's stats change. The panel redraws every
     /// frame, and this list is several hundred formatted strings.
     candidates: Rc<Vec<(i32, String)>>,
+    /// The right hand's list: a staff and a seal offer different spells, so each hand needs its own.
+    candidates_right: Rc<Vec<(i32, String)>>,
     candidates_key: String,
 }
 
@@ -143,11 +145,17 @@ impl Model {
         // Rune going on (or a talisman swap) re-filters the list instead of leaving it stale.
         let stats = crate::player_effective_stats().unwrap_or((0, 0, 0));
         let (int, fai, arc) = stats;
-        let key = format!("{}\u{1}{}\u{1}{int}\u{1}{fai}\u{1}{arc}", self.search, self.show_all);
+        // The equipped catalysts decide what each list may contain, so they belong in the key: a
+        // weapon swap has to re-filter both hands.
+        let key = format!(
+            "{}\u{1}{}\u{1}{int}\u{1}{fai}\u{1}{arc}\u{1}{}\u{1}{}",
+            self.search, self.show_all, self.weapons.0, self.weapons.1
+        );
         if key == self.candidates_key {
             return;
         }
-        self.candidates = Rc::new(self.panel.candidates(&self.search));
+        self.candidates = Rc::new(self.panel.candidates_for(self.weapons.0, &self.search));
+        self.candidates_right = Rc::new(self.panel.candidates_for(self.weapons.1, &self.search));
         self.candidates_key = key;
     }
 
@@ -162,6 +170,7 @@ impl Model {
             boost: String::new(),
             listed: String::new(),
             candidates: Rc::new(Vec::new()),
+            candidates_right: Rc::new(Vec::new()),
             candidates_key: String::new(),
         }
     }
@@ -776,6 +785,7 @@ impl App {
         // Recomputed each frame so the search box takes effect immediately.
         model.refresh_candidates();
         let candidates = Rc::clone(&model.candidates);
+        let candidates_right = Rc::clone(&model.candidates_right);
 
         // The window sits a border's width inside the display, so the frame it draws is always
         // inside the render target: an edge at the very last pixel is what disappeared when the
@@ -851,7 +861,7 @@ impl App {
                     [4, 5, 6, 7],
                     "right",
                     &model.panel,
-                    &candidates,
+                    &candidates_right,
                     crate::input::y_bumper(),
                 ) {
                     assign = Some(choice);
@@ -1143,6 +1153,11 @@ fn hand_column(
     } else {
         "(nothing equipped)".to_string()
     });
+    // Which spells this hand can actually cast, so a short list reads as a filter and not a bug.
+    let kind = panel.catalyst_kind(weapon);
+    if !kind.label().is_empty() {
+        ui.text_disabled(kind.label());
+    }
     let mut chosen = None;
     for index in indices {
         let slot = SLOTS[index];

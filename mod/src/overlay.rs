@@ -49,6 +49,37 @@ fn catalogue_is_current(text: &str, stamp: &str) -> bool {
 
 
 
+/// What a hand's catalyst can cast, which decides what its pickers offer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Catalyst {
+    /// A glintstone staff: sorceries only.
+    Staff,
+    /// A sacred seal: incantations only.
+    Seal,
+    /// A hand without a catalyst, or one that cannot be classified: everything is offered, because
+    /// guessing wrong would hide spells the player can actually use.
+    Other,
+}
+
+impl Catalyst {
+    fn offers(self, spell: &Spell) -> bool {
+        match self {
+            Catalyst::Staff => spell.school.contains("Sorcery"),
+            Catalyst::Seal => spell.school.contains("Incantation"),
+            Catalyst::Other => true,
+        }
+    }
+
+    /// The line shown under the equipped catalyst, empty when nothing is filtered.
+    pub fn label(self) -> &'static str {
+        match self {
+            Catalyst::Staff => "sorceries only",
+            Catalyst::Seal => "incantations only",
+            Catalyst::Other => "",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Spell {
     pub id: i32,
@@ -304,10 +335,22 @@ impl Panel {
     /// effects), so a spell that only becomes castable with Godrick's Great Rune or a stat
     /// talisman is offered — and can be assigned — while the effect is on.
     pub fn candidates(&self, needle: &str) -> Vec<(i32, String)> {
+        self.candidates_for(0, needle)
+    }
+
+    /// Everything the pickers in `weapon`'s hand may offer.
+    ///
+    /// A staff lists sorceries and a seal lists incantations: the two catalysts cannot cast each
+    /// other's spells, so offering them is a list of things that will fail. A hand with no catalyst,
+    /// or one we cannot classify, still gets the whole list — a port's own catalyst should not
+    /// lose its spells to a guess.
+    pub fn candidates_for(&self, weapon: i32, needle: &str) -> Vec<(i32, String)> {
         let needle = needle.trim().to_ascii_lowercase();
         let stats = crate::player_effective_stats();
+        let kind = self.catalyst_kind(weapon);
         self.spells
             .iter()
+            .filter(|spell| kind.offers(spell))
             .filter(|spell| self.offered(spell, stats))
             .filter(|spell| {
                 needle.is_empty()
@@ -316,6 +359,30 @@ impl Panel {
             })
             .map(|spell| (spell.id, format!("{}   {}", spell.name, spell.detail())))
             .collect()
+    }
+
+    /// Staff, seal, or neither, for a weapon id.
+    ///
+    /// The id bands are the same ones `input.rs` uses to recognise a catalyst: `33xxxxxx` glintstone
+    /// staffs and `34xxxxxx` sacred seals, every row of both. Anything else falls back to the name,
+    /// which catches class-port catalysts and the odd vanilla weapon outside the bands.
+    pub fn catalyst_kind(&self, weapon: i32) -> Catalyst {
+        if weapon <= 0 {
+            return Catalyst::Other;
+        }
+        match weapon / 1_000_000 {
+            33 => return Catalyst::Staff,
+            34 => return Catalyst::Seal,
+            _ => {}
+        }
+        let name = self.weapon_label(weapon).to_ascii_lowercase();
+        if name.contains("staff") || name.contains("scepter") || name.contains("sceptre") {
+            Catalyst::Staff
+        } else if name.contains("seal") {
+            Catalyst::Seal
+        } else {
+            Catalyst::Other
+        }
     }
 
     pub fn assign(&self, weapon: i32, slot: usize, id: i32) {
