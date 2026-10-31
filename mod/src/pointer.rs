@@ -241,6 +241,24 @@ pub fn install() -> Result<(), String> {
     }
 }
 
+/// Push `ShowCursor(TRUE)` until the system reports a visible pointer, and say how many that took.
+///
+/// The display counter ER left behind was tens of points below zero (16 pushes were not enough),
+/// and `GetCursorInfo` is the only honest read on the result — `ShowCursor`'s return value is the
+/// new count, which on this host disagreed with the desktop state.
+unsafe fn force_cursor_visible(cap: i32) -> i32 {
+    let mut pushes = 0;
+    while pushes < cap && !crate::input::game_shows_cursor() {
+        ShowCursor(1);
+        pushes += 1;
+    }
+    pushes
+}
+
+/// Pushes allowed for one panel session. Far past anything the game hides; a cap at all so a
+/// system that refuses to report the cursor visible cannot inflate the counter forever.
+const MAX_CURSOR_PUSHES: i32 = 400;
+
 /// Open or close the panel's claim on the pointer.
 pub fn set_open(open: bool) {
     if open == is_open() {
@@ -250,10 +268,7 @@ pub fn set_open(open: bool) {
     unsafe {
         if open {
             // ER has hidden the cursor; each ShowCursor(TRUE) cancels one hide.
-            let mut shows = 0;
-            while ShowCursor(1) >= 0 && shows < 16 {
-                shows += 1;
-            }
+            let shows = force_cursor_visible(MAX_CURSOR_PUSHES);
             CURSOR_SHOWS.store(shows, Ordering::Relaxed);
             ClipCursor(std::ptr::null());
             let visible = crate::input::game_shows_cursor();
@@ -282,6 +297,15 @@ pub fn frame() {
         ClipCursor(std::ptr::null());
         // Wine re-centres a captured pointer every frame; drop the capture each tick.
         ReleaseCapture();
+        // The game hides the pointer again as it re-enters play; undo that while the panel owns it,
+        // remembering every push so closing puts the counter back where the game left it.
+        if !crate::input::game_shows_cursor() {
+            let pushed = CURSOR_SHOWS.load(Ordering::Relaxed);
+            if pushed < MAX_CURSOR_PUSHES {
+                let more = force_cursor_visible(MAX_CURSOR_PUSHES - pushed);
+                CURSOR_SHOWS.fetch_add(more, Ordering::Relaxed);
+            }
+        }
         // Nothing has set a cursor shape — the game's window class has none — so the pointer would
         // be the invisible one. Only fill in an empty shape: over our own resize borders a sizing
         // cursor is set and must stay.

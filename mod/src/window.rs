@@ -119,7 +119,12 @@ struct Model {
     weapons: (i32, i32),
     search: String,
     show_all: bool,
-    status: String,
+    /// The loaded character's name — the key the assignments are filed under.
+    who: String,
+    /// INT/FAI/ARC as the game applies them, and a note when a rune or talisman is doing the work.
+    stats: String,
+    /// How many spells the pickers are offering, against the whole table.
+    listed: String,
     /// Rebuilt only when the filter or the character's stats change. The panel redraws every
     /// frame, and this list is several hundred formatted strings.
     candidates: Rc<Vec<(i32, String)>>,
@@ -146,7 +151,9 @@ impl Model {
             weapons: (0, 0),
             search: String::new(),
             show_all: crate::config::load().show_all,
-            status: "waiting for the player...".to_string(),
+            who: "waiting for the player...".to_string(),
+            stats: String::new(),
+            listed: String::new(),
             candidates: Rc::new(Vec::new()),
             candidates_key: String::new(),
         }
@@ -172,11 +179,9 @@ impl Model {
             .unwrap_or_else(|| "stats unavailable".to_string());
         // The character name is the key the assignments are filed under, so showing it says
         // which file the panel is editing.
-        let who = crate::character_name().unwrap_or_else(|| "no character".to_string());
-        self.status = format!(
-            "{who}\n{stats}       {listed}/{} spells listed",
-            self.panel.spell_count()
-        );
+        self.who = crate::character_name().unwrap_or_else(|| "no character".to_string());
+        self.stats = stats;
+        self.listed = format!("{listed}/{} spells listed", self.panel.spell_count());
     }
 
     fn weapon_of(&self, slot: Slot) -> i32 {
@@ -665,7 +670,10 @@ impl App {
             .resizable(false)
             .movable(false)
             .collapsible(false)
-            .scroll_bar(false)
+            // A short window scrolls instead of hiding the bottom of the layout: the content is
+            // taller than the space at some heights, and clipping it mid-row read as "the bottom
+            // border disappeared".
+            .scroll_bar(true)
             .build(ui, || {
                 ui.text("nr-casting");
                 ui.separator();
@@ -688,39 +696,22 @@ impl App {
                 ui.next_column();
 
                 // ---- middle ----------------------------------------------------------------
-                ui.text("CHARACTER");
-                ui.text(&model.status);
-                ui.input_text("##search", &mut model.search).build();
+                // The name is the file the panel edits. The two lines under it are the game's
+                // opinion, greyed like the disabled rows in the hand columns so they read as
+                // information rather than as settings.
+                ui.text(format!("Character: {}", model.who));
+                ui.text_disabled(&model.stats);
+                ui.text_disabled(&model.listed);
+                ui.spacing();
+                ui.set_next_item_width(ui.content_region_avail()[0]);
+                ui.input_text("##search", &mut model.search)
+                    .hint("search spells by name")
+                    .build();
                 let mut show = model.show_all;
                 if ui.checkbox("show everything", &mut show) {
                     model.show_all = show;
                     model.panel.set_show_all(show);
                 }
-                // Text size for a TV, and the fix for "resizing the window only adds background":
-                // auto follows the window (which the corner drag changes), a percentage pins it.
-                ui.text("UI scale");
-                ui.same_line();
-                if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
-                    scale_choice = Some(choice);
-                }
-                if ui.button("refresh") {
-                    model.reload();
-                }
-                // Two characters with the same name, slot and appearance cannot be told apart, so
-                // the file is shared; this clears it for the one that is loaded.
-                if ui.button("reset slots") {
-                    crate::store::clear_character();
-                    model.reload();
-                }
-                let mut close = false;
-                if ui.button("close") {
-                    close = true;
-                }
-                if close {
-                    // Handled after the frame: closing mid-frame would drop the state.
-                    assign = assign.or(Some((usize::MAX, 0)));
-                }
-                ui.spacing();
 
                 ui.next_column();
 
@@ -739,6 +730,37 @@ impl App {
                 }
 
                 ui.columns(1, "footer", false);
+                // ---- controls --------------------------------------------------------------
+                // The buttons and the scale picker sit in their own panel between the three
+                // columns and the help text, so the columns only ever hold spells and the
+                // controls only ever hold the panel's own settings.
+                let bar = ui.frame_height() + 10.0;
+                imgui::ChildWindow::new("controls")
+                    .size([ui.content_region_avail()[0], bar])
+                    .border(true)
+                    .build(ui, || {
+                        if ui.button("refresh") {
+                            model.reload();
+                        }
+                        ui.same_line();
+                        // Two characters with the same name, slot and appearance cannot be told
+                        // apart, so the file is shared; this clears it for the one that is loaded.
+                        if ui.button("reset slots") {
+                            crate::store::clear_character();
+                            model.reload();
+                        }
+                        ui.same_line();
+                        if ui.button("close") {
+                            // Handled after the frame: closing mid-frame would drop the state.
+                            assign = assign.or(Some((usize::MAX, 0)));
+                        }
+                        ui.same_line();
+                        ui.text("UI scale");
+                        ui.same_line();
+                        if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
+                            scale_choice = Some(choice);
+                        }
+                    });
                 ui.separator();
                 ui.text_disabled(
                     "Pad:  R1/R2 = right hand,  L1/L2 = left hand,  Y + R2 / Y + L2 = third spell,  \
@@ -897,13 +919,15 @@ fn hand_column(
 /// Returns the new choice (outer `Some`) when the player picked one, `None` when nothing changed.
 /// `auto` is what auto would pick right now, so the row says what it is doing.
 fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32>> {
+    // "auto" is a real choice, so it is spelled as one: the percentage after it is what the window
+    // currently implies, not a selection.
     let preview = match current {
         Some(scale) => format!("{:.0}%##ui_scale_preview", scale * 100.0),
-        None => format!("auto ({:.0}%)##ui_scale_preview", auto * 100.0),
+        None => format!("auto ({:.0}% now)##ui_scale_preview", auto * 100.0),
     };
     let mut chosen = None;
     if let Some(_combo) = ui.begin_combo("##ui_scale", preview) {
-        if imgui::Selectable::new("auto##ui_scale_auto")
+        if imgui::Selectable::new("auto — follow the window##ui_scale_auto")
             .selected(current.is_none())
             .build(ui)
         {
@@ -912,7 +936,7 @@ fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32
         for scale in UI_SCALE_CHOICES {
             let percent = (scale * 100.0).round() as i32;
             let pinned = current.is_some_and(|value| (value - scale).abs() < 0.01);
-            if imgui::Selectable::new(format!("{percent}%##ui_scale_{percent}"))
+            if imgui::Selectable::new(format!("{percent}% (pinned)##ui_scale_{percent}"))
                 .selected(pinned)
                 .build(ui)
             {
