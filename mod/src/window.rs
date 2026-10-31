@@ -46,7 +46,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP,
     WM_ACTIVATE, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WS_THICKFRAME, MINMAXINFO,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
+    WM_PAINT, WM_ENTERSIZEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
+    WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE, GetSystemMetrics, SM_CXSCREEN,
     SM_CYSCREEN, SWP_FRAMECHANGED, GetDesktopWindow,
@@ -352,6 +353,9 @@ struct App {
     needs_fit: bool,
     /// The saved corner, so a drag that moves nothing does not rewrite the file.
     saved_pos: (i32, i32),
+    /// Inside the window manager's modal sizing loop: the frame loop is blocked there, so frames are
+    /// painted from `WM_PAINT` instead.
+    sizing: bool,
     /// The panel size last written to the ini, so a move/resize drag that changes nothing does not
     /// rewrite the file every time the window is nudged.
     saved_size: (u32, u32),
@@ -417,6 +421,7 @@ impl App {
             hold_scale: None,
             needs_fit: crate::config::load().panel_size.is_none(),
             saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
+            sizing: false,
             // The size the window actually opened at, not what the file asked for: a saved size
             // that had to be fitted to a smaller screen must not be rewritten just because the
             // player moved the panel.
@@ -955,6 +960,37 @@ impl App {
             return;
         }
 
+        // The client rect read here, at frame time, is the only size that is reliably correct: the
+        // lparam of `WM_SIZE` and even `GetClientRect` can lag a modal sizing loop (imgui#8731), and
+        // a frame drawn at one size into a buffer of another is exactly a panel whose border walks
+        // off the edge and whose drag stops showing. Whatever the messages said, this fixes it.
+        let mut client = RECT::default();
+        if unsafe { GetClientRect(self.hwnd, &mut client) }.is_ok() {
+            let size = (
+                (client.right - client.left).max(1) as u32,
+                (client.bottom - client.top).max(1) as u32,
+            );
+            if size != gfx.size {
+                gfx.size = size;
+                gfx.view = None;
+                if let Err(e) = unsafe {
+                    gfx.swap_chain.ResizeBuffers(
+                        0,
+                        size.0,
+                        size.1,
+                        DXGI_FORMAT_R8G8B8A8_UNORM,
+                        Default::default(),
+                    )
+                } {
+                    crate::log(&format!("panel: resize failed at frame time: {e}"));
+                }
+                if let Ok(desc) = unsafe { gfx.swap_chain.GetDesc() } {
+                    gfx.size = (desc.BufferDesc.Width, desc.BufferDesc.Height);
+                }
+                unsafe { gfx.rebuild_view() };
+            }
+        }
+
         {
             let built = gfx.ui.as_mut().expect("context checked above");
             let io = built.imgui.io_mut();
@@ -1264,17 +1300,11 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         let (width, height) = design_size(scale);
                         let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0) as u32;
                         let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0) as u32;
-                        // Height: what the layout actually used, once a frame has been drawn. Width:
-                        // the design width at this scale, which is what the three columns need.
-                        let minimum_height = if app.content_height > 0.0 {
-                            app.content_height
-                        } else {
-                            height as f32
-                        };
-                        // Never more than the design box at this scale: a layout that overflows a
-                        // too-short window would otherwise push its own minimum up and trap the
-                        // window at whatever size it was left in.
-                        let minimum_height = minimum_height.min(height as f32);
+                        // A fixed floor, deliberately not derived from the content: a minimum that
+                        // grows when the layout overflows pushes back on the very drag the player
+                        // is making, and a window that cannot reach the size it asked for is a
+                        // window that stops moving. Content that does not fit simply scrolls.
+                        let minimum_height = (height as f32 * 0.5).max(240.0);
                         unsafe {
                             (*info).ptMinTrackSize.x =
                                 width.min(screen_width.saturating_sub(160)).max(600) as i32;
@@ -1288,7 +1318,21 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 // A resize drag has ended: the window is the size it will stay, so work out the
                 // scale that size implies and queue the rebuild. Doing this per WM_SIZE would
                 // rebuild the font atlas for every pixel the corner moved.
+                WM_ENTERSIZEMOVE => {
+                    app.sizing = true;
+                    Some(LRESULT(0))
+                }
+                WM_PAINT => {
+                    // The window manager runs a modal loop while the player drags an edge, and our
+                    // frame loop does not run inside it — so the panel would keep showing its last
+                    // frame while the window resized around it. Paint from here instead.
+                    if app.sizing {
+                        app.render();
+                    }
+                    None
+                }
                 WM_EXITSIZEMOVE => {
+                    app.sizing = false;
                     let scale = app.target_scale();
                     let changed = app
                         .gfx
