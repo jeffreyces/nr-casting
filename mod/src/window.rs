@@ -227,6 +227,8 @@ struct Gfx {
     ui: Option<PanelUi>,
     last_frame: Instant,
     presented: bool,
+    /// When the last diagnostic line was written (once a second while the panel is open).
+    last_report: Instant,
     /// When the last frame actually reached the screen. A window that stops presenting looks
     /// frozen — the old picture stays on the client area, so the panel appears to lose its frame
     /// and stop responding to a drag, and only an F8 brings it back.
@@ -659,6 +661,7 @@ impl App {
             ui: Some(ui),
             last_frame: Instant::now(),
             presented: false,
+            last_report: Instant::now(),
             last_present: Instant::now(),
             scale,
         };
@@ -781,6 +784,10 @@ impl App {
         let inset = border_width(ui);
         let size = [(display[0] - 2.0 * inset).max(1.0), (display[1] - 2.0 * inset).max(1.0)];
         imgui::Window::new("nr-casting")
+            // No scrollbars: a panel that scrolls in two directions while its text rescales is
+            // unreadable, and the scroll state is what the content overflow was doing to the frame.
+            // Content that does not fit is clipped — the answer is to resize the panel.
+            .scroll_bar(false)
             .position([inset, inset], Condition::Always)
             .size(size, Condition::Always)
             .title_bar(false)
@@ -910,8 +917,16 @@ impl App {
                 used_height = ui.cursor_pos()[1] + ui.clone_style().window_padding[1];
                 // The same layout at 100%, so the auto scale can compare a window to the content it
                 // holds rather than to a design constant the layout no longer matches.
+                //
+                // Latched, not live: a value that changes with the scale closes the loop — scale
+                // changes the content, the content changes the scale — and the panel ends up
+                // flickering between two sizes. It only moves when the content itself does, as when
+                // "list everything" doubles the list.
                 let scale_now = (ui.text_line_height() / BASE_FONT_PX).max(0.1);
-                self.natural_height = used_height / scale_now;
+                let measured = used_height / scale_now;
+                if self.natural_height < 1.0 || (measured - self.natural_height).abs() > 0.15 * self.natural_height {
+                    self.natural_height = measured;
+                }
                 // The frame, on the window's own draw list at the window's own rect: both are
                 // inside the render target by construction, so no size can clip an edge.
                 let thickness = border_width(ui);
@@ -1055,6 +1070,24 @@ impl App {
                 let present = gfx.swap_chain.Present(1, Default::default());
                 if present.is_ok() {
                     gfx.last_present = Instant::now();
+                }
+                // Once a second, the numbers that decide whether a frame can be correct. A panel
+                // that "loses its border" is a panel whose client, buffer and display no longer
+                // agree, or one that stopped presenting; this says which.
+                if gfx.last_report.elapsed().as_millis() > 1000 {
+                    gfx.last_report = Instant::now();
+                    crate::log(&format!(
+                        "panel: {cw}x{ch} client, {bw}x{bh} buffer, scale {scale:.2}, content \
+                         {content:.0}px, view {view}, present {}",
+                        if present.is_ok() { "ok" } else { "FAILED" },
+                        cw = (client.right - client.left).max(0),
+                        ch = (client.bottom - client.top).max(0),
+                        bw = gfx.size.0,
+                        bh = gfx.size.1,
+                        scale = gfx.scale,
+                        content = self.content_height,
+                        view = if gfx.view.is_some() { "ok" } else { "none" },
+                    ));
                 }
                 if present.is_err() {
                     // A failing Present is invisible on screen: the panel keeps its last image and
