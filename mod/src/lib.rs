@@ -51,6 +51,7 @@ mod stats;
 mod logging;
 mod overlay;
 mod params;
+mod panel_geometry;
 mod panel_shell;
 mod perf;
 mod diag;
