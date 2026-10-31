@@ -1,12 +1,12 @@
 [center][size=6][b]Four Spells Per Catalyst[/b][/size]
-[size=4]Eight spells on two staves — with Elden Ring doing the casting[/size][/center]
+[size=4]Eight spells on two staves (or seals) — with Elden Ring doing the casting[/size][/center]
 
 [line]
 
-[b]Four spells per staff.[/b] R1/R2/Y+R1/Y+R2 cast the right-hand catalyst's two spells, L1/L2/Y+L1/Y+L2 the
-left-hand one. That is four castable spells across two staves, swapped instantly, without opening
-the menu or touching the spell wheel mid-fight. For mouse/keyboard, you have native left/right + SHIFT/CTRL/ALT for a 
-total of four spells.
+[b]Four spells per staff/seal.[/b] R1/R2/Y+R1/Y+R2 cast the right-hand catalyst's four spells, L1/L2/Y+L1/Y+L2 the
+left-hand one. That is eight castable spells across two catalysts, swapped instantly, without opening
+the menu or touching the spell wheel mid-fight. For mouse/keyboard, you have native left/right + SHIFT/CTRL/ALT for a
+total of eight spells.
 
 This is not a custom casting implementation. The mod rewrites the controller buttons reports into shoulder
 presses before the game reads the pad, so Elden Ring runs its own cast: real FP costs, real
