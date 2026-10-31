@@ -30,12 +30,56 @@ static RAW_DATA_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static RAW_BUFFER_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 /// `ShowCursor` is a counter; remember how far we pushed it to unwind the same amount.
 static CURSOR_SHOWS: AtomicI32 = AtomicI32::new(0);
+static SETCURSOR_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 extern "system" {
     fn ClipCursor(rect: *const u8) -> i32;
     fn ShowCursor(show: i32) -> i32;
     fn ReleaseCapture() -> i32;
+    fn SetCursor(cursor: *mut u8) -> *mut u8;
+    fn GetCursor() -> *mut u8;
+    fn LoadCursorW(instance: *mut u8, name: *const u16) -> *mut u8;
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
+}
+
+/// `IDC_ARROW`, as `MAKEINTRESOURCE` spells it: the integer 32512 cast to a string pointer.
+const IDC_ARROW: usize = 32512;
+/// The arrow, loaded once. Kept forever: a cursor handle from `LoadCursorW(NULL, ..)` is a shared
+/// system resource and never needs a release.
+static ARROW: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+
+fn arrow() -> *mut u8 {
+    let cached = ARROW.load(Ordering::Acquire);
+    if !cached.is_null() {
+        return cached as *mut u8;
+    }
+    let loaded = unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW as *const u16) };
+    if !loaded.is_null() {
+        ARROW.store(loaded as *mut (), Ordering::Release);
+    }
+    loaded
+}
+
+/// While the panel is open, hand the game the arrow instead of the null cursor it asks for.
+///
+/// ELDEN RING's window class has no cursor, so in gameplay every `WM_SETCURSOR` resolves to
+/// `SetCursor(NULL)` and the pointer is simply not drawn. That is why the mouse was invisible over
+/// the game and appeared the moment it crossed the panel, whose own class sets the arrow: the
+/// display counter was never the problem (`ShowCursor` was pushed visible on open). Only a null
+/// cursor is replaced — the window's own resize borders still get their sizing cursors.
+unsafe extern "system" fn set_cursor_detour(cursor: *mut u8) -> *mut u8 {
+    let tramp = SETCURSOR_TRAMP.load(Ordering::Acquire);
+    if tramp.is_null() {
+        return std::ptr::null_mut();
+    }
+    let original: unsafe extern "system" fn(*mut u8) -> *mut u8 = std::mem::transmute(tramp);
+    if cursor.is_null() && is_open() {
+        let arrow = arrow();
+        if !arrow.is_null() {
+            return original(arrow);
+        }
+    }
+    original(cursor)
 }
 
 fn is_open() -> bool {
@@ -178,6 +222,9 @@ pub fn install() -> Result<(), String> {
         hook(c"ClipCursor", user32, clip_detour as *const (), &CLIP_TRAMP)
             .and_then(|_| hook(c"SetCursorPos", user32, pos_detour as *const (), &POS_TRAMP))
             .and_then(|_| {
+                hook(c"SetCursor", user32, set_cursor_detour as *const (), &SETCURSOR_TRAMP)
+            })
+            .and_then(|_| {
                 hook(c"SetCapture", user32, capture_detour as *const (), &CAPTURE_TRAMP)
             })
             .and_then(|_| {
@@ -209,8 +256,12 @@ pub fn set_open(open: bool) {
             }
             CURSOR_SHOWS.store(shows, Ordering::Relaxed);
             ClipCursor(std::ptr::null());
+            let visible = crate::input::game_shows_cursor();
+            let shape = GetCursor();
             crate::log(&format!(
-                "pointer: panel open (cursor shown after {shows} calls, clip released)"
+                "pointer: panel open (cursor shown after {shows} calls, clip released, \
+                 system reports visible={visible} shape_set={})",
+                !shape.is_null()
             ));
         } else {
             let shows = CURSOR_SHOWS.swap(0, Ordering::Relaxed);
@@ -231,5 +282,14 @@ pub fn frame() {
         ClipCursor(std::ptr::null());
         // Wine re-centres a captured pointer every frame; drop the capture each tick.
         ReleaseCapture();
+        // Nothing has set a cursor shape — the game's window class has none — so the pointer would
+        // be the invisible one. Only fill in an empty shape: over our own resize borders a sizing
+        // cursor is set and must stay.
+        if GetCursor().is_null() {
+            let arrow = arrow();
+            if !arrow.is_null() {
+                let _ = SetCursor(arrow);
+            }
+        }
     }
 }

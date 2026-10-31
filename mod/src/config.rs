@@ -332,25 +332,41 @@ pub fn save_panel_layout(scale: Option<f32>, size: Option<(u32, u32)>) {
         Some((width, height)) => format!("{width}x{height}"),
         None => "auto".to_string(),
     };
-    save_ui_keys(&[("ui_scale", &scale), ("panel_size", &size)]);
+    save_ui_keys("ui", &[("ui_scale", &scale), ("panel_size", &size)]);
 }
 
 /// Rewrite one key in the ini, keeping every other line (comments included) as it is.
 fn save_ui_key(key: &str, value: &str) {
-    save_ui_keys(&[(key, value)]);
+    save_ui_keys("ui", &[(key, value)]);
 }
 
 /// Rewrite several keys in one pass, keeping every other line (comments included) as they are.
 ///
-/// A key that is not in the file is appended, so an install shipped before the key existed gains it
-/// the first time the panel writes that setting.
-fn save_ui_keys(pairs: &[(&str, &str)]) {
+/// A key the file does not have yet is added at the end of the `[ui]` section rather than at the end
+/// of the file: an install shipped before the key existed gains it in the section a reader would
+/// look in, not under `[logging]`.
+fn save_ui_keys(section: &str, pairs: &[(&str, &str)]) {
     let file = ini_file();
     let text = std::fs::read_to_string(&file).unwrap_or_default();
-    let mut out = String::with_capacity(text.len() + 16 * pairs.len());
+    let header = format!("[{section}]");
+    let mut out = String::with_capacity(text.len() + 32 * pairs.len());
     let mut written = vec![false; pairs.len()];
+    // Where a missing key goes: just before the section after ours, or at the end of the file.
+    let mut insert_at: Option<usize> = None;
+    let mut in_section = false;
     for line in text.lines() {
-        let bare = line.split([';', '#']).next().unwrap_or("").trim().to_ascii_lowercase();
+        let bare = line
+            .split([';', '#'])
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if bare.starts_with('[') {
+            if in_section && insert_at.is_none() {
+                insert_at = Some(out.len());
+            }
+            in_section = bare == header;
+        }
         let mut replaced = false;
         for (index, (key, value)) in pairs.iter().enumerate() {
             if !written[index] && bare.starts_with(key) && bare.contains('=') {
@@ -365,9 +381,19 @@ fn save_ui_keys(pairs: &[(&str, &str)]) {
             out.push('\n');
         }
     }
+    if in_section && insert_at.is_none() {
+        insert_at = Some(out.len());
+    }
+    let mut missing = String::new();
     for (index, (key, value)) in pairs.iter().enumerate() {
         if !written[index] {
-            out.push_str(&format!("{key} = {value}\n"));
+            missing.push_str(&format!("{key} = {value}\n"));
+        }
+    }
+    if !missing.is_empty() {
+        match insert_at {
+            Some(at) => out.insert_str(at, &missing),
+            None => out.push_str(&missing),
         }
     }
     if let Err(e) = std::fs::write(&file, out) {

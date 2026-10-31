@@ -205,23 +205,30 @@ struct Gfx {
     swap_chain: IDXGISwapChain,
     view: Option<ID3D11RenderTargetView>,
     size: (u32, u32),
-    imgui: imgui::Context,
-    renderer: imgui_dx11_renderer::Renderer,
+    /// ImGui context and renderer for the current scale.
+    ///
+    /// `None` only while a rescale is in flight (or after one failed): imgui-rs keeps a single
+    /// current context per process, so the old one has to be dropped before the new one can be
+    /// created — the rebuild briefly has neither.
+    ui: Option<PanelUi>,
     last_frame: Instant,
     presented: bool,
     /// The multiplier the current context and font atlas were built at.
     scale: f32,
 }
 
+/// The ImGui context and its DX11 renderer, which are rebuilt together at a new scale.
+struct PanelUi {
+    imgui: imgui::Context,
+    renderer: imgui_dx11_renderer::Renderer,
+}
+
 /// Build an ImGui context and its DX11 renderer at `scale`.
 ///
 /// The font atlas is rasterised and uploaded inside the renderer's constructor, so a different size
-/// means a new context and a new renderer — not a new font size on the old ones. That is why scale
-/// changes are applied between frames (and after a resize drag ends) rather than per drag frame.
-unsafe fn build_ui(
-    device: &ID3D11Device,
-    scale: f32,
-) -> Result<(imgui::Context, imgui_dx11_renderer::Renderer), String> {
+/// means a new context and a new renderer — not a new font size on the old ones. The caller must
+/// drop the previous context first: `Context::create` panics while another context exists.
+unsafe fn build_ui(device: &ID3D11Device, scale: f32) -> Result<PanelUi, String> {
     let mut imgui = imgui::Context::create();
     imgui.set_ini_filename(None);
     imgui.fonts().add_font(&[imgui::FontSource::DefaultFontData {
@@ -237,7 +244,7 @@ unsafe fn build_ui(
     imgui.style_mut().frame_rounding = 3.0 * scale;
     let renderer = imgui_dx11_renderer::Renderer::new(&mut imgui, device)
         .map_err(|e| format!("ImGui D3D11 renderer failed: {e:?}"))?;
-    Ok((imgui, renderer))
+    Ok(PanelUi { imgui, renderer })
 }
 
 impl Gfx {
@@ -303,7 +310,19 @@ struct App {
     /// The panel size last written to the ini, so a move/resize drag that changes nothing does not
     /// rewrite the file every time the window is nudged.
     saved_size: (u32, u32),
+    /// When the UI was last rebuilt at a new scale: the rebuild is not free, so a live resize
+    /// follows the window at a bounded rate instead of once per drag message.
+    last_scale: Instant,
+    /// When the window size last changed without being saved. The write happens once the player
+    /// has stopped resizing, not on every drag.
+    pending_save: Option<Instant>,
 }
+
+/// How often a live resize may rebuild the UI. A drag delivers a `WM_SIZE` per pixel; rebuilding
+/// the font atlas that often would stutter, and 8 a second is already smooth to the eye.
+const SCALE_REBUILD_MS: u128 = 120;
+/// How long the player has to stop resizing before the size is written to the ini.
+const SAVE_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
 
 thread_local! {
     // The window procedure and the frame loop run on this same thread.
@@ -334,7 +353,61 @@ impl App {
             // that had to be fitted to a smaller screen must not be rewritten just because the
             // player moved the panel.
             saved_size: window_size(hwnd).unwrap_or((0, 0)),
+            last_scale: Instant::now(),
+            pending_save: None,
         }
+    }
+
+    /// Follow the window's size while the player is still dragging.
+    ///
+    /// A live resize used to wait for the drag to end, so the layout stayed at the old scale the
+    /// whole time and the panel looked like it refused to scale. The rebuild is throttled because
+    /// each one re-rasterises the font atlas and recompiles the renderer's shaders.
+    fn follow_window_scale(&mut self) {
+        let Some(scale) = self.gfx.as_ref().map(|gfx| gfx.scale) else {
+            return;
+        };
+        let target = self.target_scale();
+        if (scale - target).abs() < 0.02 {
+            return;
+        }
+        if self.last_scale.elapsed().as_millis() < SCALE_REBUILD_MS {
+            return;
+        }
+        self.pending_scale = Some(target);
+    }
+
+    /// Note that the window size changed; the ini write waits for the player to stop.
+    ///
+    /// A drag calls this on every `WM_SIZE`, and a slow deliberate drag can easily span several
+    /// seconds, so the timer restarts each time and one write lands at the end of the drag — not
+    /// one per pixel, and not one per drag when the player resizes twice in a row.
+    fn note_window_size(&mut self) {
+        // A pinned scale decides the size at open, so the window's own size is not the setting.
+        if self.ui_scale.is_some() {
+            return;
+        }
+        let Some(size) = window_size(self.hwnd) else { return };
+        if size == self.saved_size {
+            return;
+        }
+        self.pending_save = Some(Instant::now());
+    }
+
+    /// Write the size once the player has stopped resizing for `SAVE_QUIET`.
+    fn flush_pending_size(&mut self) {
+        let Some(since) = self.pending_save else { return };
+        if since.elapsed() < SAVE_QUIET {
+            return;
+        }
+        self.pending_save = None;
+        let Some(size) = window_size(self.hwnd) else { return };
+        if size == self.saved_size {
+            return;
+        }
+        self.saved_size = size;
+        crate::config::save_panel_size(Some(size));
+        crate::log(&format!("panel: size saved {}x{}", size.0, size.1));
     }
 
     /// The UI scale implied by the window's own size: the smaller of width/design and height/design.
@@ -383,36 +456,30 @@ impl App {
         self.pending_scale = Some(scale);
     }
 
-    /// Remember the size the player settled on — the whole point of a saved panel size.
-    fn save_window_size(&mut self) {
-        // A pinned scale decides the size at open, so the window's own size is not the setting.
-        if self.ui_scale.is_some() {
-            return;
-        }
-        let Some(size) = window_size(self.hwnd) else { return };
-        if size == self.saved_size {
-            return;
-        }
-        self.saved_size = size;
-        crate::config::save_panel_size(Some(size));
-        crate::log(&format!("panel: size saved {}x{}", size.0, size.1));
-    }
-
     /// Rebuild the ImGui context and its font atlas at `scale`. Between frames only.
+    ///
+    /// The old context is dropped *before* the new one is built: imgui-rs allows one current
+    /// context per process and `Context::create` panics while another exists — which is what closed
+    /// the panel on every rescale before this took the old one out first.
     fn apply_scale(&mut self, scale: f32) {
         let Some(gfx) = self.gfx.as_mut() else { return };
         if (gfx.scale - scale).abs() < 0.02 {
             return;
         }
+        drop(gfx.ui.take());
         match unsafe { build_ui(&gfx.device, scale) } {
-            Ok((imgui, renderer)) => {
-                gfx.imgui = imgui;
-                gfx.renderer = renderer;
+            Ok(ui) => {
+                gfx.ui = Some(ui);
                 gfx.last_frame = Instant::now();
                 gfx.scale = scale;
+                self.last_scale = Instant::now();
                 crate::log(&format!("panel: UI scale {:.0}%", scale * 100.0));
             }
-            Err(e) => crate::log(&format!("panel: rescale failed: {e}")),
+            Err(e) => {
+                // The old context is already gone, so there is nothing to draw with until the
+                // panel is reopened (which rebuilds the device).
+                crate::log(&format!("panel: rescale failed: {e}"));
+            }
         }
     }
 
@@ -481,7 +548,7 @@ impl App {
         // The scale follows the window, which the window procedure sized from the monitor when it
         // was created — so the first thing the player sees on a 4K screen is already 2x.
         let scale = self.target_scale();
-        let (imgui, renderer) = match unsafe { build_ui(&device, scale) } {
+        let ui = match unsafe { build_ui(&device, scale) } {
             Ok(ui) => ui,
             Err(e) => {
                 crate::log(&format!("panel: {e}"));
@@ -499,12 +566,12 @@ impl App {
             swap_chain,
             view: None,
             size: (width, height),
-            imgui,
-            renderer,
+            ui: Some(ui),
             last_frame: Instant::now(),
             presented: false,
             scale,
         };
+        self.last_scale = Instant::now();
         unsafe { gfx.rebuild_view() };
         self.gfx = Some(gfx);
         true
@@ -715,9 +782,15 @@ impl App {
         let Some(mut gfx) = self.gfx.take() else {
             return;
         };
+        // No context: a rescale is in flight or failed. Put the device back and retry next frame.
+        if gfx.ui.is_none() {
+            self.gfx = Some(gfx);
+            return;
+        }
 
         {
-            let io = gfx.imgui.io_mut();
+            let built = gfx.ui.as_mut().expect("context checked above");
+            let io = built.imgui.io_mut();
             let now = Instant::now();
             io.delta_time = (now - gfx.last_frame).as_secs_f32().max(0.0001);
             io.display_size = [gfx.size.0 as f32, gfx.size.1 as f32];
@@ -737,9 +810,10 @@ impl App {
         gfx.last_frame = Instant::now();
 
         {
-            let ui = gfx.imgui.frame();
-            self.draw(&ui);
-            let draw_data = ui.render();
+            let built = gfx.ui.as_mut().expect("context checked above");
+            let frame = built.imgui.frame();
+            self.draw(&frame);
+            let draw_data = frame.render();
             unsafe {
                 if let Some(view) = gfx.view.as_ref() {
                     gfx.context.OMSetRenderTargets(
@@ -749,7 +823,7 @@ impl App {
                     let clear = [0.07f32, 0.07, 0.09, 1.0];
                     gfx.context.ClearRenderTargetView(view, &clear);
                 }
-                if let Err(e) = gfx.renderer.render(draw_data) {
+                if let Err(e) = built.renderer.render(draw_data) {
                     crate::log(&format!("panel: render failed: {e}"));
                 }
                 if !gfx.presented {
@@ -984,9 +1058,8 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     if changed {
                         app.pending_scale = Some(scale);
                     }
-                    // And remember the size the player settled on, so the next open is the one
-                    // they chose instead of the screen default.
-                    app.save_window_size();
+                    // The player finished a drag: start the quiet period for the saved size.
+                    app.note_window_size();
                     Some(LRESULT(0))
                 }
                 WM_SIZE => {
@@ -1010,6 +1083,9 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                             gfx.rebuild_view();
                         }
                     }
+                    // Every pixel of a drag lands here, so this only restarts the quiet timer.
+                    // The UI follows the new size from the frame loop (`follow_window_scale`).
+                    app.note_window_size();
                     Some(LRESULT(0))
                 }
                 WM_MOUSEMOVE => {
@@ -1210,8 +1286,13 @@ pub fn start() {
                     // ImGui frame would otherwise be a frame behind the move.
                     app.drag_step();
                     if app.shown && !minimized {
+                        // Before drawing: a live resize should already be at the new scale.
+                        app.follow_window_scale();
                         app.render();
                     }
+                    // Outside the `shown` check: closing the panel right after a resize must
+                    // still save the size.
+                    app.flush_pending_size();
                     // Taken out here and run below, outside the borrow: the resize delivers
                     // window messages, and the window procedure cannot borrow `App` twice.
                     app.pending_resize.take().map(|scale| (app.hwnd, scale))
