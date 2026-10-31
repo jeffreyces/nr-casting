@@ -642,7 +642,65 @@ pub fn redact(text: &str, needles: &[(String, String)]) -> String {
             out = replace_ignore_case(&out, needle, replacement);
         }
     }
+    // Whole paths go *before* the name rules: a path is the machine's layout, and replacing only
+    // the account segment leaves `%USERPROFILE%\\AppData\\Local\\<mod manager>\\...` - the shape
+    // of somebody's disk on its way to a stranger.
+    out = redact_paths(&out);
     redact_character_slug(&redact_user_paths(&out))
+}
+
+/// Replace every machine path with `<path>`.
+///
+/// A path is recognised by its root - a drive letter and a colon before a separator, or one of the
+/// usual Unix roots - and runs to the end of its line. That is deliberately blunt: Windows paths
+/// contain spaces (`C:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe`), so
+/// splitting on whitespace loses half of it, and every log line that carries a path in this mod
+/// ends with it.
+///
+/// The file name goes with the directory: the interesting part of
+/// `nr_casting_slots_<character>-399e89de.txt` is the character, which the same line already names
+/// with the slug redacted, and the trailing hash is derived from that name.
+pub fn redact_paths(text: &str) -> String {
+    text.split_inclusive('\n')
+        .map(|line| match path_start(line) {
+            Some(at) => {
+                let (before, _) = line.split_at(at);
+                let newline = if line.ends_with('\n') { "\n" } else { "" };
+                format!("{before}<path>{newline}")
+            }
+            None => line.to_string(),
+        })
+        .collect()
+}
+
+/// Where a path begins on this line, if one does.
+fn path_start(line: &str) -> Option<usize> {
+    const ROOTS: [&str; 7] = [
+        "/home/",
+        "/var/home/",
+        "/usr/",
+        "/opt/",
+        "/mnt/",
+        "/media/",
+        "/tmp/",
+    ];
+    let bytes = line.as_bytes();
+    // A drive letter, then ':', then a separator.
+    for i in 0..bytes.len().saturating_sub(2) {
+        if bytes[i].is_ascii_alphabetic()
+            && bytes[i + 1] == b':'
+            && (bytes[i + 2] == b'\\' || bytes[i + 2] == b'/')
+        {
+            return Some(i);
+        }
+    }
+    const PLACEHOLDERS: [&str; 2] = ["%USERPROFILE%\\", "%HOME%\\"];
+    ROOTS
+        .iter()
+        .filter_map(|root| line.find(root))
+        .chain(PLACEHOLDERS.iter().filter_map(|root| line.find(root)))
+        .min()
+        .filter(|at| !line[..*at].ends_with('.'))
 }
 
 #[cfg(test)]
@@ -1236,8 +1294,53 @@ mod raw_tests {
         let out = redact(text, &needles);
         assert!(!out.contains("<name>"), "{out}");
         assert!(!out.contains("<name>"), "{out}");
-        assert!(out.contains("%USERPROFILE%"));
-        assert!(out.contains("%HOME%"));
+        // The paths are gone entirely now; neither placeholder survives either, because replacing
+        // the account segment alone left `%USERPROFILE%\\AppData\\...` in the file, which is still
+        // the layout of somebody's disk. A path runs to the end of its line, so three paths on one
+        // line collapse into one placeholder - the alternative is guessing where a Windows path
+        // ends when its directory names contain spaces, and guessing short leaves half a path.
+        assert_eq!(out, "log at <path>", "{out}");
+    }
+
+
+    #[test]
+    fn redact_paths_takes_the_whole_path_and_nothing_else() {
+        // His lines, verbatim from a report: the account segment was already replaced, and the
+        // layout of his disk was still in the file.
+        let line = "slots: character <character> (id 0) -> %USERPROFILE%\\AppData\\Local\\garyttierney\\me3\\config\\profiles\\eldenring-mods\\nr-casting-v0.2.7\\nr_casting\\nr_casting_slots_<character>-399e89de.txt";
+        assert_eq!(
+            redact_paths(line),
+            "slots: character <character> (id 0) -> <path>"
+        );
+        // Windows paths contain spaces, so a whitespace split loses half of them.
+        let line = "XInputGetState: caller stack includes C:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe";
+        assert_eq!(
+            redact_paths(line),
+            "XInputGetState: caller stack includes <path>"
+        );
+        // The same line under Proton names the host's home, and the prefix path.
+        assert_eq!(
+            redact_paths("files in: /var/home/bob/.local/share/Steam/steamapps/compatdata/1245620/pfx"),
+            "files in: <path>"
+        );
+        assert_eq!(
+            redact_paths("STEAM_COMPAT_DATA_PATH=Z:\\var\\home\\bob\\.local\\share\\Steam"),
+            "STEAM_COMPAT_DATA_PATH=<path>"
+        );
+    }
+
+    #[test]
+    fn redact_paths_leaves_everything_else_alone() {
+        for line in [
+            "modules: eldenring.exe@0x140000000",
+            "input: R1/R2/Y+R1/Y+R2 cast the right-hand catalyst",
+            "panel: 1194x601 client, 1194x601 buffer, scale 1.25, content 579px",
+            "perf: 1200 polls in 10.0s, gap mean 8.33ms max 16.9ms (0 over 32ms)",
+            "probe.stats = ok (76, 18, 9)",
+            "4000 = Glintstone Pebble | Sorcery | 10 | 0 | 0 | 7",
+        ] {
+            assert_eq!(redact_paths(line), line);
+        }
     }
 
     #[test]
