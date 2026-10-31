@@ -1883,9 +1883,13 @@ pub fn start() {
             }
         });
         // One wake a second, for the frame series: the pad poll cannot be the only clock, because
-        // a keyboard-and-mouse player never produces one.
-        unsafe {
-            SetTimer(Some(hwnd), SAMPLER_TIMER_ID, 1000, None);
+        // a keyboard-and-mouse player never produces one. `SetTimer` returns zero when it cannot
+        // arm one (out of timers, or a window that is not ready); the poll path then advances the
+        // series instead, and this line says so rather than leaving the report button disabled for
+        // a whole session with nothing in the log.
+        let armed = unsafe { SetTimer(Some(hwnd), SAMPLER_TIMER_ID, 1000, None) };
+        if armed == 0 {
+            crate::log("panel: no sampler timer; the frame series advances from the poll instead");
         }
         crate::log(if registered {
             "panel: ready (hotkey registered; the thread idles on its message queue)"

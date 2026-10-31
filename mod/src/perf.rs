@@ -37,7 +37,8 @@ static SERIES_HEAD: AtomicU32 = AtomicU32::new(0);
 static SERIES_FILLED: AtomicU32 = AtomicU32::new(0);
 /// The worst gap since the current one-second sample started, and when it started.
 static SECOND_MAX_US: AtomicU32 = AtomicU32::new(0);
-static SECOND_START: AtomicU64 = AtomicU64::new(0);
+/// When the series last advanced, so the poll path can stand in if the timer never armed.
+static TICKED_AT: AtomicU64 = AtomicU64::new(0);
 
 /// Advance the one-second series by one sample.
 ///
@@ -47,6 +48,21 @@ pub fn tick() {
     let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
     SERIES[head].store(SECOND_MAX_US.swap(0, Ordering::Relaxed), Ordering::Relaxed);
     SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
+    TICKED_AT.store(ticks(), Ordering::Relaxed);
+}
+
+/// Advance the series if a second has passed, called from the poll path.
+///
+/// This is the fallback for a window timer that could not be armed (`SetTimer` returns zero on a
+/// thread that is out of timers, or for a window that does not exist yet). Without it the series
+/// would never fill, and the report button would sit disabled for the whole session with nothing
+/// said about why. With the timer working this costs two loads and a compare: `TICKED_AT` is
+/// always fresh, so the branch is never taken.
+pub fn tick_if_due(poll_ticks: u64) {
+    let last = TICKED_AT.load(Ordering::Relaxed);
+    if last == 0 || micros(poll_ticks.saturating_sub(last)) >= 1_000_000 {
+        tick();
+    }
 }
 
 /// How long the series still needs before it holds a full five minutes, in seconds.
@@ -67,7 +83,7 @@ pub fn restart_series() {
     SERIES_HEAD.store(0, Ordering::Relaxed);
     SERIES_FILLED.store(0, Ordering::Relaxed);
     SECOND_MAX_US.store(0, Ordering::Relaxed);
-    SECOND_START.store(0, Ordering::Relaxed);
+    TICKED_AT.store(0, Ordering::Relaxed);
     LAST.store(0, Ordering::Relaxed);
     WINDOW.store(0, Ordering::Relaxed);
     GAP_MAX_US.store(0, Ordering::Relaxed);
@@ -166,7 +182,6 @@ pub fn report(started: u64) {
         if gap > 200_000 {
             // A gap this long is a stall or a pause (alt-tab, loading): start a fresh sample second
             // so the pause does not become the "worst gap" of the next one.
-            SECOND_START.store(now, Ordering::Relaxed);
             SECOND_MAX_US.store(0, Ordering::Relaxed);
         }
         POLLS.fetch_add(1, Ordering::Relaxed);
@@ -179,6 +194,9 @@ pub fn report(started: u64) {
         SECOND_MAX_US.fetch_max(gap, Ordering::Relaxed);
     }
     DETOUR_MAX_US.fetch_max(cost, Ordering::Relaxed);
+    // Stand in for a timer that never armed; with the timer working this is two loads and a
+    // compare, because `TICKED_AT` is always a second or less old.
+    tick_if_due(now);
 
     let elapsed = micros(now.saturating_sub(window_start));
     if elapsed < 10_000_000 || !crate::config::load().perf_log {
