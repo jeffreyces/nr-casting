@@ -408,6 +408,22 @@ fn redactor() -> Redactor {
             needles.push((format!("\\{user}$"), "\\%USER%$"));
         }
     }
+    // The character's name is the player's own, and it is written in prose as well as in the slots
+    // file name: "slots: character Warlock (id 1)" and "series restarted for Warlock". The generic
+    // path and slug rules do not catch either, so the loaded name is a needle of its own.
+    if let Some((name, _)) = crate::game::character_key() {
+        let name = name.trim();
+        // Two characters or fewer is not a name worth matching (and would redact far too much).
+        if name.len() > 2 {
+            for spelling in [name.to_string(), name.to_lowercase(), name.to_uppercase()] {
+                needles.push((spelling, "<character>"));
+            }
+            let slug = nr_casting_core::character_slug(name, 0).0;
+            if slug.len() > 2 {
+                needles.push((slug, "<character>"));
+            }
+        }
+    }
     Redactor { needles }
 }
 

@@ -25,6 +25,14 @@ pub fn uptime_ms() -> u128 {
     START.get_or_init(std::time::Instant::now).elapsed().as_millis()
 }
 
+/// Start the uptime clock now.
+///
+/// `uptime_ms` starts it on first call, and the first call is the report itself - which reported
+/// `uptime: 0 ms` for a session that had been running for minutes. Called once at load.
+pub fn start_clock() {
+    let _ = uptime_ms();
+}
+
 /// Wall-clock milliseconds, without a syscall per line.
 ///
 /// `SystemTime::now()` is a syscall, and with `debug_log = on` this runs dozens of times a second

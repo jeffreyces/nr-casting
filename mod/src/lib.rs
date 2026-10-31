@@ -185,6 +185,9 @@ fn run() {
     let _ = std::fs::write(&marker, format!("{stamp}\n"));
 
 
+    // Uptime is measured from here: a report wants "how long has this run been going", and the
+    // clock starts on first use otherwise - which is the report itself.
+    logging::start_clock();
     let cfg = config::load();
     log(&format!(
         "=== nr_casting loaded ({} opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)",
