@@ -12,7 +12,7 @@ static LOG_WRITES: AtomicU32 = AtomicU32::new(0);
 pub(crate) static DEBUG_LOG: AtomicBool = AtomicBool::new(false);
 /// Rotate at 4 MiB so a long session cannot grow the file without bound.
 const LOG_LIMIT: u64 = 4 * 1024 * 1024;
-fn log_path() -> &'static std::path::Path {
+pub(crate) fn log_path() -> &'static std::path::Path {
     LOG_PATH.get_or_init(|| config::path("nr_casting_probe.log"))
 }
 

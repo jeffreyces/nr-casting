@@ -56,6 +56,9 @@ use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, HOT_KEY_MODIFIERS,
 };
+use windows::core::HSTRING;
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::Win32::UI::WindowsAndMessaging::WaitMessage;
 
 use crate::overlay::Panel;
@@ -365,6 +368,8 @@ struct App {
     needs_fit: bool,
     /// The saved corner, so a drag that moves nothing does not rewrite the file.
     saved_pos: (i32, i32),
+    /// What the diagnostics buttons last did, shown under the controls.
+    note: String,
     /// Inside the window manager's modal sizing loop: the frame loop is blocked there, so frames are
     /// painted from `WM_PAINT` instead.
     sizing: bool,
@@ -390,6 +395,15 @@ struct App {
     /// is shorter than the 620 px box it was designed in, and a fixed minimum forced that much empty
     /// space at the bottom of the panel.
     content_height: f32,
+}
+
+/// Which of the two report buttons the player pressed.
+#[derive(Clone, Copy)]
+enum Diagnostics {
+    /// Write the bundle beside the DLL and show it in the file manager.
+    Bundle,
+    /// Open the issue page with the numbers already filled in.
+    Issue,
 }
 
 /// What the frame loop should do to the window once the frame is done.
@@ -445,6 +459,7 @@ impl App {
             pending_center: false,
             needs_fit: crate::config::load().panel_size.is_none(),
             saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
+            note: String::new(),
             sizing: false,
             // The size the window actually opened at, not what the file asked for: a saved size
             // that had to be fitted to a smaller screen must not be rewritten just because the
@@ -792,6 +807,7 @@ impl App {
         let mut assign: Option<(usize, i32)> = None;
         let mut scale_choice: Option<Option<f32>> = None;
         let mut reset_layout = false;
+        let mut diagnostics: Option<Diagnostics> = None;
         // Where the layout ended up vertically, measured at the end of the frame.
         let mut used_height = 0.0f32;
 
@@ -906,6 +922,16 @@ impl App {
                     reset_layout = true;
                 }
                 ui.same_line();
+                // Everything a bug report needs, in one file beside the DLL. Nothing is uploaded:
+                // the player attaches it themselves.
+                if ui.button("diagnostics") {
+                    diagnostics = Some(Diagnostics::Bundle);
+                }
+                ui.same_line();
+                if ui.button("report a bug") {
+                    diagnostics = Some(Diagnostics::Issue);
+                }
+                ui.same_line();
                 if ui.button("close") {
                     // Handled after the frame: closing mid-frame would drop the state.
                     assign = assign.or(Some((usize::MAX, 0)));
@@ -915,6 +941,10 @@ impl App {
                 ui.same_line();
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
                     scale_choice = Some(choice);
+                }
+                if !self.note.is_empty() {
+                    vspace(ui, 4.0);
+                    ui.text_disabled(&self.note);
                 }
                 vspace(ui, 10.0);
                 ui.separator();
@@ -973,6 +1003,28 @@ impl App {
         if self.needs_fit && used_height > 0.0 {
             self.needs_fit = false;
             self.pending_resize = Some(Resize::Fit(used_height));
+        }
+        if let Some(what) = diagnostics {
+            match what {
+                Diagnostics::Bundle => match crate::diag::write_bundle("panel button") {
+                    Ok((path, size)) => {
+                        let name = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        self.note = format!(
+                            "wrote {name} ({} KB) — attach it to your report",
+                            size / 1024
+                        );
+                        reveal(&path);
+                    }
+                    Err(e) => self.note = format!("diagnostics failed: {e}"),
+                },
+                Diagnostics::Issue => {
+                    open_url(&crate::diag::issue_url());
+                    self.note = "opened the issue page — attach the diagnostics file".to_string();
+                }
+            }
         }
         if reset_layout {
             // Nothing is moved here: `SetWindowPos` delivers `WM_SIZE` synchronously and this frame
@@ -1655,6 +1707,32 @@ fn initial_window_size() -> (i32, i32) {
         None => design_size(config.ui_scale.unwrap_or_else(monitor_scale)),
     };
     (width as i32, height as i32)
+}
+
+/// Show a file in the file manager, selected, so it can be dragged straight into a chat window.
+fn reveal(path: &std::path::Path) {
+    let verb = HSTRING::from("open");
+    let program = HSTRING::from("explorer.exe");
+    let arguments = HSTRING::from(format!("/select,\"{}\"", path.display()));
+    unsafe {
+        ShellExecuteW(
+            None,
+            &verb,
+            &program,
+            &arguments,
+            None,
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+/// Open a URL in the player's browser.
+fn open_url(url: &str) {
+    let verb = HSTRING::from("open");
+    let target = HSTRING::from(url);
+    unsafe {
+        ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL);
+    }
 }
 
 /// The corner the panel opens at: the one the player left it at, or the default spot.

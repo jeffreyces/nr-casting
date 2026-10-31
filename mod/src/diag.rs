@@ -1,0 +1,288 @@
+//! One file that says everything a bug report needs, written on demand from the panel.
+//!
+//! The alternative is a conversation: "which GPU?", "which Proton?", "what else is loaded?",
+//! "can you enable debug and do it again?". Every one of those answers is already in this process,
+//! so the panel writes them into a single text file next to the DLL and the player attaches it.
+//!
+//! Deliberately *not* sent anywhere. There is no endpoint, no key, and no automatic upload: the
+//! report contains the character's name and the player's Windows user name in paths, so it leaves
+//! the machine only when they choose to attach it — and every path is redacted first.
+
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
+use windows::Win32::System::SystemInformation::{
+    GetNativeSystemInfo, GlobalMemoryStatusEx, MEMORYSTATUSEX, OSVERSIONINFOW, SYSTEM_INFO,
+};
+
+#[link(name = "ntdll")]
+extern "system" {
+    /// The real OS version. `GetVersionEx` lies on anything newer than 8.1.
+    fn RtlGetVersion(info: *mut OSVERSIONINFOW) -> i32;
+}
+
+/// The GitHub issue page, with a body that already contains the numbers we would ask for.
+///
+/// Returned rather than opened so the caller decides when to shell out.
+pub fn issue_url() -> String {
+    let body = format!(
+        "**Version:** {}\n**Game exe:** {}\n**Perf:** {}\n**Modules:** {}\n\n\
+         Attach the file written by the panel's `diagnostics` button \
+         (`nr_casting_diag_*.txt`) — it has the log, the system, the GPU and the frame series.\n\n\
+         **What happened:**\n\n\n**Steps:**\n\n",
+        env!("CARGO_PKG_VERSION"),
+        crate::probe::exe_version(),
+        crate::perf::summary(),
+        crate::foreign_modules()
+            .map(|m| m.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", "))
+            .unwrap_or_else(|| "unknown".to_string()),
+    );
+    format!(
+        "https://github.com/jeffreyces/nr-casting/issues/new?body={}",
+        percent_encode(&body)
+    )
+}
+
+fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 3);
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            b' ' => out.push_str("%20"),
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
+}
+
+/// Write the bundle beside the DLL and return its path and size in bytes.
+pub fn write_bundle(reason: &str) -> Result<(PathBuf, usize), String> {
+    let stamp = crate::game::now_ms();
+    let name = format!("nr_casting_diag_{stamp}.txt");
+    let path = crate::config::path(&name);
+    let text = bundle(reason);
+    std::fs::write(&path, text.as_bytes()).map_err(|e| format!("could not write {name}: {e}"))?;
+    let size = text.len();
+    crate::log(&format!(
+        "diag: wrote {} ({size} bytes, {reason})",
+        path.display()
+    ));
+    Ok((path, size))
+}
+
+fn bundle(reason: &str) -> String {
+    let redact = redactor();
+    let mut out = String::with_capacity(96 * 1024);
+    section(&mut out, "report", &report_header(reason));
+    section(&mut out, "system", &system_info());
+    section(&mut out, "gpu", &gpu_info());
+    section(&mut out, "display", &display_info());
+    section(&mut out, "environment", &environment());
+    section(&mut out, "modules", &modules());
+    section(&mut out, "performance", &performance());
+    section(&mut out, "config", &read_text("nr_casting.ini"));
+    section(&mut out, "slots", &crate::store::describe_store());
+    section(&mut out, "offsets", &head_of("nr_casting_offsets.txt", 20));
+    section(&mut out, "catalogue", &head_of("nr_casting_catalogue.txt", 6));
+    section(&mut out, "log tail", &log_tail());
+    // Paths last: everything above may contain them.
+    redact.apply(&mut out);
+    out
+}
+
+fn section(out: &mut String, name: &str, body: &str) {
+    let _ = writeln!(out, "==== {name} ====");
+    if body.trim().is_empty() {
+        let _ = writeln!(out, "(empty)");
+    } else {
+        let _ = writeln!(out, "{}", body.trim_end());
+    }
+    out.push('\n');
+}
+
+fn report_header(reason: &str) -> String {
+    format!(
+        "mod: nr_casting {}\nexe: {}\nreason: {reason}\nuptime: {} ms\nlog: {}",
+        env!("CARGO_PKG_VERSION"),
+        crate::probe::exe_version(),
+        crate::game::now_ms(),
+        crate::logging::log_path().display(),
+    )
+}
+
+fn system_info() -> String {
+    let mut out = String::new();
+    let mut version = OSVERSIONINFOW {
+        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+        ..Default::default()
+    };
+    if unsafe { RtlGetVersion(&mut version) } == 0 {
+        let _ = writeln!(
+            out,
+            "os: {}.{} build {}",
+            version.dwMajorVersion, version.dwMinorVersion, version.dwBuildNumber
+        );
+    } else {
+        let _ = writeln!(out, "os: unknown");
+    }
+    let _ = writeln!(out, "cpu: {}", std::env::var("PROCESSOR_IDENTIFIER").unwrap_or_default());
+    let _ = writeln!(
+        out,
+        "arch: {}",
+        std::env::var("PROCESSOR_ARCHITECTURE").unwrap_or_default()
+    );
+    let mut info = SYSTEM_INFO::default();
+    unsafe { GetNativeSystemInfo(&mut info) };
+    let _ = writeln!(out, "cores: {}", info.dwNumberOfProcessors);
+    let mut memory = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GlobalMemoryStatusEx(&mut memory) }.is_ok() {
+        let _ = writeln!(
+            out,
+            "ram: {} MiB total, {} MiB available",
+            memory.ullTotalPhys / (1024 * 1024),
+            memory.ullAvailPhys / (1024 * 1024)
+        );
+    }
+    if let Some((working, private)) = crate::memory_mib() {
+        let _ = writeln!(out, "process: {working} MiB working set, {private} MiB private");
+    }
+    out
+}
+
+fn gpu_info() -> String {
+    let mut out = String::new();
+    let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
+        Ok(factory) => factory,
+        Err(e) => return format!("dxgi factory failed: {e}"),
+    };
+    for index in 0..4 {
+        let adapter = match unsafe { factory.EnumAdapters(index) } {
+            Ok(adapter) => adapter,
+            Err(_) => break,
+        };
+        let Ok(desc) = (unsafe { adapter.GetDesc() }) else { continue };
+        let name = String::from_utf16_lossy(
+            &desc.Description[..desc.Description.iter().position(|c| *c == 0).unwrap_or(128)],
+        );
+        let _ = writeln!(
+            out,
+            "adapter {index}: {name} (vendor {:#06x} device {:#06x}), {} MiB dedicated, {} MiB shared",
+            desc.VendorId,
+            desc.DeviceId,
+            desc.DedicatedVideoMemory / (1024 * 1024),
+            desc.SharedSystemMemory / (1024 * 1024)
+        );
+    }
+    out
+}
+
+fn display_info() -> String {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+    let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    format!("screen: {width}x{height}\n")
+}
+
+fn environment() -> String {
+    let mut out = String::new();
+    let mut keys: Vec<&str> = vec![
+        "WINE",
+        "WINEARCH",
+        "WINEPREFIX",
+        "PROTON_VERSION",
+        "STEAM_COMPAT_CLIENT_INSTALL_PATH",
+        "STEAM_COMPAT_DATA_PATH",
+        "STEAM_COMPAT_TOOL_PATHS",
+        "SteamAppId",
+        "SteamGameId",
+        "PROTON_ENABLE_WAYLAND",
+        "DXVK_HUD",
+        "MANGOHUD",
+        "VK_ICD_FILENAMES",
+        "GAMEID",
+        "PROTONPATH",
+    ];
+    keys.sort_unstable();
+    for key in keys {
+        if let Ok(value) = std::env::var(key) {
+            let _ = writeln!(out, "{key}={value}");
+        }
+    }
+    out
+}
+
+fn modules() -> String {
+    match crate::foreign_modules() {
+        Some(list) if !list.is_empty() => list
+            .iter()
+            .map(|(name, base)| format!("{name}@{base:#x}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(_) => "no foreign DLLs loaded".to_string(),
+        None => "enumeration failed".to_string(),
+    }
+}
+
+fn performance() -> String {
+    let mut out = format!("{}\n", crate::perf::summary());
+    let series = crate::perf::series();
+    if !series.is_empty() {
+        out.push_str("worst gap per second (ms, oldest first):\n");
+        out.push_str(&series);
+        out.push('\n');
+    }
+    out
+}
+
+fn read_text(name: &str) -> String {
+    std::fs::read_to_string(crate::config::read_path(name)).unwrap_or_else(|e| format!("({e})"))
+}
+
+fn head_of(name: &str, lines: usize) -> String {
+    read_text(name)
+        .lines()
+        .take(lines)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The last part of the log: the tail is where the failure is.
+fn log_tail() -> String {
+    let text = std::fs::read_to_string(crate::logging::log_path()).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(2000);
+    lines[start..].join("\n")
+}
+
+/// Replaces the player's own identifiers with placeholders before the file leaves the machine.
+struct Redactor {
+    home: String,
+    user: String,
+}
+
+impl Redactor {
+    fn apply(&self, text: &mut String) {
+        if !self.home.is_empty() {
+            *text = text.replace(&self.home, "%USERPROFILE%");
+            let slashed = self.home.replace('\\', "/");
+            *text = text.replace(&slashed, "%USERPROFILE%");
+        }
+        if !self.user.is_empty() {
+            *text = text.replace(&self.user, "%USER%");
+        }
+    }
+}
+
+fn redactor() -> Redactor {
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    Redactor { home, user }
+}

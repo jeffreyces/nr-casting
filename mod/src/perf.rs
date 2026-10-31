@@ -24,6 +24,61 @@ static GAP_MAX_US: AtomicU32 = AtomicU32::new(0);
 static GAP_OVER_32MS: AtomicU32 = AtomicU32::new(0);
 /// Longest time spent inside our own detour for one poll.
 static DETOUR_MAX_US: AtomicU32 = AtomicU32::new(0);
+/// One sample per second of the worst gap in that second, kept for the diagnostics report.
+///
+/// A ten-second average hides the thing people report — "every couple of seconds" — because a
+/// 60 ms hitch every 2 s is 3% of the time and indistinguishable from noise in a mean. The series
+/// makes the periodicity visible at a glance.
+const SERIES_LEN: usize = 300;
+#[allow(clippy::declare_interior_mutable_const)]
+const ZERO: AtomicU32 = AtomicU32::new(0);
+static SERIES: [AtomicU32; SERIES_LEN] = [ZERO; SERIES_LEN];
+static SERIES_HEAD: AtomicU32 = AtomicU32::new(0);
+static SERIES_FILLED: AtomicU32 = AtomicU32::new(0);
+/// The worst gap since the current one-second sample started, and when it started.
+static SECOND_MAX_US: AtomicU32 = AtomicU32::new(0);
+static SECOND_START: AtomicU64 = AtomicU64::new(0);
+
+/// One line summarising the series, for the report header.
+pub fn summary() -> String {
+    let filled = (SERIES_FILLED.load(Ordering::Relaxed) as usize).min(SERIES_LEN);
+    let head = SERIES_HEAD.load(Ordering::Relaxed) as usize % SERIES_LEN;
+    let mut values: Vec<u32> = (0..filled)
+        .map(|i| SERIES[(head + SERIES_LEN - filled + i) % SERIES_LEN].load(Ordering::Relaxed))
+        .collect();
+    if values.is_empty() {
+        return "no samples yet".to_string();
+    }
+    values.sort_unstable();
+    let at = |q: f64| values[((values.len() - 1) as f64 * q) as usize];
+    format!(
+        "{} s sampled: worst-gap per second p50 {}ms p90 {}ms max {}ms; {} seconds over 32ms",
+        values.len(),
+        at(0.5) as f32 / 1000.0,
+        at(0.9) as f32 / 1000.0,
+        values[values.len() - 1] as f32 / 1000.0,
+        values.iter().filter(|v| **v > 32_000).count()
+    )
+}
+
+/// The series itself, oldest first, one line per second: `t-300s ... t-1s`.
+pub fn series() -> String {
+    let filled = (SERIES_FILLED.load(Ordering::Relaxed) as usize).min(SERIES_LEN);
+    let head = SERIES_HEAD.load(Ordering::Relaxed) as usize % SERIES_LEN;
+    if filled == 0 {
+        return String::new();
+    }
+    let mut out = String::with_capacity(filled * 8);
+    for i in 0..filled {
+        let index = (head + SERIES_LEN - filled + i) % SERIES_LEN;
+        let us = SERIES[index].load(Ordering::Relaxed);
+        if i > 0 {
+            out.push(' ');
+        }
+        out.push_str(&format!("{:.1}", us as f32 / 1000.0));
+    }
+    out
+}
 
 extern "system" {
     fn QueryPerformanceCounter(out: *mut i64) -> i32;
@@ -75,6 +130,19 @@ pub fn report(started: u64) {
         GAP_MAX_US.fetch_max(gap, Ordering::Relaxed);
         if gap > 32_000 {
             GAP_OVER_32MS.fetch_add(1, Ordering::Relaxed);
+        }
+        // One sample a second, for the report: the worst gap in that second.
+        let second_start = SECOND_START.load(Ordering::Relaxed);
+        if second_start == 0 {
+            SECOND_START.store(now, Ordering::Relaxed);
+        } else if micros(now.saturating_sub(second_start)) >= 1000 {
+            SECOND_START.store(now, Ordering::Relaxed);
+            let sample = SECOND_MAX_US.swap(0, Ordering::Relaxed);
+            let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
+            SERIES[head].store(sample, Ordering::Relaxed);
+            SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
+        } else {
+            SECOND_MAX_US.fetch_max(gap, Ordering::Relaxed);
         }
     }
     DETOUR_MAX_US.fetch_max(cost, Ordering::Relaxed);

@@ -173,6 +173,13 @@ fn write_map(extra: &[String]) {
     }
 }
 
+/// The game's own version string, as the RVA layer resolved it. `unknown` before load finishes.
+pub(crate) fn exe_version() -> String {
+    eldenring::rva::resolved_info()
+        .map(|info| info.exe_version)
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// Phase one: note what the RVA layer resolved. Called before anything reads game state.
 pub fn resolve_table() {
     let info = eldenring::rva::resolved_info();

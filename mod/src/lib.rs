@@ -52,6 +52,7 @@ mod logging;
 mod overlay;
 mod params;
 mod perf;
+mod diag;
 mod pointer;
 mod probe;
 mod store;
@@ -330,7 +331,7 @@ fn run() {
 /// frame generation, another overlay, a class-port mod. Naming them in the log turns that from
 /// a guessing game into a line somebody can paste into a bug report, and the base is what lets a
 /// `crash:` line ("in X.dll (base …, offset …)") be matched to a module.
-fn foreign_modules() -> Option<Vec<(String, usize)>> {
+pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
     extern "system" {
         fn GetCurrentProcess() -> *mut u8;
         fn K32EnumProcessModules(p: *mut u8, modules: *mut *mut u8, size: u32, needed: *mut u32)
