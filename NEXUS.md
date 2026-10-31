@@ -28,7 +28,9 @@ settle on are remembered, and [b]reset layout[/b] puts it back if a monitor chan
 [*][b]Diagnostics in one click[/b] — [b]diagnostics &amp; report[/b] writes a single file (log, offsets,
 config, modules, GPU, per-second frame gaps) with your user name and character name redacted, opens the
 issue page with the numbers prefilled, and selects the file so it can be dragged in. It waits for five
-minutes of the current character first, and says how long is left.[/*]
+minutes of the current character first, and says how long is left. [b]bundle diagnostics &amp; report[/b]
+does the comparing itself: six one-minute phases with each part of the mod switched off in turn, so a
+stutter report says which part it follows.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments

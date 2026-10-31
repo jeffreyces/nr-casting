@@ -124,6 +124,7 @@ fn bundle(reason: &str) -> String {
     section(&mut out, "config", &read_text("nr_casting.ini"));
     section(&mut out, "slots", &crate::store::describe_store());
     section(&mut out, "offsets", &head_of("nr_casting_offsets.txt", 20));
+    section(&mut out, "bundle run", &crate::bisect::section());
     section(&mut out, "catalogue", &catalogue());
     section(&mut out, "log tail", &log_tail());
     // Paths last: everything above may contain them.

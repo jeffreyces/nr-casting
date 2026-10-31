@@ -216,6 +216,10 @@ unsafe extern "system" fn key_detour(vk: i32) -> i16 {
     if tramp.is_null() {
         return 0;
     }
+    if crate::bisect::disabled(crate::bisect::bit::RAW) {
+        let original: unsafe extern "system" fn(i32) -> i16 = std::mem::transmute(tramp);
+        return original(vk);
+    }
     if !OURS.with(|ours| ours.get()) {
         // Shift is the mouse slots' modifier, and the game reads Shift + click as its strong
         // attack — which does not cast. Hidden unconditionally now that the mouse layer owns
@@ -242,6 +246,9 @@ unsafe extern "system" fn raw_data_detour(
         return 0;
     }
     let original: RawInputDataFn = std::mem::transmute(tramp);
+    if crate::bisect::disabled(crate::bisect::bit::RAW) {
+        return original(hraw, command, data, size, header_size);
+    }
     let out = original(hraw, command, data, size, header_size);
     if command == RID_INPUT && !data.is_null() && out > 0 {
         stats::raw_call();
@@ -263,6 +270,9 @@ unsafe extern "system" fn raw_buffer_detour(
         return 0;
     }
     let original: RawInputBufferFn = std::mem::transmute(tramp);
+    if crate::bisect::disabled(crate::bisect::bit::RAW) {
+        return original(data, size, header_size);
+    }
     let count = original(data, size, header_size);
     if !data.is_null() && count > 0 {
         stats::raw_buffer_call();

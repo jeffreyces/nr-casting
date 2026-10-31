@@ -359,6 +359,8 @@ struct App {
     pending_resize: Option<Resize>,
     /// Ask the frame loop to put the window back in the middle of the screen ("reset layout").
     pending_center: bool,
+    /// Close the panel at the top of the next frame (the bundle run needs the panel out of the way).
+    close_next_frame: bool,
     /// One-shot: nobody has sized this panel by hand, so it should open exactly as tall as its
     /// content instead of at the design height with a band of empty space under it.
     needs_fit: bool,
@@ -366,6 +368,8 @@ struct App {
     saved_pos: (i32, i32),
     /// What the diagnostics buttons last did, shown under the controls.
     note: String,
+    /// Whether the bundle-run prompt is on screen.
+    bundle_prompt: bool,
     /// The report waiting to be shown in the file manager, once the timer fires.
     ///
     /// `ShellExecuteW` from a spawned thread worked exactly once and then silently stopped, so the
@@ -457,9 +461,11 @@ impl App {
             pending_scale: None,
             pending_resize: None,
             pending_center: false,
+            close_next_frame: false,
             needs_fit: config.panel_size.is_none(),
             saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
             note: String::new(),
+            bundle_prompt: false,
             reveal: None,
             sizing: false,
             // The size the window actually opened at, not what the file asked for: a saved size
@@ -743,6 +749,43 @@ impl App {
         };
     }
 
+    /// Write the report, put its path on the clipboard, open the issue page, then reveal the file.
+    ///
+    /// One function because three callers need exactly this sequence: the button, the end of a
+    /// bundle run, and anything else that decides a report is due. The order is the point - the page
+    /// first, then the folder a moment later, or the file manager covers the page the player is
+    /// meant to drag the file into.
+    fn publish_report(&mut self, reason: &str) {
+        match crate::diag::write_bundle(reason) {
+            Ok((path, size)) => {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                copy_to_clipboard(&path.display().to_string());
+                self.note = format!(
+                    "wrote {name} ({} KB). Path copied; paste it into the file dialog, or \
+                     drag the selected file onto the issue page.",
+                    size / 1024
+                );
+                if !open_url(&crate::diag::issue_url()) {
+                    self.note = format!(
+                        "wrote {name} ({} KB), but the browser did not open. The issue page is {}",
+                        size / 1024,
+                        crate::diag::ISSUE_PAGE
+                    );
+                }
+                // The page needs a moment to come up before the folder appears over it.
+                self.reveal = Some(path);
+                unsafe {
+                    let _ = KillTimer(Some(self.hwnd), REVEAL_TIMER_ID);
+                    SetTimer(Some(self.hwnd), REVEAL_TIMER_ID, 1200, None);
+                }
+            }
+            Err(e) => self.note = format!("{reason} failed: {e}"),
+        }
+    }
+
     fn set_open(&mut self, open: bool) {
         if open && !self.init_gfx() {
             crate::log("panel: no panel graphics; staying closed");
@@ -800,6 +843,8 @@ impl App {
         let mut scale_choice: Option<Option<f32>> = None;
         let mut reset_layout = false;
         let mut diagnostics = false;
+        let mut bundle_prompt = self.bundle_prompt;
+        let mut bundle_started = false;
         // Where the layout ended up vertically, measured at the end of the frame.
         let mut used_height = 0.0f32;
 
@@ -893,6 +938,38 @@ impl App {
                 // A section like the help text below it: a separator, the row, a separator. No
                 // frame of its own — the extra box only made the panel look smaller.
                 ui.separator();
+                if bundle_prompt {
+                    help_line(
+                        ui,
+                        &format!(
+                            "Bundle run: load a character, stand somewhere quiet and still, then \
+                             start. {} phases of {} s: everything on, then each subsystem off on its \
+                             own, then all of them off. The report is written and opened when the \
+                             {} minutes are up. Casting stops during the pad phase - that is \
+                             expected.",
+                            crate::bisect::phases(),
+                            crate::bisect::PHASE_SECONDS,
+                            crate::bisect::total_seconds() / 60
+                        ),
+                    );
+                    vspace(ui, 6.0);
+                    if ui.button(format!(
+                        "start the {} minute run and close the panel",
+                        crate::bisect::total_seconds() / 60
+                    )) {
+                        bundle_started = true;
+                        bundle_prompt = false;
+                    }
+                    ui.same_line();
+                    if ui.button("cancel") {
+                        bundle_prompt = false;
+                    }
+                    vspace(ui, 6.0);
+                }
+                if let Some(status) = crate::bisect::status() {
+                    help_line(ui, &status);
+                    vspace(ui, 6.0);
+                }
                 // Breathing room of its own: the row sits between two rules, and without a margin
                 // its buttons and the dropdown crowd the separators above and below.
                 vspace(ui, 10.0);
@@ -933,6 +1010,19 @@ impl App {
                     }
                 } else if ui.button("diagnostics & report") {
                     diagnostics = true;
+                }
+                ui.same_line();
+                // The guided run: no five-minute wait, no ini editing, and it switches the
+                // subsystems itself so the comparison happens in one sitting rather than four.
+                if crate::bisect::is_running() {
+                    if ui.button("cancel bundle run") {
+                        crate::bisect::cancel();
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text("stop the run and switch everything back on");
+                    }
+                } else if ui.button("bundle diagnostics & report") {
+                    bundle_prompt = true;
                 }
                 ui.same_line();
                 if ui.button("close") {
@@ -1014,36 +1104,16 @@ impl App {
             self.needs_fit = false;
             self.pending_resize = Some(Resize::Fit(used_height));
         }
+        // The prompt is App state: it has to survive the frame that set it.
+        self.bundle_prompt = bundle_prompt;
+        if bundle_started {
+            crate::bisect::start();
+            // The panel has to be closed: while it is open it owns the input and the GPU device, and
+            // the run is measuring the game without it.
+            self.close_next_frame = true;
+        }
         if diagnostics {
-            match crate::diag::write_bundle("panel button") {
-                Ok((path, size)) => {
-                    let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    copy_to_clipboard(&path.display().to_string());
-                    self.note = format!(
-                        "wrote {name} ({} KB). Path copied; paste it into the file dialog, or \
-                         drag the selected file onto the issue page.",
-                        size / 1024
-                    );
-                    // The page first, then the folder: a browser that opens *after* the file
-                    // manager would cover it, and the point is to drag the file into the page.
-                    if !open_url(&crate::diag::issue_url()) {
-                        self.note = format!(
-                            "wrote {name} ({} KB), but the browser did not open. \
-                             The issue page is {}", size / 1024, crate::diag::ISSUE_PAGE
-                        );
-                    }
-                    // The page needs a moment to come up before the folder appears over it.
-                    self.reveal = Some(path);
-                    unsafe {
-                        let _ = KillTimer(Some(self.hwnd), REVEAL_TIMER_ID);
-                        SetTimer(Some(self.hwnd), REVEAL_TIMER_ID, 1200, None);
-                    }
-                }
-                Err(e) => self.note = format!("diagnostics failed: {e}"),
-            }
+            self.publish_report("panel button");
         }
         if reset_layout {
             // Nothing is moved here: `SetWindowPos` delivers `WM_SIZE` synchronously and this frame
@@ -1075,6 +1145,11 @@ impl App {
         // A scale change rebuilds the ImGui context and its font atlas, which cannot happen while a
         // frame is being built — so it is queued by the drag, by the ini, or by the panel's combo
         // and applied here, at the top of the next frame.
+        if self.close_next_frame {
+            self.close_next_frame = false;
+            self.set_open(false);
+            return;
+        }
         if let Some(scale) = self.pending_scale.take() {
             self.apply_scale(scale);
         }
@@ -1373,7 +1448,12 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             match msg {
                 WM_TIMER => {
                     if wparam.0 == SAMPLER_TIMER_ID {
-                        crate::perf::tick();
+                        let sample = crate::perf::tick();
+                        // The same second feeds the guided run; when the last phase closes, the
+                        // report is written without the player touching anything.
+                        if crate::bisect::on_second(sample) {
+                            app.publish_report("bundle run");
+                        }
                         return Some(LRESULT(0));
                     }
                     if wparam.0 == REVEAL_TIMER_ID {

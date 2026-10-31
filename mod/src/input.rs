@@ -748,6 +748,12 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     }
     let original: unsafe extern "system" fn(u32, *mut XInputState) -> u32 =
         std::mem::transmute(tramp);
+    if crate::bisect::disabled(crate::bisect::bit::PAD) {
+        // A bisect phase with the pad hooks off: the game gets its own report, untouched, and none
+        // of our work runs. The hook and its jump are still in the path, which is the point - it
+        // separates what we do from the fact that we are loaded.
+        return original(user, state);
+    }
     let ret = original(user, state);
     if ret != 0 {
         crate::stats::pad_unplugged();

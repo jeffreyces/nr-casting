@@ -601,6 +601,132 @@ pub fn redact_character_slug(text: &str) -> String {
     out
 }
 
+/// What one second did to a run of fixed-length phases.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhaseTick {
+    /// Still in the same phase.
+    Second,
+    /// That second was the phase's last; this is the new one.
+    NextPhase,
+    /// That second was the last of the last phase.
+    Finished,
+}
+
+/// A run of equal-length phases, advanced one second at a time.
+///
+/// Split out because the arithmetic is the part that is easy to get wrong by one: six phases of
+/// sixty seconds is six minutes, and the last second has to finish the run rather than open a
+/// seventh phase that nothing closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PhaseClock {
+    phase: usize,
+    left: u32,
+    phases: usize,
+    seconds: u32,
+}
+
+impl PhaseClock {
+    pub const fn new(phases: usize, seconds: u32) -> Self {
+        Self {
+            phase: 0,
+            left: if seconds == 0 { 1 } else { seconds },
+            phases: if phases == 0 { 1 } else { phases },
+            seconds: if seconds == 0 { 1 } else { seconds },
+        }
+    }
+
+    pub fn phase(&self) -> usize {
+        self.phase
+    }
+
+    pub fn left(&self) -> u32 {
+        self.left
+    }
+
+    pub fn phases(&self) -> usize {
+        self.phases
+    }
+
+    /// Total seconds the run needs.
+    pub fn total(&self) -> u32 {
+        self.phases as u32 * self.seconds
+    }
+
+    pub fn restart(&mut self) {
+        self.phase = 0;
+        self.left = self.seconds;
+    }
+
+    pub fn tick(&mut self) -> PhaseTick {
+        if self.left > 1 {
+            self.left -= 1;
+            return PhaseTick::Second;
+        }
+        if self.phase + 1 >= self.phases {
+            return PhaseTick::Finished;
+        }
+        self.phase += 1;
+        self.left = self.seconds;
+        PhaseTick::NextPhase
+    }
+}
+
+/// What a per-second series of worst frame gaps says, in microseconds.
+///
+/// A zero is a second the game did not poll the pad at all - a menu, a loading screen, the panel
+/// holding the keyboard. It is *no data*, not a 0 ms gap: counting it inside the percentiles
+/// flatters them, and counting it as sampled flatters the coverage. So it is counted, then dropped.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GapStats {
+    /// Seconds with at least one poll.
+    pub sampled: usize,
+    /// Seconds with none.
+    pub quiet: usize,
+    pub p50: u32,
+    pub p90: u32,
+    pub max: u32,
+    /// Seconds whose worst gap was over 32 ms, i.e. at least one dropped frame at 60 Hz.
+    pub over_32ms: usize,
+}
+
+pub fn gap_stats(values: &[u32]) -> GapStats {
+    let quiet = values.iter().filter(|v| **v == 0).count();
+    let mut sorted: Vec<u32> = values.iter().copied().filter(|v| *v > 0).collect();
+    if sorted.is_empty() {
+        return GapStats { quiet, ..GapStats::default() };
+    }
+    sorted.sort_unstable();
+    let at = |q: f64| {
+        let last = (sorted.len() - 1) as f64;
+        sorted[(last * q) as usize]
+    };
+    GapStats {
+        sampled: sorted.len(),
+        quiet,
+        p50: at(0.5),
+        p90: at(0.9),
+        max: sorted[sorted.len() - 1],
+        over_32ms: sorted.iter().filter(|v| **v > 32_000).count(),
+    }
+}
+
+/// The same summary as one line of text, for a log or a report.
+pub fn gap_line(stats: &GapStats) -> String {
+    if stats.sampled == 0 {
+        return format!("{} s sampled, none with a pad poll", stats.quiet);
+    }
+    format!(
+        "{} s sampled ({} with no pad poll): worst-gap per second p50 {}ms p90 {}ms max {}ms; \
+         {} seconds over 32ms",
+        stats.sampled + stats.quiet,
+        stats.quiet,
+        stats.p50 as f32 / 1000.0,
+        stats.p90 as f32 / 1000.0,
+        stats.max as f32 / 1000.0,
+        stats.over_32ms
+    )
+}
+
 /// Redact the account segment of every user path, whatever the environment says.
 ///
 /// `USERPROFILE` and `HOME` can be missing, or point somewhere that is not the path the log
@@ -1302,6 +1428,63 @@ mod raw_tests {
         assert_eq!(out, "log at <path>", "{out}");
     }
 
+
+
+
+    #[test]
+    fn phase_clock_walks_the_phases_and_finishes_on_the_last() {
+        let mut clock = PhaseClock::new(2, 3);
+        assert_eq!(clock.total(), 6);
+        assert_eq!(clock.left(), 3);
+        assert_eq!(clock.tick(), PhaseTick::Second);
+        assert_eq!(clock.tick(), PhaseTick::Second);
+        assert_eq!(clock.tick(), PhaseTick::NextPhase);
+        assert_eq!((clock.phase(), clock.left()), (1, 3));
+        assert_eq!(clock.tick(), PhaseTick::Second);
+        assert_eq!(clock.tick(), PhaseTick::Second);
+        // The last second of the last phase ends the run; it must not open a seventh phase.
+        assert_eq!(clock.tick(), PhaseTick::Finished);
+        assert_eq!((clock.phase(), clock.left()), (1, 1));
+        clock.restart();
+        assert_eq!((clock.phase(), clock.left()), (0, 3));
+    }
+
+    #[test]
+    fn phase_clock_counts_every_second_once() {
+        let mut clock = PhaseClock::new(6, 60);
+        let mut seconds = 0;
+        let mut phases = 1;
+        loop {
+            match clock.tick() {
+                PhaseTick::Second => seconds += 1,
+                PhaseTick::NextPhase => {
+                    seconds += 1;
+                    phases += 1;
+                }
+                PhaseTick::Finished => {
+                    seconds += 1;
+                    break;
+                }
+            }
+        }
+        assert_eq!(seconds, 360, "six minutes");
+        assert_eq!(phases, 6);
+    }
+
+    #[test]
+    fn gap_stats_ignores_quiet_seconds_and_keeps_the_worst() {
+        let stats = gap_stats(&[16_000, 0, 66_000, 40_000, 16_000, 0]);
+        assert_eq!(stats.sampled, 4);
+        assert_eq!(stats.quiet, 2);
+        assert_eq!(stats.max, 66_000);
+        assert_eq!(stats.over_32ms, 2);
+        // sorted: 16, 16, 40, 66 - the lower median slot, as the old inline code did.
+        assert_eq!(stats.p50, 16_000);
+        assert_eq!(gap_stats(&[]), GapStats::default());
+        assert_eq!(gap_stats(&[0, 0]).sampled, 0);
+        assert!(gap_line(&gap_stats(&[0])).contains("none with a pad poll"));
+        assert!(gap_line(&gap_stats(&[66_000])).contains("1 seconds over 32ms"));
+    }
 
     #[test]
     fn redact_paths_takes_the_whole_path_and_nothing_else() {

@@ -52,11 +52,15 @@ static TICKED_AT: AtomicU64 = AtomicU64::new(0);
 ///
 /// Driven by a one-second window timer, not by the pad poll: a keyboard-and-mouse player never
 /// produces a pad poll, and their report must still fill (and the button must still count down).
-pub fn tick() {
+pub fn tick() -> u32 {
+    let sample = SECOND_MAX_US.swap(0, Ordering::Relaxed);
     let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
-    SERIES[head].store(SECOND_MAX_US.swap(0, Ordering::Relaxed), Ordering::Relaxed);
+    SERIES[head].store(sample, Ordering::Relaxed);
     SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
     TICKED_AT.store(ticks(), Ordering::Relaxed);
+    // The same sample feeds the guided bisect, so a phase and the rolling series are the same
+    // measurement and cannot disagree.
+    sample
 }
 
 /// Advance the series if a second has passed, called from the poll path.
@@ -69,7 +73,7 @@ pub fn tick() {
 pub fn tick_if_due(poll_ticks: u64) {
     let last = TICKED_AT.load(Ordering::Relaxed);
     if last == 0 || micros(poll_ticks.saturating_sub(last)) >= 1_000_000 {
-        tick();
+        let _ = tick();
     }
 }
 
@@ -106,32 +110,15 @@ pub fn restart_series() {
 pub fn summary() -> String {
     let filled = (SERIES_FILLED.load(Ordering::Relaxed) as usize).min(SERIES_LEN);
     let head = SERIES_HEAD.load(Ordering::Relaxed) as usize % SERIES_LEN;
-    let mut values: Vec<u32> = (0..filled)
+    let values: Vec<u32> = (0..filled)
         .map(|i| SERIES[(head + SERIES_LEN - filled + i) % SERIES_LEN].load(Ordering::Relaxed))
         .collect();
     if values.is_empty() {
         return "no samples yet".to_string();
     }
-    // A zero is a second the game did not poll the pad at all (a menu, a load, the panel holding
-    // the keyboard). It is no data, not a 0 ms gap: counting it inside the percentiles flatters
-    // them, and counting it as "sampled" flatters the coverage.
-    let quiet = values.iter().filter(|v| **v == 0).count();
-    values.retain(|v| *v > 0);
-    if values.is_empty() {
-        return format!("{} s sampled, none with a pad poll", quiet);
-    }
-    values.sort_unstable();
-    let at = |q: f64| values[((values.len() - 1) as f64 * q) as usize];
-    format!(
-        "{} s sampled ({} with no pad poll): worst-gap per second p50 {}ms p90 {}ms max {}ms; \
-         {} seconds over 32ms",
-        values.len() + quiet,
-        quiet,
-        at(0.5) as f32 / 1000.0,
-        at(0.9) as f32 / 1000.0,
-        values[values.len() - 1] as f32 / 1000.0,
-        values.iter().filter(|v| **v > 32_000).count()
-    )
+    // One implementation, in the tested crate: the rolling series and a bisect phase have to agree,
+    // and quiet seconds (no pad poll at all) are counted separately rather than averaged in as 0 ms.
+    nr_casting_core::gap_line(&nr_casting_core::gap_stats(&values))
 }
 
 /// The series itself, oldest first, one line per second: `t-300s ... t-1s`.

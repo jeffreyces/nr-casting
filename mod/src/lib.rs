@@ -41,6 +41,7 @@
 //! rules), `rawinput` (the keyboard/mouse hooks), `stats` (input counters), `config`, `params`,
 //! `pointer`, `probe`, `overlay` (panel model), `window` (panel host).
 
+mod bisect;
 mod config;
 mod crash;
 mod game;
@@ -249,6 +250,12 @@ fn run() {
     let mut last_passes = 0u32;
     let mut last_unplugged = 0u32;
     loop {
+        // A bisect phase with the thread off: the loop stays alive (so it can be switched back on)
+        // and does nothing at all.
+        if bisect::disabled(bisect::bit::THREADS) {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
         probe::maybe_validate();
         // A reload destroys the character and builds a new one. Logging the edge is what tells
         // us whether a freeze happened while we were holding game memory.

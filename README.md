@@ -273,6 +273,14 @@ CPU, and a per-second record of the frame gaps over the last five minutes.
   id in its slot file name become `<character>`. What is left is the game, the modules, the numbers
   and the log lines, none of which say who or where you are. Neither `debug_log` nor `perf_log` needs
   to be on; the report collects what it needs at the moment you press it.
+- **`bundle diagnostics & report`** is the one for a stutter. It does the comparing for you: press it,
+  load a character, stand somewhere quiet and still, and start. The mod records six one-minute
+  phases — everything on, then the pointer detours off, the raw-input hooks off, the pad hooks off
+  (casting stops for that minute, which is expected), the housekeeping thread off, and finally all of
+  them off — and writes a report whose first section puts the six phases side by side. That is the
+  difference between "it stutters" and "it stutters with our hooks loaded", which is usually the
+  question worth answering. The panel closes itself when the run starts, because an open panel owns
+  the input and the GPU it is meant to be measuring.
 - **`perf_log = on`** additionally writes a timing line to the log — when a frame was lost, or every
   five minutes when nothing was. It is on in the shipped ini; it is quiet enough to leave there, and
   it is the only setting that records stutters as they happen.

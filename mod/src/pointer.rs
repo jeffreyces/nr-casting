@@ -205,6 +205,9 @@ unsafe extern "system" fn set_cursor_detour(cursor: *mut u8) -> *mut u8 {
         return std::ptr::null_mut();
     }
     let original: unsafe extern "system" fn(*mut u8) -> *mut u8 = std::mem::transmute(tramp);
+    if crate::bisect::disabled(crate::bisect::bit::POINTER) {
+        return original(cursor);
+    }
     if cursor.is_null() && is_open() {
         let arrow = arrow();
         if !arrow.is_null() {
@@ -227,7 +230,7 @@ fn starving() -> bool {
 }
 
 unsafe extern "system" fn clip_detour(rect: *const u8) -> i32 {
-    if is_open() {
+    if !crate::bisect::disabled(crate::bisect::bit::POINTER) && is_open() {
         return 1;
     }
     let tramp = CLIP_TRAMP.load(Ordering::Acquire);
@@ -239,7 +242,7 @@ unsafe extern "system" fn clip_detour(rect: *const u8) -> i32 {
 }
 
 unsafe extern "system" fn pos_detour(x: i32, y: i32) -> i32 {
-    if is_open() {
+    if !crate::bisect::disabled(crate::bisect::bit::POINTER) && is_open() {
         return 1;
     }
     let tramp = POS_TRAMP.load(Ordering::Acquire);
@@ -254,7 +257,7 @@ unsafe extern "system" fn capture_detour(hwnd: *mut u8) -> *mut u8 {
     // The panel's own capture is the window manager's, not the game's: the sizing loop behind a
     // frame drag needs it, and a swallowed one is what left the panel with no border and no way to
     // resize after it had been dragged small.
-    if is_open() && hwnd != panel_window() {
+    if !crate::bisect::disabled(crate::bisect::bit::POINTER) && is_open() && hwnd != panel_window() {
         return std::ptr::null_mut();
     }
     let tramp = CAPTURE_TRAMP.load(Ordering::Acquire);
