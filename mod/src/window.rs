@@ -54,6 +54,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
 
 use crate::overlay::Panel;
+use crate::logging::debug;
 
 /// Height of the draggable header band, in physical pixels.
 const TITLE_BAND: i16 = 28;
@@ -711,8 +712,8 @@ impl App {
                 // ---- middle ----------------------------------------------------------------
                 // The name is the file the panel edits. The lines under it are the game's opinion,
                 // greyed like the disabled rows in the hand columns so they read as information
-                // rather than as settings.
-                vspace(ui, 10.0);
+                // rather than as settings. Spacing between the lines only — no margins around the
+                // block, which just pushed the whole column down.
                 ui.text(format!("Character: {}", model.who));
                 vspace(ui, 5.0);
                 ui.text_disabled(&model.stats);
@@ -732,7 +733,6 @@ impl App {
                     model.show_all = show;
                     model.panel.set_show_all(show);
                 }
-                vspace(ui, 10.0);
 
                 ui.next_column();
 
@@ -751,6 +751,13 @@ impl App {
                 }
 
                 ui.columns(1, "footer", false);
+                // Push the controls row and the help text to the bottom of the window so the
+                // slack lands inside the columns area instead of as a dark band under everything.
+                let line = ui.text_line_height_with_spacing();
+                let controls = ui.frame_height() + 2.0 * ui.clone_style().window_padding[1];
+                let help = line * 7.0; // the help lines, with room for the wrapping ones
+                let slack = (ui.content_region_avail()[1] - controls - help).max(0.0);
+                vspace(ui, slack);
                 // ---- controls --------------------------------------------------------------
                 // A section like the help text below it: a separator, the row, a separator. No
                 // frame of its own — the extra box only made the panel look smaller.
@@ -777,19 +784,23 @@ impl App {
                     scale_choice = Some(choice);
                 }
                 ui.separator();
-                ui.text_disabled(
+                help_line(
+                    ui,
                     "Pad:  R1/R2 = right hand,  L1/L2 = left hand,  Y + R2 / Y + L2 = third spell,  \
                      Y + R1 / Y + L1 = fourth spell (unless Recluse owns it).",
                 );
-                ui.text_disabled(
+                help_line(
+                    ui,
                     "Mouse:  LMB = R1,  RMB = L1,  Shift+LMB = R2,  Shift+RMB = L2,  \
                      Ctrl+LMB = Y+R2,  Ctrl+RMB = Y+L2,  Alt+LMB = Y+R1,  Alt+RMB = Y+L1.",
                 );
-                ui.text_disabled("F8 opens and closes this panel;  Esc closes it.");
-                ui.text_disabled(
+                help_line(ui, "F8 opens and closes this panel;  Esc closes it.");
+                help_line(
+                    ui,
                     "Bind:  hold L3 and press the input you want (Super + click on mouse/keyboard).",
                 );
-                ui.text_disabled(
+                help_line(
+                    ui,
                     "Drag the title band to move the panel here; the window edges resize it.",
                 );
             });
@@ -867,13 +878,32 @@ impl App {
                     gfx.presented = true;
                     crate::log("panel: first frame presented");
                 }
-                let _ = gfx.swap_chain.Present(1, Default::default());
+                let present = gfx.swap_chain.Present(1, Default::default());
+                if present.is_err() {
+                    // A failing Present is invisible on screen: the panel keeps its last image and
+                    // the window looks frozen or half-drawn. Say it once.
+                    static WARNED: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        crate::log(&format!("panel: Present failed: {present:?}"));
+                    }
+                }
             }
         }
 
         self.gfx = Some(gfx);
     }
 
+}
+
+/// A greyed line of help text that wraps at the window's right edge.
+///
+/// `text_disabled` never wraps, so the long control lines ran off the side of the panel; the colour
+/// is pushed by hand so wrapping and the disabled grey can both apply.
+fn help_line(ui: &Ui, text: &str) {
+    let disabled = ui.clone_style().colors[imgui::StyleColor::TextDisabled as usize];
+    let _color = ui.push_style_color(imgui::StyleColor::Text, disabled);
+    ui.text_wrapped(text);
 }
 
 /// A vertical gap of exactly `px`, allowing for the item spacing ImGui adds after every item.
@@ -1087,12 +1117,24 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 WM_GETMINMAXINFO => {
                     let info = lparam.0 as *mut MINMAXINFO;
                     if !info.is_null() {
+                        // The smallest window that still fits the layout at the current text scale.
+                        // The old fixed 900x620 let the window shrink below what the scaled layout
+                        // needs, so the content overflowed the client — which is the "minimum
+                        // viewport" the panel seemed to hit, and the point where the frame stopped
+                        // behaving. Never larger than the screen, or the panel could not be made
+                        // small enough to fit one.
+                        let scale = match app.gfx.as_ref() {
+                            Some(gfx) => gfx.scale,
+                            None => app.target_scale(),
+                        };
+                        let (width, height) = design_size(scale);
+                        let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0) as u32;
+                        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0) as u32;
                         unsafe {
-                            // The design size, so the panel cannot be dragged smaller than the
-                            // size its layout needs. Bigger than this only ever means a bigger
-                            // UI scale (see `auto_scale`), never clipped columns.
-                            (*info).ptMinTrackSize.x = DESIGN_WIDTH as i32;
-                            (*info).ptMinTrackSize.y = DESIGN_HEIGHT as i32;
+                            (*info).ptMinTrackSize.x =
+                                width.min(screen_width.saturating_sub(160)).max(600) as i32;
+                            (*info).ptMinTrackSize.y =
+                                height.min(screen_height.saturating_sub(160)).max(400) as i32;
                         }
                     }
                     Some(LRESULT(0))
@@ -1150,6 +1192,8 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                                 Default::default(),
                             ) {
                                 crate::log(&format!("panel: resize failed: {e}"));
+                            } else {
+                                debug!("panel: swap chain now {width}x{height}");
                             }
                             gfx.rebuild_view();
                         }
