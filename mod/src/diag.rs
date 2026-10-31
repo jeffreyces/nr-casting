@@ -124,7 +124,7 @@ fn bundle(reason: &str) -> String {
     section(&mut out, "config", &read_text("nr_casting.ini"));
     section(&mut out, "slots", &crate::store::describe_store());
     section(&mut out, "offsets", &head_of("nr_casting_offsets.txt", 20));
-    section(&mut out, "catalogue", &head_of("nr_casting_catalogue.txt", 6));
+    section(&mut out, "catalogue", &catalogue());
     section(&mut out, "log tail", &log_tail());
     // Paths last: everything above may contain them.
     redact.apply(&mut out);
@@ -146,7 +146,7 @@ fn report_header(reason: &str) -> String {
         "mod: nr_casting {}\nexe: {}\nreason: {reason}\nuptime: {} ms\nlog: {}",
         env!("CARGO_PKG_VERSION"),
         crate::probe::exe_version(),
-        crate::game::now_ms(),
+        crate::logging::uptime_ms(),
         crate::logging::log_path().display(),
     )
 }
@@ -339,6 +339,19 @@ fn head_of(name: &str, lines: usize) -> String {
     read_text(name)
         .lines()
         .take(lines)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The generated spell catalogue, in full.
+///
+/// It was six lines - the three-line header and the first two spells of 316 - so the section said
+/// "catalogue" and answered nothing, while the log above it said "316 spells read". The file is
+/// machine-generated from the game's own params and holds no user data; 316 lines is 20 KB.
+fn catalogue() -> String {
+    read_text("nr_casting_catalogue.txt")
+        .lines()
+        .take(4000)
         .collect::<Vec<_>>()
         .join("\n")
 }

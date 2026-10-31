@@ -528,8 +528,11 @@ pub fn panel_size(text: &str) -> Option<(u32, u32)> {
         .or_else(|| text.split_once(','))?;
     let width: u32 = width.trim().parse().ok()?;
     let height: u32 = height.trim().parse().ok()?;
-    // 900x620 is the design size and the window's own minimum; 8192 leaves room for an 8K panel.
-    if !(900..=8192).contains(&width) || !(620..=8192).contains(&height) {
+    // The window's own minimum is 900 wide by 400 tall (its content-fitted height), and the panel
+    // saves whatever it currently is - which is why the floor cannot be the 620 design height: a
+    // panel fitted to its content is 607 tall, so a 620 floor rejected the size the panel itself
+    // had just written, and every launch warned and discarded the player's saved height.
+    if !(900..=8192).contains(&width) || !(400..=8192).contains(&height) {
         return None;
     }
     Some((width, height))
@@ -1247,6 +1250,20 @@ mod raw_tests {
         let out = redact_character_slug(line);
         assert!(!out.to_lowercase().contains("warlock"), "{out}");
         assert_eq!(out.matches("<character>").count(), 2);
+    }
+
+    #[test]
+    fn panel_size_accepts_the_size_the_panel_saves() {
+        // The panel saves its outer size, and a content-fitted panel is shorter than the 620 design
+        // height. Rejecting it meant the saved geometry never applied: every launch logged a
+        // warning and sized the window from the screen again.
+        assert_eq!(panel_size("1200x607"), Some((1200, 607)));
+        assert_eq!(panel_size("1194x601"), Some((1194, 601)));
+        assert_eq!(panel_size("900x400"), Some((900, 400)));
+        // Still refuses what the window cannot be.
+        assert_eq!(panel_size("899x600"), None);
+        assert_eq!(panel_size("1200x399"), None);
+        assert_eq!(panel_size("1200x9000"), None);
     }
 
     #[test]

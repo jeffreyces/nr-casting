@@ -103,11 +103,21 @@ pub fn summary() -> String {
     if values.is_empty() {
         return "no samples yet".to_string();
     }
+    // A zero is a second the game did not poll the pad at all (a menu, a load, the panel holding
+    // the keyboard). It is no data, not a 0 ms gap: counting it inside the percentiles flatters
+    // them, and counting it as "sampled" flatters the coverage.
+    let quiet = values.iter().filter(|v| **v == 0).count();
+    values.retain(|v| *v > 0);
+    if values.is_empty() {
+        return format!("{} s sampled, none with a pad poll", quiet);
+    }
     values.sort_unstable();
     let at = |q: f64| values[((values.len() - 1) as f64 * q) as usize];
     format!(
-        "{} s sampled: worst-gap per second p50 {}ms p90 {}ms max {}ms; {} seconds over 32ms",
-        values.len(),
+        "{} s sampled ({} with no pad poll): worst-gap per second p50 {}ms p90 {}ms max {}ms; \
+         {} seconds over 32ms",
+        values.len() + quiet,
+        quiet,
         at(0.5) as f32 / 1000.0,
         at(0.9) as f32 / 1000.0,
         values[values.len() - 1] as f32 / 1000.0,

@@ -16,6 +16,15 @@ pub(crate) fn log_path() -> &'static std::path::Path {
     LOG_PATH.get_or_init(|| config::path("nr_casting_probe.log"))
 }
 
+/// Milliseconds since this DLL loaded: what a diagnostic report means by uptime.
+///
+/// `game::now_ms()` is `GetTickCount64`, which counts from boot - a report that printed it as
+/// "uptime" claimed nine days on a seven-minute session.
+pub fn uptime_ms() -> u128 {
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis()
+}
+
 /// Wall-clock milliseconds, without a syscall per line.
 ///
 /// `SystemTime::now()` is a syscall, and with `debug_log = on` this runs dozens of times a second

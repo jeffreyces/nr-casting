@@ -550,7 +550,7 @@ perf_log = off
                         Some(size) => config.panel_size = Some(size),
                         None => crate::log(&format!(
                             "config: panel_size '{value}' is not recognised (auto or WxH, at least \
-                             900x620); sizing the panel from the screen"
+                             900x400); sizing the panel from the screen"
                         )),
                     },
                     "panel_pos" => match nr_casting_core::panel_pos(value) {

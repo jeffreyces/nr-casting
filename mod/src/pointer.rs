@@ -405,8 +405,8 @@ pub fn set_open(open: bool) {
             // The display counter belongs to the game's thread, so the panel's own thread cannot
             // raise it: `game_thread_tick` does that from the pad poll, and logs when it lands.
             crate::log(&format!(
-                "pointer: panel open (clip released, system reports visible={visible} \
-                 shape_set={} — the game's thread will raise the counter)",
+                "pointer: panel open (the game's clip is off; the frame loop clips to the panel, \
+                 system reports visible={visible} shape_set={} — the game's thread raises the counter)",
                 !shape.is_null()
             ));
         } else {
