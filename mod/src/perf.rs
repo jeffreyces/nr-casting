@@ -9,7 +9,7 @@
 //! Off unless `perf_log = on` in the ini. The counters themselves are a handful of relaxed atomic
 //! adds per poll — cheap enough to leave on, and they are what makes the line possible at all.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 /// Performance counter frequency, read once. Zero until `ticks()` has been called.
 static FREQ: AtomicU64 = AtomicU64::new(0);
@@ -37,6 +37,14 @@ static SERIES_HEAD: AtomicU32 = AtomicU32::new(0);
 static SERIES_FILLED: AtomicU32 = AtomicU32::new(0);
 /// The worst gap since the current one-second sample started, and when it started.
 static SECOND_MAX_US: AtomicU32 = AtomicU32::new(0);
+/// The panel's open state at the last written line, so a line is written when it changes.
+static LAST_OPEN: AtomicBool = AtomicBool::new(false);
+/// Ten-second windows since the last written line, for the quiet-run heartbeat.
+static QUIET_WINDOWS: AtomicU32 = AtomicU32::new(0);
+/// Write the next window whatever it says: set at load and when a character loads, so a report
+/// always has a baseline line and a line marking the load.
+static FORCE_LINE: AtomicBool = AtomicBool::new(true);
+
 /// When the series last advanced, so the poll path can stand in if the timer never armed.
 static TICKED_AT: AtomicU64 = AtomicU64::new(0);
 
@@ -82,6 +90,7 @@ pub fn restart_series() {
     }
     SERIES_HEAD.store(0, Ordering::Relaxed);
     SERIES_FILLED.store(0, Ordering::Relaxed);
+    FORCE_LINE.store(true, Ordering::Relaxed);
     SECOND_MAX_US.store(0, Ordering::Relaxed);
     TICKED_AT.store(0, Ordering::Relaxed);
     LAST.store(0, Ordering::Relaxed);
@@ -212,7 +221,9 @@ pub fn report(started: u64) {
     if elapsed < 10_000_000 || !crate::config::load().perf_log {
         return;
     }
-    // One line per ten seconds, and only when asked for.
+    // The window closes every ten seconds; the line is only written when the window says
+    // something. Six identical "0 over 32ms" lines a minute buried the interesting ones in a
+    // reporter's log, which is the opposite of what a log is for.
     let polls = POLLS.swap(0, Ordering::Relaxed);
     let sum = GAP_SUM_US.swap(0, Ordering::Relaxed);
     let peak = GAP_MAX_US.swap(0, Ordering::Relaxed);
@@ -220,6 +231,23 @@ pub fn report(started: u64) {
     let cost_peak = DETOUR_MAX_US.swap(0, Ordering::Relaxed);
     WINDOW.store(now, Ordering::Relaxed);
     let mean = if polls > 0 { sum / polls as u64 } else { 0 };
+
+    // Interesting: a frame the game lost, a hook that took far too long, or the panel opening or
+    // closing. The last one is not in the counters, so it is compared with the previous line.
+    let open = crate::UI_OPEN.load(Ordering::Relaxed);
+    let panel_changed = LAST_OPEN.swap(open, Ordering::Relaxed) != open;
+    let interesting = FORCE_LINE.swap(false, Ordering::Relaxed)
+        || over > 0
+        || peak >= 25_000
+        || cost_peak >= 250_000
+        || panel_changed;
+    // A quiet run still gets a heartbeat, so a report can show the sampler was alive: one line
+    // every five minutes instead of every ten seconds.
+    let quiet = QUIET_WINDOWS.fetch_add(1, Ordering::Relaxed) + 1;
+    if !interesting && quiet < 30 {
+        return;
+    }
+    QUIET_WINDOWS.store(0, Ordering::Relaxed);
     crate::log(&format!(
         "perf: {polls} polls in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), our detour max {}us, panel {}",
         elapsed as f64 / 1_000_000.0,
@@ -227,6 +255,6 @@ pub fn report(started: u64) {
         peak as f64 / 1000.0,
         over,
         cost_peak,
-        if crate::UI_OPEN.load(Ordering::Relaxed) { "open" } else { "closed" }
+        if open { "open" } else { "closed" }
     ));
 }
