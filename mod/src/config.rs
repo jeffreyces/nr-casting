@@ -33,6 +33,11 @@ pub struct Config {
     pub hotkey_name: String,
     /// Open the assignment panel window. Off = casting only.
     pub overlay: bool,
+    /// Panel UI scale: `None` = follow the panel's own size (see `window::ui_scale`), `Some(n)` =
+    /// that multiplier regardless of the window. Persisted when changed in the panel.
+    pub ui_scale: Option<f32>,
+    /// How the scale is spelled in the ini, for log messages.
+    pub ui_scale_name: String,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
     /// Panel planning mode: list spells the character cannot cast yet. Persisted when toggled.
@@ -88,6 +93,8 @@ impl Default for Config {
             hotkey: 0x77, // F8
             hotkey_name: "F8".to_string(),
             overlay: true,
+            ui_scale: None,
+            ui_scale_name: "auto".to_string(),
             debug_log: false,
             show_all: false,
             hud_mirror: false,
@@ -235,7 +242,6 @@ fn hotkey_code(name: &str) -> Option<i32> {
     })
 }
 
-
 /// XInput button bit that starts a bind when held with a spell input.
 ///
 /// Deliberately a small set: this is held *while* pressing R1/R2/L1/L2, so it has to be a button
@@ -297,15 +303,28 @@ fn ini_file() -> PathBuf {
 /// The value is only read at startup, so this writes the ini rather than mutating the loaded
 /// `Config`; everything else about the file (comments, other keys) is preserved.
 pub fn save_show_all(show: bool) {
+    save_ui_key("show_all", if show { "on" } else { "off" });
+}
+
+/// Remember the panel's UI scale (`None` = auto) across sessions.
+pub fn save_ui_scale(scale: Option<f32>) {
+    let value = match scale {
+        Some(scale) => format!("{:.0}%", scale * 100.0),
+        None => "auto".to_string(),
+    };
+    save_ui_key("ui_scale", &value);
+}
+
+/// Rewrite one key in the ini, keeping every other line (comments included) as it is.
+fn save_ui_key(key: &str, value: &str) {
     let file = ini_file();
-    let value = if show { "on" } else { "off" };
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     let mut out = String::with_capacity(text.len() + 16);
     let mut written = false;
     for line in text.lines() {
         let bare = line.split([';', '#']).next().unwrap_or("").trim();
-        if !written && bare.to_ascii_lowercase().starts_with("show_all") && bare.contains('=') {
-            out.push_str(&format!("show_all = {value}\n"));
+        if !written && bare.to_ascii_lowercase().starts_with(key) && bare.contains('=') {
+            out.push_str(&format!("{key} = {value}\n"));
             written = true;
         } else {
             out.push_str(line);
@@ -313,10 +332,10 @@ pub fn save_show_all(show: bool) {
         }
     }
     if !written {
-        out.push_str(&format!("show_all = {value}\n"));
+        out.push_str(&format!("{key} = {value}\n"));
     }
     if let Err(e) = std::fs::write(&file, out) {
-        crate::log(&format!("config: could not save show_all: {e}"));
+        crate::log(&format!("config: could not save {key}: {e}"));
     }
 }
 
@@ -335,6 +354,10 @@ overlay = on
 hotkey = F8
 ; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
 show_all = off
+; Panel size of text and widgets: auto follows the panel's own size, so the UI grows with the
+; monitor it opens on and with the window when you drag its corner. Set 125 / 150% / 1.5 / 200%
+; to pin it. Saved when you change it in the panel.
+ui_scale = auto
 ; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off: the wheel
 ; stays yours (on, it rewrites the selection ~30x a second and fights your D-pad scrolling).
 hud_mirror = off
@@ -426,6 +449,17 @@ debug_log = off
                     }
                     "debug_log" => config.debug_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),
+                    "ui_scale" => match nr_casting_core::ui_scale(value) {
+                        Some((scale, spelling)) => {
+                            config.ui_scale = scale;
+                            config.ui_scale_name = spelling;
+                        }
+                        None => crate::log(&format!(
+                            "config: ui_scale '{value}' is not recognised (auto, 150, 150%, 1.5 — \
+                             100% to 300%); keeping {}",
+                            config.ui_scale_name
+                        )),
+                    },
                     "hud_mirror" => config.hud_mirror = truthy(value),
                     "chord_stage" => {
                         config.chord_stage = value.trim().parse::<u8>().unwrap_or(2).min(4)

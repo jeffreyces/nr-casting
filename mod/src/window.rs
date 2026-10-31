@@ -48,7 +48,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_THICKFRAME, MINMAXINFO,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
-    SWP_NOSIZE, SWP_NOZORDER,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE,
 };
 
 use crate::overlay::Panel;
@@ -57,6 +57,35 @@ use crate::overlay::Panel;
 const TITLE_BAND: i16 = 28;
 /// Virtual key of the left mouse button, for the drag's own button-state poll.
 const VK_LBUTTON: i32 = 0x01;
+
+/// The size the panel was laid out at, and the font height it was laid out with.
+///
+/// Every UI scale is relative to these: the window opens at `DESIGN * monitor scale`, the font is
+/// baked at `BASE_FONT_PX * scale`, and ImGui's paddings are scaled by the same factor. On a 4K
+/// screen that is a 1800x1240 window with 30 px text, instead of a 900x620 window whose widgets
+/// stay 15 px however far you drag the corner.
+const DESIGN_WIDTH: f32 = 900.0;
+const DESIGN_HEIGHT: f32 = 620.0;
+const BASE_FONT_PX: f32 = 15.0;
+/// 1.0 is the size the panel was designed at; below it nothing is legible and above 3x the three
+/// columns no longer fit a 4K screen.
+const MIN_UI_SCALE: f32 = 1.0;
+const MAX_UI_SCALE: f32 = 3.0;
+/// The scales offered in the panel, as multipliers. Auto is offered separately.
+const UI_SCALE_CHOICES: [f32; 5] = [1.0, 1.25, 1.5, 1.75, 2.0];
+
+/// The scale to use when nothing has been chosen: the screen's height over 1080.
+///
+/// The panel is its own window, so this is the desktop's own resolution — under Proton that is the
+/// virtual desktop, which is what the drawn window is measured against anyway.
+fn monitor_scale() -> f32 {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CYSCREEN};
+    let height = unsafe { GetSystemMetrics(SM_CYSCREEN) } as f32;
+    if height <= 0.0 {
+        return 1.0;
+    }
+    (height / 1080.0).clamp(MIN_UI_SCALE, MAX_UI_SCALE)
+}
 
 extern "system" {
     fn GetAsyncKeyState(vk: i32) -> i16;
@@ -180,6 +209,35 @@ struct Gfx {
     renderer: imgui_dx11_renderer::Renderer,
     last_frame: Instant,
     presented: bool,
+    /// The multiplier the current context and font atlas were built at.
+    scale: f32,
+}
+
+/// Build an ImGui context and its DX11 renderer at `scale`.
+///
+/// The font atlas is rasterised and uploaded inside the renderer's constructor, so a different size
+/// means a new context and a new renderer — not a new font size on the old ones. That is why scale
+/// changes are applied between frames (and after a resize drag ends) rather than per drag frame.
+unsafe fn build_ui(
+    device: &ID3D11Device,
+    scale: f32,
+) -> Result<(imgui::Context, imgui_dx11_renderer::Renderer), String> {
+    let mut imgui = imgui::Context::create();
+    imgui.set_ini_filename(None);
+    imgui.fonts().add_font(&[imgui::FontSource::DefaultFontData {
+        config: Some(imgui::FontConfig {
+            size_pixels: BASE_FONT_PX * scale,
+            ..Default::default()
+        }),
+    }]);
+    // A fresh context carries the default style, so this scales exactly once however often the
+    // panel is rescaled.
+    imgui.style_mut().scale_all_sizes(scale);
+    imgui.style_mut().window_rounding = 4.0 * scale;
+    imgui.style_mut().frame_rounding = 3.0 * scale;
+    let renderer = imgui_dx11_renderer::Renderer::new(&mut imgui, device)
+        .map_err(|e| format!("ImGui D3D11 renderer failed: {e:?}"))?;
+    Ok((imgui, renderer))
 }
 
 impl Gfx {
@@ -234,6 +292,14 @@ struct App {
     /// A physical press must produce exactly one toggle: the poll runs every 16 ms and the
     /// window can also see the key, so ignore anything closer than this.
     last_toggle: Option<Instant>,
+    /// The scale the player picked, `None` = follow the window's size. Mirrors `config::ui_scale`;
+    /// the ini copy only takes effect on the next start.
+    ui_scale: Option<f32>,
+    /// A scale waiting to be applied between frames: the font atlas is rebuilt, which cannot
+    /// happen while a frame is being built.
+    pending_scale: Option<f32>,
+    /// A window resize waiting for the frame loop, which can run it outside the `App` borrow.
+    pending_resize: Option<f32>,
 }
 
 thread_local! {
@@ -258,6 +324,66 @@ impl App {
             hotkey_down: false,
             last_toggle: None,
             previous_foreground: None,
+            ui_scale: crate::config::load().ui_scale,
+            pending_scale: None,
+            pending_resize: None,
+        }
+    }
+
+    /// The UI scale implied by the window's own size: the smaller of width/design and height/design.
+    ///
+    /// The smaller of the two because the layout is three columns side by side — growing the window
+    /// in one direction only should give the columns more room, not stretch the text.
+    fn auto_scale(&self) -> f32 {
+        let mut rect = RECT::default();
+        let _ = unsafe { GetClientRect(self.hwnd, &mut rect) };
+        let width = (rect.right - rect.left).max(1) as f32;
+        let height = (rect.bottom - rect.top).max(1) as f32;
+        let raw = (width / DESIGN_WIDTH).min(height / DESIGN_HEIGHT);
+        // Round to 5% so a framed window's client area (a few pixels inside the size it was
+        // created at) still lands on the scale it was meant to: 1.974 is 2.0, not 197%.
+        let rounded = (raw * 20.0).round() / 20.0;
+        rounded.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
+    }
+
+    /// The scale to build the UI at: the player's choice, or the one the window's size implies.
+    fn target_scale(&self) -> f32 {
+        match self.ui_scale {
+            Some(fixed) => fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE),
+            None => self.auto_scale(),
+        }
+    }
+
+    /// Take a scale the player picked in the panel: remember it, persist it, and queue the rebuild.
+    ///
+    /// The window resize is only *queued*: `SetWindowPos` delivers `WM_SIZE` synchronously, and the
+    /// window procedure cannot reach `App` while the frame that picked the scale is holding it —
+    /// it would fall through to `DefWindowProcW` and the swap chain would keep its old size.
+    fn set_ui_scale(&mut self, choice: Option<f32>) {
+        self.ui_scale = choice;
+        crate::config::save_ui_scale(choice);
+        let scale = choice.unwrap_or_else(|| self.auto_scale());
+        if choice.is_some() {
+            self.pending_resize = Some(scale);
+        }
+        self.pending_scale = Some(scale);
+    }
+
+    /// Rebuild the ImGui context and its font atlas at `scale`. Between frames only.
+    fn apply_scale(&mut self, scale: f32) {
+        let Some(gfx) = self.gfx.as_mut() else { return };
+        if (gfx.scale - scale).abs() < 0.02 {
+            return;
+        }
+        match unsafe { build_ui(&gfx.device, scale) } {
+            Ok((imgui, renderer)) => {
+                gfx.imgui = imgui;
+                gfx.renderer = renderer;
+                gfx.last_frame = Instant::now();
+                gfx.scale = scale;
+                crate::log(&format!("panel: UI scale {:.0}%", scale * 100.0));
+            }
+            Err(e) => crate::log(&format!("panel: rescale failed: {e}")),
         }
     }
 
@@ -323,23 +449,21 @@ impl App {
             }
         };
 
-        let mut imgui = imgui::Context::create();
-        imgui.set_ini_filename(None);
-        imgui.style_mut().window_rounding = 4.0;
-        imgui.style_mut().frame_rounding = 3.0;
-        imgui.fonts().add_font(&[imgui::FontSource::DefaultFontData {
-            config: Some(imgui::FontConfig { size_pixels: 15.0, ..Default::default() }),
-        }]);
-
-        let renderer = match unsafe { imgui_dx11_renderer::Renderer::new(&mut imgui, &device) } {
-            Ok(renderer) => renderer,
+        // The scale follows the window, which the window procedure sized from the monitor when it
+        // was created — so the first thing the player sees on a 4K screen is already 2x.
+        let scale = self.target_scale();
+        let (imgui, renderer) = match unsafe { build_ui(&device, scale) } {
+            Ok(ui) => ui,
             Err(e) => {
-                crate::log(&format!("panel: ImGui D3D11 renderer failed: {e}"));
+                crate::log(&format!("panel: {e}"));
                 return false;
             }
         };
 
-        crate::log("panel: D3D11 device + ImGui renderer created");
+        crate::log(&format!(
+            "panel: D3D11 device + ImGui renderer created at {:.0}% ({width}x{height})",
+            scale * 100.0
+        ));
         let mut gfx = Gfx {
             device,
             context,
@@ -350,6 +474,7 @@ impl App {
             renderer,
             last_frame: Instant::now(),
             presented: false,
+            scale,
         };
         unsafe { gfx.rebuild_view() };
         self.gfx = Some(gfx);
@@ -425,8 +550,12 @@ impl App {
     }
 
     fn draw(&mut self, ui: &Ui) {
+        // Read before the model borrow: the combo shows the scale auto would pick right now.
+        let auto_scale = self.auto_scale();
+        let current_scale = self.ui_scale;
         let model = &mut self.model;
         let mut assign: Option<(usize, i32)> = None;
+        let mut scale_choice: Option<Option<f32>> = None;
 
         // Recomputed each frame so the search box takes effect immediately.
         model.refresh_candidates();
@@ -470,6 +599,13 @@ impl App {
                 if ui.checkbox("show everything", &mut show) {
                     model.show_all = show;
                     model.panel.set_show_all(show);
+                }
+                // Text size for a TV, and the fix for "resizing the window only adds background":
+                // auto follows the window (which the corner drag changes), a percentage pins it.
+                ui.text("UI scale");
+                ui.same_line();
+                if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
+                    scale_choice = Some(choice);
                 }
                 if ui.button("refresh") {
                     model.reload();
@@ -534,9 +670,18 @@ impl App {
                 self.model.panel.assign(weapon, slot.weapon_slot, spell_id);
             }
         }
+        if let Some(choice) = scale_choice {
+            self.set_ui_scale(choice);
+        }
     }
 
     fn render(&mut self) {
+        // A scale change rebuilds the ImGui context and its font atlas, which cannot happen while a
+        // frame is being built — so it is queued by the drag, by the ini, or by the panel's combo
+        // and applied here, at the top of the next frame.
+        if let Some(scale) = self.pending_scale.take() {
+            self.apply_scale(scale);
+        }
         // Taken out of `self` so `draw` can borrow the model mutably at the same time.
         let Some(mut gfx) = self.gfx.take() else {
             return;
@@ -640,6 +785,37 @@ fn hand_column(
                 chosen = Some((index, picked));
             }
         });
+    }
+    chosen
+}
+
+/// The panel's UI-scale picker: auto plus a few pinned multipliers.
+///
+/// Returns the new choice (outer `Some`) when the player picked one, `None` when nothing changed.
+/// `auto` is what auto would pick right now, so the row says what it is doing.
+fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32>> {
+    let preview = match current {
+        Some(scale) => format!("{:.0}%##ui_scale_preview", scale * 100.0),
+        None => format!("auto ({:.0}%)##ui_scale_preview", auto * 100.0),
+    };
+    let mut chosen = None;
+    if let Some(_combo) = ui.begin_combo("##ui_scale", preview) {
+        if imgui::Selectable::new("auto##ui_scale_auto")
+            .selected(current.is_none())
+            .build(ui)
+        {
+            chosen = Some(None);
+        }
+        for scale in UI_SCALE_CHOICES {
+            let percent = (scale * 100.0).round() as i32;
+            let pinned = current.is_some_and(|value| (value - scale).abs() < 0.01);
+            if imgui::Selectable::new(format!("{percent}%##ui_scale_{percent}"))
+                .selected(pinned)
+                .build(ui)
+            {
+                chosen = Some(Some(scale));
+            }
+        }
     }
     chosen
 }
@@ -758,9 +934,26 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     let info = lparam.0 as *mut MINMAXINFO;
                     if !info.is_null() {
                         unsafe {
-                            (*info).ptMinTrackSize.x = 520;
-                            (*info).ptMinTrackSize.y = 320;
+                            // The design size, so the panel cannot be dragged smaller than the
+                            // size its layout needs. Bigger than this only ever means a bigger
+                            // UI scale (see `auto_scale`), never clipped columns.
+                            (*info).ptMinTrackSize.x = DESIGN_WIDTH as i32;
+                            (*info).ptMinTrackSize.y = DESIGN_HEIGHT as i32;
                         }
+                    }
+                    Some(LRESULT(0))
+                }
+                // A resize drag has ended: the window is the size it will stay, so work out the
+                // scale that size implies and queue the rebuild. Doing this per WM_SIZE would
+                // rebuild the font atlas for every pixel the corner moved.
+                WM_EXITSIZEMOVE => {
+                    let scale = app.target_scale();
+                    let changed = app
+                        .gfx
+                        .as_ref()
+                        .is_some_and(|gfx| (gfx.scale - scale).abs() >= 0.02);
+                    if changed {
+                        app.pending_scale = Some(scale);
                     }
                     Some(LRESULT(0))
                 }
@@ -823,11 +1016,39 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
     }
 }
 
+/// Resize the panel window so the design fits at `scale`.
+///
+/// Called from the frame loop, never from inside the `App` borrow: `SetWindowPos` delivers
+/// `WM_SIZE` synchronously and the window procedure needs that same `RefCell`.
+fn size_window(hwnd: HWND, scale: f32) {
+    let width = (DESIGN_WIDTH * scale).round() as i32;
+    let height = (DESIGN_HEIGHT * scale).round() as i32;
+    // NOZORDER keeps the panel topmost; NOACTIVATE keeps focus where it is (the panel owns it
+    // already, and stealing it would close the panel through WM_ACTIVATE).
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            width,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+}
+
 fn create_window() -> Option<HWND> {
     unsafe {
         let instance = GetModuleHandleW(PCWSTR::null()).ok()?;
         let class_name = wide("nr_casting_panel");
         let title = wide("nr-casting - spell slots");
+        // Open at the scale the screen implies (a pinned `ui_scale` replaces it on the first
+        // frame), instead of a fixed 900x620 that is unreadable on a TV.
+        let scale = crate::config::load()
+            .ui_scale
+            .map(|fixed| fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE))
+            .unwrap_or_else(monitor_scale);
         let class = WNDCLASSW {
             lpfnWndProc: Some(wnd_proc),
             hInstance: instance.into(),
@@ -845,8 +1066,8 @@ fn create_window() -> Option<HWND> {
             WS_POPUP | WS_THICKFRAME,
             80,
             80,
-            900,
-            620,
+            (DESIGN_WIDTH * scale).round() as i32,
+            (DESIGN_HEIGHT * scale).round() as i32,
             None,
             None,
             Some(instance.into()),
@@ -897,9 +1118,7 @@ pub fn start() {
             let frame = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 APP.with(|cell| {
                     let mut guard = cell.borrow_mut();
-                    let Some(app) = guard.as_mut() else {
-                        return;
-                    };
+                    let app = guard.as_mut()?;
                     let minimized = unsafe { IsIconic(app.hwnd) }.0 != 0;
                     let down = unsafe { GetAsyncKeyState(app.hotkey) } < 0;
                     if down && !app.hotkey_down {
@@ -920,8 +1139,14 @@ pub fn start() {
                     if app.shown && !minimized {
                         app.render();
                     }
-                });
+                    // Taken out here and run below, outside the borrow: the resize delivers
+                    // window messages, and the window procedure cannot borrow `App` twice.
+                    app.pending_resize.take().map(|scale| (app.hwnd, scale))
+                })
             }));
+            if let Ok(Some((hwnd, scale))) = frame {
+                size_window(hwnd, scale);
+            }
             if frame.is_err() {
                 crate::log(
                     "panel: panic in the frame loop (swallowed) — closing; the next open rebuilds the device",

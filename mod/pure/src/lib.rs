@@ -449,6 +449,38 @@ pub fn armed_until(now: u32, until: u32) -> bool {
     until != 0 && (now.wrapping_sub(until) as i32) < 0
 }
 
+/// The panel's UI scale, from the ini: `auto`, a percentage (`150`, `150%`) or a multiplier
+/// (`1.5`).
+///
+/// Returns the multiplier — `None` for auto, i.e. follow the panel window's own size — and how to
+/// spell it in the log. Both spellings are accepted because both are natural to write, and a bare
+/// number above 4 cannot be a multiplier, so `100` and `1.0` mean the same thing. Out-of-range
+/// answers are rejected rather than clamped: the caller keeps what it had and says so, and a value
+/// that silently became something else is how a config file starts lying.
+pub fn ui_scale(text: &str) -> Option<(Option<f32>, String)> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("auto") {
+        return Some((None, "auto".to_string()));
+    }
+    let percent = text.ends_with('%');
+    let digits: String = text
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let value = digits.parse::<f32>().ok()?;
+    let scale = if percent || (value > 4.0 && !text.contains('.')) {
+        value / 100.0
+    } else {
+        value
+    };
+    // The panel is laid out at 1x; below that nothing is legible, and above 3x the three columns
+    // no longer fit a 4K screen.
+    if !(1.0..=3.0).contains(&scale) {
+        return None;
+    }
+    Some((Some(scale), format!("{:.0}%", scale * 100.0)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -962,5 +994,27 @@ mod raw_tests {
         assert!(armed_until(0xFFFF_FFF0, 0x20));
         // Armed 0x40 before the wrap, now 0x50 past it: long gone.
         assert!(!armed_until(0x50, 0xFFFF_FFC0));
+    }
+
+    #[test]
+    fn ui_scale_reads_auto_percentages_and_multipliers() {
+        assert_eq!(ui_scale("auto"), Some((None, "auto".to_string())));
+        assert_eq!(ui_scale("1.5"), Some((Some(1.5), "150%".to_string())));
+        assert_eq!(ui_scale("150"), Some((Some(1.5), "150%".to_string())));
+        assert_eq!(ui_scale("150%"), Some((Some(1.5), "150%".to_string())));
+        // `100` and `1.0` are the same request spelled two ways.
+        assert_eq!(ui_scale("100"), Some((Some(1.0), "100%".to_string())));
+        assert_eq!(ui_scale("1.0"), Some((Some(1.0), "100%".to_string())));
+        assert_eq!(ui_scale("  200 "), Some((Some(2.0), "200%".to_string())));
+    }
+
+    #[test]
+    fn ui_scale_rejects_what_it_cannot_honour() {
+        // Out of range rather than clamped: the caller keeps its previous value and logs it.
+        assert_eq!(ui_scale("0.5"), None);
+        assert_eq!(ui_scale("25%"), None);
+        assert_eq!(ui_scale("4"), None);
+        assert_eq!(ui_scale("big"), None);
+        assert_eq!(ui_scale(""), None);
     }
 }
