@@ -164,12 +164,12 @@ impl Model {
         self.candidates_key = key;
     }
 
-    fn new() -> Self {
+    fn new(config: &crate::config::Config) -> Self {
         Model {
             panel: Panel::new(),
             weapons: (0, 0),
             search: String::new(),
-            show_all: crate::config::load().show_all,
+            show_all: config.show_all,
             who: "waiting for the player...".to_string(),
             stats: String::new(),
             boost: String::new(),
@@ -440,23 +440,26 @@ fn wide(text: &str) -> Vec<u16> {
 
 impl App {
     fn new(hwnd: HWND) -> Self {
+        // Read once. `config::load` is a `OnceCell`, so a field on `App` would be a second copy of
+        // a value that can never change — the binding is the whole of the win here.
+        let config = crate::config::load();
         App {
             hwnd,
-            model: Model::new(),
+            model: Model::new(config),
             input: Input::default(),
             gfx: None,
             shown: false,
             drag: None,
-            hotkey: crate::config::load().hotkey,
+            hotkey: config.hotkey,
             hotkey_down: false,
             hotkey_registered: false,
             last_toggle: None,
             previous_foreground: None,
-            ui_scale: crate::config::load().ui_scale,
+            ui_scale: config.ui_scale,
             pending_scale: None,
             pending_resize: None,
             pending_center: false,
-            needs_fit: crate::config::load().panel_size.is_none(),
+            needs_fit: config.panel_size.is_none(),
             saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
             note: String::new(),
             reveal: None,
@@ -1896,7 +1899,8 @@ fn create_window() -> Option<HWND> {
 
 /// Start the panel on its own thread. Returns immediately.
 pub fn start() {
-    if !crate::config::load().overlay {
+    let config = crate::config::load();
+    if !config.overlay {
         crate::log("panel: disabled in nr_casting.ini (casting only)");
         return;
     }
@@ -1917,7 +1921,7 @@ pub fn start() {
         // A registered hotkey posts `WM_HOTKEY` to this window, so the thread can block on its
         // message queue and wake only when something happens. Polling `GetAsyncKeyState` 60 times a
         // second to notice one key was the cheapest-looking and most expensive option.
-        let hotkey = crate::config::load().hotkey;
+        let hotkey = config.hotkey;
         let registered = unsafe {
             RegisterHotKey(Some(hwnd), HOTKEY_ID, HOT_KEY_MODIFIERS(MOD_NOREPEAT), hotkey as u32)
         }
