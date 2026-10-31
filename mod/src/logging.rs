@@ -16,6 +16,28 @@ fn log_path() -> &'static std::path::Path {
     LOG_PATH.get_or_init(|| config::path("nr_casting_probe.log"))
 }
 
+/// Wall-clock milliseconds, without a syscall per line.
+///
+/// `SystemTime::now()` is a syscall, and with `debug_log = on` this runs dozens of times a second
+/// on whatever thread logged — including the game's input thread. The epoch offset is sampled once
+/// and the tick counter (a shared-page read) provides the rest; a log timestamp needs to correlate
+/// with other logs, not to be nanosecond-accurate.
+fn epoch_millis() -> u128 {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetTickCount64() -> u64;
+    }
+    static BASE: OnceLock<u128> = OnceLock::new();
+    let ticks = unsafe { GetTickCount64() } as u128;
+    *BASE.get_or_init(|| {
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        wall.saturating_sub(ticks)
+    }) + ticks
+}
+
 /// Detailed per-cast chatter; enabled with `debug_log = on` in the ini.
 pub(crate) fn debug_enabled() -> bool {
     DEBUG_LOG.load(Ordering::Relaxed)
@@ -33,10 +55,7 @@ macro_rules! debug {
 
 pub(crate) fn log(msg: &str) {
     use std::io::Write;
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    let ms = epoch_millis();
 
     let slot = LOG_FILE.get_or_init(|| Mutex::new(None));
 

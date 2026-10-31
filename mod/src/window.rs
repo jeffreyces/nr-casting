@@ -46,13 +46,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP,
     WM_ACTIVATE, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WS_THICKFRAME, MINMAXINFO,
-    WM_PAINT, WM_ENTERSIZEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
+    WM_PAINT, WM_HOTKEY, WM_ENTERSIZEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
     WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE, GetSystemMetrics, SM_CXSCREEN,
     SM_CYSCREEN, SWP_FRAMECHANGED, GetDesktopWindow,
 };
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    RegisterHotKey, HOT_KEY_MODIFIERS,
+};
+use windows::Win32::UI::WindowsAndMessaging::WaitMessage;
 
 use crate::overlay::Panel;
 use crate::logging::debug;
@@ -340,6 +344,9 @@ struct App {
     drag: Option<Drag>,
     hotkey: i32,
     hotkey_down: bool,
+    /// Whether the hotkey is a registered system hotkey. When it is, the window gets a `WM_HOTKEY`
+    /// and the thread can block on the queue instead of reading the key 60 times a second.
+    hotkey_registered: bool,
     /// A physical press must produce exactly one toggle: the poll runs every 16 ms and the
     /// window can also see the key, so ignore anything closer than this.
     last_toggle: Option<Instant>,
@@ -398,6 +405,11 @@ enum Resize {
     Fit(f32),
 }
 
+/// The id this window registers its hotkey under; `WM_HOTKEY` carries it back.
+const HOTKEY_ID: i32 = 1;
+/// `MOD_NOREPEAT`: holding the key must not toggle the panel on every auto-repeat.
+const MOD_NOREPEAT: u32 = 0x4000;
+
 /// How often a live resize may rebuild the UI. A drag delivers a `WM_SIZE` per pixel; rebuilding
 /// the font atlas that often would stutter, and 8 a second is already smooth to the eye.
 const SCALE_REBUILD_MS: u128 = 120;
@@ -424,6 +436,7 @@ impl App {
             drag: None,
             hotkey: crate::config::load().hotkey,
             hotkey_down: false,
+            hotkey_registered: false,
             last_toggle: None,
             previous_foreground: None,
             ui_scale: crate::config::load().ui_scale,
@@ -1287,6 +1300,21 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             let mut guard = cell.try_borrow_mut().ok()?;
             let app = guard.as_mut()?;
             match msg {
+                WM_HOTKEY => {
+                    if wparam.0 as i32 == HOTKEY_ID {
+                        let settled = app
+                            .last_toggle
+                            .map(|when| when.elapsed().as_millis() > 300)
+                            .unwrap_or(true);
+                        if settled {
+                            app.last_toggle = Some(Instant::now());
+                            let open = !app.shown;
+                            app.set_open(open);
+                        }
+                        return Some(LRESULT(0));
+                    }
+                    None
+                }
                 WM_CLOSE => {
                     app.set_open(false);
                     Some(LRESULT(0))
@@ -1703,7 +1731,24 @@ pub fn start() {
         // the window manager takes for a frame drag.
         crate::pointer::set_panel_window(hwnd.0 as usize);
         APP.with(|cell| *cell.borrow_mut() = Some(App::new(hwnd)));
-        crate::log("panel: ready (F8 opens it; no GPU device until then)");
+        // A registered hotkey posts `WM_HOTKEY` to this window, so the thread can block on its
+        // message queue and wake only when something happens. Polling `GetAsyncKeyState` 60 times a
+        // second to notice one key was the cheapest-looking and most expensive option.
+        let hotkey = crate::config::load().hotkey;
+        let registered = unsafe {
+            RegisterHotKey(Some(hwnd), HOTKEY_ID, HOT_KEY_MODIFIERS(MOD_NOREPEAT), hotkey as u32)
+        }
+        .is_ok();
+        APP.with(|cell| {
+            if let Some(app) = cell.borrow_mut().as_mut() {
+                app.hotkey_registered = registered;
+            }
+        });
+        crate::log(if registered {
+            "panel: ready (hotkey registered; the thread idles on its message queue)"
+        } else {
+            "panel: ready (hotkey unavailable to register — polling it instead)"
+        });
 
         let mut msg = MSG::default();
         loop {
@@ -1729,7 +1774,8 @@ pub fn start() {
                     let mut guard = cell.borrow_mut();
                     let app = guard.as_mut()?;
                     let minimized = unsafe { IsIconic(app.hwnd) }.0 != 0;
-                    let down = unsafe { GetAsyncKeyState(app.hotkey) } < 0;
+                    // Only when the hotkey could not be registered: otherwise `WM_HOTKEY` does it.
+                    let down = !app.hotkey_registered && unsafe { GetAsyncKeyState(app.hotkey) } < 0;
                     if down && !app.hotkey_down {
                         let settled = app
                             .last_toggle
@@ -1805,12 +1851,30 @@ pub fn start() {
 
             // 60 Hz only while the panel is up. Closed, this thread exists to notice a hotkey:
             // waking 60 times a second to read one key state competes with the game for nothing.
-            let idle = APP.with(|cell| {
+            // Idle means nothing to draw and nothing owed to the ini. With the hotkey registered
+            // the thread blocks on its message queue — no timer, no wakeups, and `WM_HOTKEY` wakes
+            // it immediately. Without it, poll the key at 100 ms, which is still prompt to a human
+            // and 6x cheaper than the 16 ms loop this used to run while closed.
+            let (idle, owed, registered) = APP.with(|cell| {
                 cell.try_borrow()
-                    .map(|guard| guard.as_ref().is_none_or(|app| !app.shown))
-                    .unwrap_or(true)
+                    .map(|guard| {
+                        guard.as_ref().map_or((true, false, false), |app| {
+                            (
+                                !app.shown,
+                                app.pending_save.is_some() || app.pending_resize.is_some(),
+                                app.hotkey_registered,
+                            )
+                        })
+                    })
+                    .unwrap_or((true, false, false))
             });
-            std::thread::sleep(std::time::Duration::from_millis(if idle { 50 } else { 16 }));
+            if !idle || owed {
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            } else if registered {
+                let _ = unsafe { WaitMessage() };
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
         }
     });
 }
