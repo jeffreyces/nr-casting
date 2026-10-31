@@ -709,26 +709,30 @@ impl App {
                 ui.next_column();
 
                 // ---- middle ----------------------------------------------------------------
-                // The name is the file the panel edits. The two lines under it are the game's
-                // opinion, greyed like the disabled rows in the hand columns so they read as
-                // information rather than as settings.
+                // The name is the file the panel edits. The lines under it are the game's opinion,
+                // greyed like the disabled rows in the hand columns so they read as information
+                // rather than as settings.
+                vspace(ui, 10.0);
                 ui.text(format!("Character: {}", model.who));
+                vspace(ui, 5.0);
                 ui.text_disabled(&model.stats);
                 if !model.boost.is_empty() {
+                    vspace(ui, 5.0);
                     ui.text_disabled(&model.boost);
                 }
-                ui.spacing();
-                ui.spacing();
+                vspace(ui, 10.0);
                 ui.set_next_item_width(ui.content_region_avail()[0]);
                 ui.input_text("##search", &mut model.search)
                     .hint("search spells by name")
                     .build();
+                vspace(ui, 5.0);
                 ui.text_disabled(&model.listed);
                 let mut show = model.show_all;
                 if ui.checkbox("list everything", &mut show) {
                     model.show_all = show;
                     model.panel.set_show_all(show);
                 }
+                vspace(ui, 10.0);
 
                 ui.next_column();
 
@@ -872,6 +876,15 @@ impl App {
 
 }
 
+/// A vertical gap of exactly `px`, allowing for the item spacing ImGui adds after every item.
+///
+/// `ui.spacing()` is one `ItemSpacing.y` (scaled with the UI), which is not what the layout wants
+/// here: the character block asks for 10 px margins and 5 px between its lines, whatever the scale.
+fn vspace(ui: &Ui, px: f32) {
+    let spacing = ui.clone_style().item_spacing[1];
+    ui.dummy([0.0, (px - spacing).max(0.0)]);
+}
+
 /// One hand's column: the equipped catalyst, then a row per slot (label, its mouse binding, and
 /// the spell picker). Returns the pick the user made, if any.
 fn hand_column(
@@ -931,14 +944,17 @@ fn hand_column(
 /// `auto` is what auto would pick right now, so the row says what it is doing.
 fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32>> {
     // "auto" is a real choice, so it is spelled as one: the percentage after it is what the window
-    // currently implies, not a selection.
+    // currently implies, not a selection. The width is capped so the popup cannot be wider than
+    // the panel — ImGui sizes it to the combo unless an item is wider, which is how it used to
+    // spill past the right edge.
+    ui.set_next_item_width(ui.frame_height() * 7.0);
     let preview = match current {
         Some(scale) => format!("{:.0}%##ui_scale_preview", scale * 100.0),
-        None => format!("auto ({:.0}% now)##ui_scale_preview", auto * 100.0),
+        None => format!("auto ({:.0}%)##ui_scale_preview", auto * 100.0),
     };
     let mut chosen = None;
     if let Some(_combo) = ui.begin_combo("##ui_scale", preview) {
-        if imgui::Selectable::new("auto — follow the window##ui_scale_auto")
+        if imgui::Selectable::new("auto — follow window##ui_scale_auto")
             .selected(current.is_none())
             .build(ui)
         {
@@ -1277,6 +1293,9 @@ pub fn start() {
             crate::log("panel: could not create the window");
             return;
         };
+        // The pointer layer must recognise the panel's own window so it never swallows the capture
+        // the window manager takes for a frame drag.
+        crate::pointer::set_panel_window(hwnd.0 as usize);
         APP.with(|cell| *cell.borrow_mut() = Some(App::new(hwnd)));
         crate::log("panel: ready (F8 opens it; no GPU device until then)");
 

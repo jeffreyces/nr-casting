@@ -764,6 +764,13 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
                 note_caller();
             }
             adjust_inner(&mut *state);
+            // This poll runs on the game's own input thread, which is the only thread that can
+            // raise the cursor's display counter for the game's window (it is per input queue).
+            // Every 8th poll is plenty: the panel opens in one frame and a hidden cursor catches up
+            // in a few of these.
+            if n.is_multiple_of(8) {
+                crate::pointer::game_thread_tick();
+            }
         }
         // A failed read goes back to the game unchanged. Mouse casts do not come through here any
         // more: they are steered in the raw-input layer and performed by the game's own click, so

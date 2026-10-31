@@ -28,18 +28,37 @@ static POS_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static CAPTURE_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static RAW_DATA_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static RAW_BUFFER_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
-/// `ShowCursor` is a counter; remember how far we pushed it to unwind the same amount.
-static CURSOR_SHOWS: AtomicI32 = AtomicI32::new(0);
 static SETCURSOR_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+/// The panel's own window. Captures it takes must pass through: the sizing loop that
+/// `DefWindowProcW` runs on a frame drag depends on having the capture, and swallowing it left the
+/// panel unable to resize (and with no frame drawn) after dragging it small.
+static PANEL_HWND: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+/// Pushes made from the *game's* thread. `ShowCursor`'s counter lives in the calling thread's input
+/// queue, so only that thread can bring the pointer back over the game's window.
+static CURSOR_SHOWS_GAME: AtomicI32 = AtomicI32::new(0);
+/// Set on close; the game-thread tick unwinds the counter from the thread that raised it.
+static CURSOR_RESTORE: AtomicBool = AtomicBool::new(false);
+/// Whether the "the pointer is visible now" line has been written for this open.
+static CURSOR_REPORTED: AtomicBool = AtomicBool::new(false);
 extern "system" {
     fn ClipCursor(rect: *const u8) -> i32;
     fn ShowCursor(show: i32) -> i32;
     fn ReleaseCapture() -> i32;
+    fn GetCapture() -> *mut u8;
     fn SetCursor(cursor: *mut u8) -> *mut u8;
     fn GetCursor() -> *mut u8;
     fn LoadCursorW(instance: *mut u8, name: *const u16) -> *mut u8;
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
+}
+
+/// Tell the pointer layer which window is the panel's.
+pub fn set_panel_window(hwnd: usize) {
+    PANEL_HWND.store(hwnd as *mut (), Ordering::Release);
+}
+
+fn panel_window() -> *mut u8 {
+    PANEL_HWND.load(Ordering::Acquire) as *mut u8
 }
 
 /// `IDC_ARROW`, as `MAKEINTRESOURCE` spells it: the integer 32512 cast to a string pointer.
@@ -119,7 +138,10 @@ unsafe extern "system" fn pos_detour(x: i32, y: i32) -> i32 {
 }
 
 unsafe extern "system" fn capture_detour(hwnd: *mut u8) -> *mut u8 {
-    if is_open() {
+    // The panel's own capture is the window manager's, not the game's: the sizing loop behind a
+    // frame drag needs it, and a swallowed one is what left the panel with no border and no way to
+    // resize after it had been dragged small.
+    if is_open() && hwnd != panel_window() {
         return std::ptr::null_mut();
     }
     let tramp = CAPTURE_TRAMP.load(Ordering::Acquire);
@@ -241,12 +263,8 @@ pub fn install() -> Result<(), String> {
     }
 }
 
-/// Push `ShowCursor(TRUE)` until the system reports a visible pointer, and say how many that took.
-///
-/// The display counter ER left behind was tens of points below zero (16 pushes were not enough),
-/// and `GetCursorInfo` is the only honest read on the result — `ShowCursor`'s return value is the
-/// new count, which on this host disagreed with the desktop state.
-unsafe fn force_cursor_visible(cap: i32) -> i32 {
+/// Push `ShowCursor(TRUE)` from the calling thread. Returns how many pushes were spent.
+unsafe fn push_visible(cap: i32) -> i32 {
     let mut pushes = 0;
     while pushes < cap && !crate::input::game_shows_cursor() {
         ShowCursor(1);
@@ -255,8 +273,7 @@ unsafe fn force_cursor_visible(cap: i32) -> i32 {
     pushes
 }
 
-/// Pushes allowed for one panel session. Far past anything the game hides; a cap at all so a
-/// system that refuses to report the cursor visible cannot inflate the counter forever.
+/// Pushes allowed for one panel session. Far past anything the game hides.
 const MAX_CURSOR_PUSHES: i32 = 400;
 
 /// Open or close the panel's claim on the pointer.
@@ -267,22 +284,20 @@ pub fn set_open(open: bool) {
     OPEN.store(open, Ordering::Relaxed);
     unsafe {
         if open {
-            // ER has hidden the cursor; each ShowCursor(TRUE) cancels one hide.
-            let shows = force_cursor_visible(MAX_CURSOR_PUSHES);
-            CURSOR_SHOWS.store(shows, Ordering::Relaxed);
             ClipCursor(std::ptr::null());
+            CURSOR_REPORTED.store(false, Ordering::Relaxed);
             let visible = crate::input::game_shows_cursor();
             let shape = GetCursor();
+            // The display counter belongs to the game's thread, so the panel's own thread cannot
+            // raise it: `game_thread_tick` does that from the pad poll, and logs when it lands.
             crate::log(&format!(
-                "pointer: panel open (cursor shown after {shows} calls, clip released, \
-                 system reports visible={visible} shape_set={})",
+                "pointer: panel open (clip released, system reports visible={visible} \
+                 shape_set={} — the game's thread will raise the counter)",
                 !shape.is_null()
             ));
         } else {
-            let shows = CURSOR_SHOWS.swap(0, Ordering::Relaxed);
-            for _ in 0..shows {
-                ShowCursor(0);
-            }
+            // Unwind on the thread that raised the counter, not this one.
+            CURSOR_RESTORE.store(true, Ordering::Relaxed);
             crate::log("pointer: panel closed, game has the pointer again");
         }
     }
@@ -295,16 +310,11 @@ pub fn frame() {
     }
     unsafe {
         ClipCursor(std::ptr::null());
-        // Wine re-centres a captured pointer every frame; drop the capture each tick.
-        ReleaseCapture();
-        // The game hides the pointer again as it re-enters play; undo that while the panel owns it,
-        // remembering every push so closing puts the counter back where the game left it.
-        if !crate::input::game_shows_cursor() {
-            let pushed = CURSOR_SHOWS.load(Ordering::Relaxed);
-            if pushed < MAX_CURSOR_PUSHES {
-                let more = force_cursor_visible(MAX_CURSOR_PUSHES - pushed);
-                CURSOR_SHOWS.fetch_add(more, Ordering::Relaxed);
-            }
+        // Wine re-centres a captured pointer every frame, so the game must not keep its capture.
+        // The panel's own capture is the window manager's sizing/moving loop — never touch it.
+        let capture = GetCapture();
+        if capture.is_null() || capture != panel_window() {
+            ReleaseCapture();
         }
         // Nothing has set a cursor shape — the game's window class has none — so the pointer would
         // be the invisible one. Only fill in an empty shape: over our own resize borders a sizing
@@ -315,5 +325,45 @@ pub fn frame() {
                 let _ = SetCursor(arrow);
             }
         }
+    }
+}
+
+/// The once-per-poll hook that runs on the game's own thread (the pad poll).
+///
+/// `ShowCursor`'s display counter is stored in the calling thread's input queue: pushes from the
+/// panel's thread raised its own counter and nothing else, which is why the pointer stayed
+/// invisible over the game while 400 pushes were logged. The pad poll runs on the game's thread, so
+/// this is where the counter can actually be raised — and where it is unwound when the panel closes,
+/// because a counter can only be given back by the thread that took it.
+pub fn game_thread_tick() {
+    if CURSOR_RESTORE.swap(false, Ordering::Relaxed) {
+        let pushed = CURSOR_SHOWS_GAME.swap(0, Ordering::Relaxed);
+        unsafe {
+            for _ in 0..pushed {
+                ShowCursor(0);
+            }
+        }
+        return;
+    }
+    if !is_open() {
+        return;
+    }
+    if CURSOR_SHOWS_GAME.load(Ordering::Relaxed) >= MAX_CURSOR_PUSHES {
+        return;
+    }
+    if crate::input::game_shows_cursor() {
+        if !CURSOR_REPORTED.swap(true, Ordering::Relaxed) {
+            crate::log(&format!(
+                "pointer: cursor visible after {} pushes from the game's thread",
+                CURSOR_SHOWS_GAME.load(Ordering::Relaxed)
+            ));
+        }
+        return;
+    }
+    // A couple per poll: the pad poll runs at up to 125 Hz, so a deeply hidden cursor is caught up
+    // within a few frames without spending a long loop on the game's input thread.
+    let pushed = unsafe { push_visible(2) };
+    if pushed > 0 {
+        CURSOR_SHOWS_GAME.fetch_add(pushed, Ordering::Relaxed);
     }
 }
