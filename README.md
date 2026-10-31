@@ -159,8 +159,9 @@ Two Manager behaviours are worth knowing:
 overlay = on             ; on | off — the panel window (casting works either way)
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 show_all = off           ; list spells the character cannot cast yet (planning mode)
-ui_scale = auto          ; auto | 125 | 150% | 1.5 | 200% — panel text and widget size
+ui_scale = auto          ; auto | 125 | 150% | 1.5 | 200% — panel text and widget size (100%-300%)
 panel_size = auto        ; auto | 1800x1240 — panel window size, saved when you resize it
+panel_pos = auto         ; auto | 1140,431 — panel corner, saved when you move it
 hud_mirror = off         ; on = force the game's wheel to slot 1 (fights your own scrolling)
 
 [input]
@@ -174,6 +175,7 @@ recluse_chr_ids = 8131   ; character ids that count as a Recluse
 
 [logging]
 debug_log = off          ; log every cast, not just captures and errors
+perf_log = on            ; a timing line when a frame is lost, or every 5 minutes otherwise
 ```
 
 Malformed values are logged and the default kept.
@@ -232,7 +234,8 @@ With the panel installed:
   **Middle**: the character whose assignments are being edited, your effective INT/FAI/ARC (and a
   line saying when a rune or talisman is doing the work), a spell search box, how many spells the
   pickers are offering, and `list everything`. Under the three columns, a controls row holds
-  `refresh`, `reset slots`, `close` and the UI scale; below it a footer spells out both mappings.
+  `refresh`, `reset slots`, `reset layout`, `close`, the UI scale and `diagnostics & report`; below it
+  a footer spells out both mappings.
 - Dropdowns list only spells the character **owns** and **can cast** — requirements are checked
   against INT/FAI/ARC *including active effects*, so a Great Rune or a stat talisman counts and the
   stats line says when it is doing the work. `list everything` bypasses both for planning a build.
@@ -244,10 +247,33 @@ With the panel installed:
   controller the pad report is simply left alone, so the port sees Y+R1 / Y+L1 itself; on
   keyboard and mouse the Alt click is swallowed and `4` / `5` is pressed in its place — passing
   the click through would only make the game perform a plain attack, since it ignores Alt.
+- **Layout**: `reset layout` puts the window back where it first opened and re-fits its height to the
+  content. The corner and the size are remembered per session in `panel_pos` and `panel_size`; reset
+  is for the case a saved corner no longer lands anywhere you can reach after a monitor change.
 - **The HUD mirror is off by default.** With `hud_mirror = on` the right-hand weapon's first slot is
   forced onto the game's own spell wheel so its HUD shows what R1 will cast — but that rewrites
   your selection ~30 times a second, so the wheel visibly cycles and a D-pad scroll is fought every
   frame. Leave it off if you pick spells yourself (the default).
+
+## Reporting a problem
+
+The panel's `diagnostics & report` button writes one text file beside the DLL — about 20-60 KB —
+holding what a bug report actually needs: the log tail, the offsets the mod resolved against this
+exe, the generated spell catalogue, the configuration, the modules loaded into the game, the GPU and
+CPU, and a per-second record of the frame gaps over the last five minutes.
+
+- **It waits for five minutes of the current character.** The button counts down from the moment a
+  character loads and stays disabled until it has them, so a report that says "300 s" really has 300
+  seconds in it; hovering it says how much is left. This is what makes a stutter report meaningful.
+- **Nothing is uploaded.** There is no endpoint: the file is written locally, its path is put on the
+  clipboard, the folder opens with the file selected, and the issue page opens with the version and
+  the numbers already prefilled — drag the file in and submit.
+- **It redacts on the way out.** Your user name and every path containing it become `%USER%`, and the
+  character's name becomes `<character>`. Neither `debug_log` nor `perf_log` needs to be on; the
+  report collects what it needs at the moment you press it.
+- **`perf_log = on`** additionally writes a timing line to the log — when a frame was lost, or every
+  five minutes when nothing was. It is on in the shipped ini; it is quiet enough to leave there, and
+  it is the only setting that records stutters as they happen.
 
 ## Assignments are per character
 

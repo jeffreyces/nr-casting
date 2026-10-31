@@ -20,7 +20,15 @@ not either.
 [*][b]Eight spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, a third on
 [b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]; two-handing a staff does nothing, so those inputs carry spells instead.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
-either slot from the spells your character actually owns and can cast.[/*]
+either slot from the spells your character actually owns and can cast. A staff offers sorceries and a
+seal offers incantations, so the list is the one you can actually cast.[/*]
+[*][b]Readable on a TV[/b] — the panel's text and widgets scale with the screen and the window: drag
+the corner and the whole panel grows with it, or pin it from 100% to 300%. The size and the corner you
+settle on are remembered, and [b]reset layout[/b] puts it back if a monitor change strands it.[/*]
+[*][b]Diagnostics in one click[/b] — [b]diagnostics &amp; report[/b] writes a single file (log, offsets,
+config, modules, GPU, per-second frame gaps) with your user name and character name redacted, opens the
+issue page with the numbers prefilled, and selects the file so it can be dragged in. It waits for five
+minutes of the current character first, and says how long is left.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
@@ -44,7 +52,9 @@ actions; on a Recluse character those inputs go to it instead of casting the fou
 
 The panel hotkey is configurable in
 [code]nr_casting.ini[/code]
-Spells are assigned in the panel; there is no bind gesture on the pad.
+Spells are assigned in the panel, or with the bind gesture: hold [b]L3[/b] and press the input while a
+spell is selected on the game's own wheel, and that spell is written to the slot you pressed. On
+keyboard and mouse hold the configured modifier (Super by default) with the same click.
 
 [line]
 

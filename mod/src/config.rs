@@ -107,7 +107,9 @@ impl Default for Config {
             panel_size: None,
             panel_pos: None,
             debug_log: false,
-            perf_log: false,
+            // Matches the shipped ini: quiet (one line per five minutes, or when a frame is lost),
+            // and the only way a stutter is recorded at the time it happens.
+            perf_log: true,
             show_all: false,
             hud_mirror: false,
             y_bumper: YBumper::Auto,

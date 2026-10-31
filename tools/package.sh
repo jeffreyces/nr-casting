@@ -73,9 +73,10 @@ recluse_chr_ids = 8131
 [logging]
 ; Log every cast, not just captures and errors
 debug_log = off
-; Perf log: one line every 10 s with the pad-poll interval (the game's frame time, as our hook
-; sees it) and the longest time our own code spent inside it. Use it to report stutter.
-perf_log = off
+; Perf log: one line when a window lost a frame and otherwise every 5 minutes, with the pad-poll
+; interval (the game's frame time, as our hook sees it) and the longest time our own code spent
+; inside it. Leave it on: it is the only setting that records stutter as it happens.
+perf_log = on
 INI
 fi
 
