@@ -236,6 +236,10 @@ fn run() {
     let mut catalogue_ready = false;
     let mut names_warmed = false;
     let mut world_was_live = false;
+    let mut last_readout = Instant::now();
+    // Who is loaded, not just whether someone is: the character object survives a load, so a
+    // pointer check misses "same object, new character" and the frame series never restarted.
+    let mut last_character: Option<(String, u32)> = None;
     let mut last_polls = 0u32;
     let mut last_passes = 0u32;
     let mut last_unplugged = 0u32;
@@ -243,6 +247,18 @@ fn run() {
         probe::maybe_validate();
         // A reload destroys the character and builds a new one. Logging the edge is what tells
         // us whether a freeze happened while we were holding game memory.
+        let character = game::character_key();
+        if character != last_character {
+            last_character = character;
+            if let Some((name, id)) = last_character.as_ref() {
+                // A character just became readable: start the five minutes the report wants here,
+                // and let the diagnostics button count them down.
+                crate::perf::restart_series();
+                log(&format!(
+                    "perf: frame series restarted for {name} (save id {id})"
+                ));
+            }
+        }
         let world_live = player().is_some();
         if world_live != world_was_live {
             world_was_live = world_live;
@@ -289,16 +305,21 @@ fn run() {
             ));
             names_warmed = true;
         }
-        if let Some((l, r)) = weapon_ids() {
+        // The loop runs every second now (a character load has to be noticed promptly, because
+        // the frame series restarts on it), but the readout is still a 30-second line.
+        if last_readout.elapsed() >= READOUT_EVERY {
+            last_readout = Instant::now();
+            if let Some((l, r)) = weapon_ids() {
             let memory = memory_mib()
                 .map(|(ws, pf)| format!(" | mem ws={ws}MiB pf={pf}MiB"))
                 .unwrap_or_default();
-            log(&format!(
-                "weapons L1={l} R1={r} | player spell {} | slots [{}]{}",
-                PLAYER_SPELL.load(Ordering::Relaxed),
-                describe_store(),
-                memory
-            ));
+                log(&format!(
+                    "weapons L1={l} R1={r} | player spell {} | slots [{}]{}",
+                    PLAYER_SPELL.load(Ordering::Relaxed),
+                    describe_store(),
+                    memory
+                ));
+            }
         }
         let m = file_mtime();
         if m != last_mtime && m.is_some() {
@@ -324,7 +345,7 @@ fn run() {
             ));
             log(&format!("input: raw {}", stats::raw_report()));
         }
-        std::thread::sleep(Duration::from_secs(30));
+        std::thread::sleep(Duration::from_secs(1));
     }
 }
 
@@ -465,6 +486,9 @@ pub(crate) fn refresh_y_bumper() {
     }
     input::set_y_bumper(allowed);
 }
+
+/// How often the low-rate readout is written, while the loop itself runs every second.
+const READOUT_EVERY: Duration = Duration::from_secs(30);
 
 /// The last value handed to `input::set_y_bumper`, so the decision is logged on change only.
 static Y_BUMPER_ALLOWED: std::sync::atomic::AtomicBool =
