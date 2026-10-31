@@ -218,6 +218,13 @@ struct Input {
 }
 
 /// Device, swap chain and ImGui state. Created on the first open, never during play.
+/// The panel's graphics device, swap chain and current ImGui context.
+///
+/// **Deliberately never dropped after the first open.** Closing the panel hides the window and
+/// keeps this; releasing it would mean creating a D3D11 device inside a running game every time the
+/// player presses the hotkey, and that hitch is the reason the device is built on the first open
+/// and not during play. The cost is a device, a swap chain and two back buffers resident for the
+/// process (roughly 5-8 MB at panel size), which is the cheaper of the two.
 struct Gfx {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
