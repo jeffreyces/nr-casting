@@ -88,15 +88,47 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 [size=5][b]Configuration[/b][/size]
 
 [code][ui]
+overlay = on
 hotkey = F8
 show_all = off
+ui_scale = auto
+panel_size = auto
+panel_pos = auto
+hud_mirror = off
+bind_modifier_kb = Super
+chord_stage = 2
 
 [recluse]
 y_bumper = auto
 recluse_chr_ids = 8131
 
 [logging]
-debug_log = off[/code]
+debug_log = off
+perf_log = on[/code]
+
+[code]ui_scale[/code]
+sizes the panel's text and widgets:
+[code]auto[/code]
+follows the window — the panel picks the largest scale that still fits, so dragging the corner
+makes the whole panel grow with it —
+[code]125[/code]
+,
+[code]150%[/code]
+,
+[code]1.5[/code]
+or
+[code]200[/code]
+pins it between 100% and 300%.
+[code]panel_size[/code]
+and
+[code]panel_pos[/code]
+are the window's size and corner, written when you stop dragging and on panel close; both reset with
+the panel's [b]reset layout[/b] button, or by deleting the line and letting
+[code]auto[/code]
+size it from the screen again.
+[code]perf_log[/code]
+writes one timing line every 10 seconds — the pad-poll gaps and what our own hook costs — which is what
+a performance report needs.
 
 [code]y_bumper[/code]
 decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]:
