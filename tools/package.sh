@@ -37,10 +37,12 @@ overlay = on
 hotkey = F8
 ; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
 show_all = off
-; Panel font size: auto follows the screen, or a fixed 100 / 125 / 150 / 175 / 200% (15-30 px).
-; Saved when you change it in the panel. The window size no longer changes the font.
+; Panel font size: auto picks the largest scale that fits the window, so dragging the corner grows
+; the text with it; 100 / 125 / 150 / 175 / 200% pins it instead (the ini accepts up to 300%).
+; Saved when you change it in the panel.
 ui_scale = auto
-; Panel window size: auto sizes it from the screen. Saved when you resize the panel.
+; Panel window size: auto opens at the design size for the screen and fits its height to the content.
+; Saved when you resize the panel.
 panel_size = auto
 ; Panel window position: auto opens at the default spot. Saved when you drag the panel.
 panel_pos = auto

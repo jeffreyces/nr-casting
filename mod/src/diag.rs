@@ -358,7 +358,16 @@ fn catalogue() -> String {
 
 /// The last part of the log: the tail is where the failure is.
 fn log_tail() -> String {
-    let text = std::fs::read_to_string(crate::logging::log_path()).unwrap_or_default();
+    let path = crate::logging::log_path();
+    // Bytes, then a lossy decode. `read_to_string` returns an error if *any* byte in the file is
+    // not UTF-8, and one such sequence made the entire tail disappear from a report that then said
+    // `(empty)` while its own header named the log - which is exactly the file the reporter needed
+    // us to see.
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => return format!("(could not read {}: {e})", path.display()),
+    };
+    let text = String::from_utf8_lossy(&bytes);
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(2000);
     lines[start..].join("\n")
