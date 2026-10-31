@@ -11,6 +11,38 @@
 
 pub mod fmg;
 
+/// The panel is laid out for this size; every other size is this one at a scale.
+pub const DESIGN_WIDTH: f32 = 900.0;
+/// Height the panel is designed at.
+pub const DESIGN_HEIGHT: f32 = 620.0;
+/// The smallest the text may get: below 100% the panel is unreadable anyway, and the window's own
+/// minimum is the design size at this scale.
+pub const MIN_UI_SCALE: f32 = 1.0;
+/// The largest the text may get. 300% of a 15 px font is a 45 px font, which is already a 4K TV
+/// read from a sofa.
+pub const MAX_UI_SCALE: f32 = 3.0;
+/// Scales are offered in 5% steps, and always the step *below* the fit.
+const SCALE_STEPS: f32 = 20.0;
+
+/// The scale that makes the design fit a window of this client size.
+///
+/// The **smaller** of the two ratios: averaging them guarantees the content is wider or taller
+/// than the window on the axis that binds, which is what put scrollbars on both sides. Eight
+/// pixels are held back from the height for the frame, so the last row does not tip into a
+/// scrollbar either.
+///
+/// Floored to a scale step and never rounded up: half a percent over the fit is a scrollbar.
+/// `natural` is the height the content actually needs at 100%, latched by the caller; a nonsense
+/// value falls back to the design height rather than scaling by zero or by infinity.
+pub fn fit_scale(width: f32, height: f32, natural: f32) -> f32 {
+    let width = width.max(1.0);
+    let height = height.max(1.0);
+    let natural = if natural > 1.0 { natural } else { DESIGN_HEIGHT };
+    let raw = (width / DESIGN_WIDTH).min((height - 8.0).max(1.0) / natural);
+    let stepped = (raw * SCALE_STEPS).floor() / SCALE_STEPS;
+    stepped.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
+}
+
 /// Spells per catalyst: bumper, trigger, the Y chord on the trigger, and the Y chord on the
 /// bumper. The fourth only exists when the Y+bumper chords are ours to take (no Recluse mod, or
 /// not on a Recluse character); otherwise the game and Recluse keep them.
@@ -1228,5 +1260,61 @@ mod raw_tests {
         assert_eq!(panel_pos("left"), None);
         assert_eq!(panel_pos("120"), None);
         assert_eq!(panel_pos("100000,80"), None);
+    }
+
+    #[test]
+    fn fit_scale_fits_the_axis_that_binds() {
+        // The case that produced scrollbars on both sides: 1764x792 is 1.96 wide but only 1.27
+        // tall, so the height decides and the floor puts it a step under.
+        assert_eq!(fit_scale(1764.0, 792.0, DESIGN_HEIGHT), 1.25);
+        // 4K: the clamp, not the fit, is what stops it.
+        assert_eq!(fit_scale(3840.0, 2160.0, DESIGN_HEIGHT), MAX_UI_SCALE);
+        // A window at the design size cannot fit the design height plus its frame, so it is the
+        // floor, not 0.98.
+        assert_eq!(fit_scale(DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_HEIGHT), MIN_UI_SCALE);
+    }
+
+    #[test]
+    fn fit_scale_never_exceeds_the_fit_on_either_axis() {
+        for width in [900.0, 1200.0, 1764.0, 1920.0, 2560.0, 3840.0] {
+            for height in [600.0, 620.0, 792.0, 1080.0, 1440.0, 2160.0] {
+                for natural in [0.0, 400.0, 620.0, 900.0] {
+                    let scale = fit_scale(width, height, natural);
+                    let natural = if natural > 1.0 { natural } else { DESIGN_HEIGHT };
+                    if scale == MIN_UI_SCALE {
+                        // The floor, not the fit, decided — matching the window's minimum size,
+                        // which keeps the panel from shrinking into unreadable text. Nothing to
+                        // prove about fitting here: the window is simply smaller than the design.
+                        continue;
+                    }
+                    // Within a step of the fit, never over it by more than the step.
+                    assert!(
+                        DESIGN_WIDTH * scale <= width + DESIGN_WIDTH * 0.05,
+                        "{width}x{height} natural {natural}: {scale}"
+                    );
+                    assert!(
+                        natural * scale <= height + DESIGN_HEIGHT * 0.05,
+                        "{width}x{height} natural {natural}: {scale}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fit_scale_is_a_step_and_inside_its_bounds() {
+        for tenth in 0..=300 {
+            let scale = fit_scale(900.0 + tenth as f32 * 10.0, 620.0 + tenth as f32 * 7.0, 620.0);
+            assert!((MIN_UI_SCALE..=MAX_UI_SCALE).contains(&scale), "{scale}");
+            let steps = scale * SCALE_STEPS;
+            assert!((steps - steps.round()).abs() < 1e-3, "{scale} is not a 5% step");
+        }
+    }
+
+    #[test]
+    fn fit_scale_survives_a_degenerate_window() {
+        // Hidden, mid-drag or not yet created: a zero rect must not panic or return a zero scale.
+        assert_eq!(fit_scale(0.0, 0.0, 0.0), MIN_UI_SCALE);
+        assert_eq!(fit_scale(-5.0, 3.0, f32::NAN), MIN_UI_SCALE);
     }
 }

@@ -15,6 +15,10 @@
 //! The device is created on the first open, never during play: it is a second graphics device in
 //! a process that already runs one, and creating it mid-game hitches.
 
+// The design size and the scale bounds live in the core crate, with the fit that uses them, so
+// the formula the panel runs is the one the tests cover.
+use nr_casting_core::{fit_scale, DESIGN_HEIGHT, DESIGN_WIDTH, MAX_UI_SCALE, MIN_UI_SCALE};
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
@@ -75,13 +79,7 @@ const VK_LBUTTON: i32 = 0x01;
 /// baked at `BASE_FONT_PX * scale`, and ImGui's paddings are scaled by the same factor. On a 4K
 /// screen that is a 1800x1240 window with 30 px text, instead of a 900x620 window whose widgets
 /// stay 15 px however far you drag the corner.
-const DESIGN_WIDTH: f32 = 900.0;
-const DESIGN_HEIGHT: f32 = 620.0;
 const BASE_FONT_PX: f32 = 15.0;
-/// 1.0 is the size the panel was designed at; below it nothing is legible and above 3x the three
-/// columns no longer fit a 4K screen.
-const MIN_UI_SCALE: f32 = 1.0;
-const MAX_UI_SCALE: f32 = 3.0;
 /// The scales offered in the panel, as multipliers. Auto is offered separately.
 const UI_SCALE_CHOICES: [f32; 5] = [1.0, 1.25, 1.5, 1.75, 2.0];
 
@@ -522,19 +520,10 @@ impl App {
         let _ = unsafe { GetClientRect(self.hwnd, &mut rect) };
         let width = (rect.right - rect.left).max(1) as f32;
         let height = (rect.bottom - rect.top).max(1) as f32;
-        let natural = if self.natural_height > 1.0 {
-            self.natural_height
-        } else {
-            DESIGN_HEIGHT
-        };
-        // The *smaller* of the two, because the scale has to fit: averaging them guarantees the
-        // content is wider or taller than the window on the axis that binds, which is what put
-        // scrollbars on both sides. A few pixels are held back for the frame and the window
-        // padding, so the last row does not tip into a scrollbar either.
-        let raw = (width / DESIGN_WIDTH).min((height - 8.0).max(1.0) / natural);
-        // Floored, never rounded up: half a percent over the fit is a scrollbar.
-        let stepped = (raw * 20.0).floor() / 20.0;
-        stepped.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
+        // The fit itself is `fit_scale` in the core crate: it is the part that has been wrong
+        // twice (an average that overflowed both axes, then a round instead of a floor), so it is
+        // the part that is tested.
+        fit_scale(width, height, self.natural_height)
     }
 
     /// The scale to build the UI at: the player's choice, or the one the window implies.
