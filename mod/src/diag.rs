@@ -62,17 +62,45 @@ fn percent_encode(text: &str) -> String {
 
 /// Write the bundle beside the DLL and return its path and size in bytes.
 pub fn write_bundle(reason: &str) -> Result<(PathBuf, usize), String> {
-    let stamp = crate::game::now_ms();
-    let name = format!("nr_casting_diag_{stamp}.txt");
+    // Local time, spelled the way a person reads it: the file name is what a player quotes in a
+    // bug report, and an epoch stamp is not a date.
+    let name = format!("nr_casting_diag_{}.txt", local_stamp());
     let path = crate::config::path(&name);
     let text = bundle(reason);
     std::fs::write(&path, text.as_bytes()).map_err(|e| format!("could not write {name}: {e}"))?;
     let size = text.len();
+    prune_old(5);
     crate::log(&format!(
         "diag: wrote {} ({size} bytes, {reason})",
         path.display()
     ));
     Ok((path, size))
+}
+
+/// Keep the folder tidy: one report is useful, a pile of them is clutter. Newest five survive.
+fn prune_old(keep: usize) {
+    let folder = crate::config::data_dir();
+    let Ok(entries) = std::fs::read_dir(&folder) else { return };
+    let mut reports: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().starts_with("nr_casting_diag_"))
+                .unwrap_or(false)
+        })
+        .collect();
+    if reports.len() <= keep {
+        return;
+    }
+    reports.sort_by_key(|path| {
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+    });
+    for path in reports.iter().take(reports.len() - keep) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 fn bundle(reason: &str) -> String {
@@ -263,26 +291,58 @@ fn log_tail() -> String {
 }
 
 /// Replaces the player's own identifiers with placeholders before the file leaves the machine.
+///
+/// Under Proton the interesting paths are not `C:\Users\...` at all: the host home appears both as
+/// `/var/home/<user>` and as `Z:\var\home\<user>` inside the prefix, while `USERPROFILE` is the
+/// Wine account. All of them have to be covered, case-insensitively — Windows paths are, and a
+/// missed capital letter is a leaked user name.
 struct Redactor {
-    home: String,
-    user: String,
+    needles: Vec<(String, &'static str)>,
 }
 
 impl Redactor {
     fn apply(&self, text: &mut String) {
-        if !self.home.is_empty() {
-            *text = text.replace(&self.home, "%USERPROFILE%");
-            let slashed = self.home.replace('\\', "/");
-            *text = text.replace(&slashed, "%USERPROFILE%");
-        }
-        if !self.user.is_empty() {
-            *text = text.replace(&self.user, "%USER%");
-        }
+        let needles: Vec<(String, String)> = self
+            .needles
+            .iter()
+            .map(|(needle, replacement)| (needle.clone(), replacement.to_string()))
+            .collect();
+        *text = nr_casting_core::redact(text, &needles);
     }
 }
 
 fn redactor() -> Redactor {
-    let home = std::env::var("USERPROFILE").unwrap_or_default();
-    let user = std::env::var("USERNAME").unwrap_or_default();
-    Redactor { home, user }
+    let mut needles: Vec<(String, &'static str)> = Vec::new();
+    let mut add = |value: Option<String>, replacement: &'static str| {
+        if let Some(value) = value {
+            let value = value.trim_end_matches(['/', '\\']).to_string();
+            if value.len() > 3 {
+                // Both spellings of a path: the host form and the Wine drive-letter form.
+                needles.push((value.clone(), replacement));
+                needles.push((value.replace('\\', "/"), replacement));
+                needles.push((format!("Z:{}", value.replace('/', "\\")), replacement));
+            }
+        }
+    };
+    add(std::env::var("USERPROFILE").ok(), "%USERPROFILE%");
+    add(std::env::var("HOME").ok(), "%HOME%");
+    if let Ok(user) = std::env::var("USERNAME").or_else(|_| std::env::var("USER")) {
+        if user.len() > 2 {
+            // Alone, a user name is too short to replace safely everywhere; in a path it is not.
+            needles.push((format!("\\{user}\\"), "\\%USER%\\"));
+            needles.push((format!("/{user}/"), "/%USER%/"));
+            needles.push((format!("\\{user}$"), "\\%USER%$"));
+        }
+    }
+    Redactor { needles }
+}
+
+/// `2026-10-31 15-05-12`, in the machine's own time zone.
+fn local_stamp() -> String {
+    use windows::Win32::System::SystemInformation::GetLocalTime;
+    let now = unsafe { GetLocalTime() };
+    format!(
+        "{:04}-{:02}-{:02} {:02}-{:02}-{:02}",
+        now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond
+    )
 }

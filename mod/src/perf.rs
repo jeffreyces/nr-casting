@@ -125,6 +125,12 @@ pub fn report(started: u64) {
     }
     if previous != 0 {
         let gap = micros(now.saturating_sub(previous));
+        if gap > 200_000 {
+            // A gap this long is a stall or a pause (alt-tab, loading): start a fresh sample second
+            // so the pause does not become the "worst gap" of the next one.
+            SECOND_START.store(now, Ordering::Relaxed);
+            SECOND_MAX_US.store(0, Ordering::Relaxed);
+        }
         POLLS.fetch_add(1, Ordering::Relaxed);
         GAP_SUM_US.fetch_add(gap as u64, Ordering::Relaxed);
         GAP_MAX_US.fetch_max(gap, Ordering::Relaxed);
@@ -135,7 +141,7 @@ pub fn report(started: u64) {
         let second_start = SECOND_START.load(Ordering::Relaxed);
         if second_start == 0 {
             SECOND_START.store(now, Ordering::Relaxed);
-        } else if micros(now.saturating_sub(second_start)) >= 1000 {
+        } else if micros(now.saturating_sub(second_start)) >= 1_000_000 {
             SECOND_START.store(now, Ordering::Relaxed);
             let sample = SECOND_MAX_US.swap(0, Ordering::Relaxed);
             let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;

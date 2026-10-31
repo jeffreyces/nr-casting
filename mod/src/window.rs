@@ -397,15 +397,6 @@ struct App {
     content_height: f32,
 }
 
-/// Which of the two report buttons the player pressed.
-#[derive(Clone, Copy)]
-enum Diagnostics {
-    /// Write the bundle beside the DLL and show it in the file manager.
-    Bundle,
-    /// Open the issue page with the numbers already filled in.
-    Issue,
-}
-
 /// What the frame loop should do to the window once the frame is done.
 ///
 /// `SetWindowPos` delivers `WM_SIZE` synchronously and the window procedure cannot borrow `App`
@@ -807,7 +798,7 @@ impl App {
         let mut assign: Option<(usize, i32)> = None;
         let mut scale_choice: Option<Option<f32>> = None;
         let mut reset_layout = false;
-        let mut diagnostics: Option<Diagnostics> = None;
+        let mut diagnostics = false;
         // Where the layout ended up vertically, measured at the end of the frame.
         let mut used_height = 0.0f32;
 
@@ -922,14 +913,11 @@ impl App {
                     reset_layout = true;
                 }
                 ui.same_line();
-                // Everything a bug report needs, in one file beside the DLL. Nothing is uploaded:
-                // the player attaches it themselves.
-                if ui.button("diagnostics") {
-                    diagnostics = Some(Diagnostics::Bundle);
-                }
-                ui.same_line();
-                if ui.button("report a bug") {
-                    diagnostics = Some(Diagnostics::Issue);
+                // One button, in the order a report actually needs: the file first, then the issue
+                // page, then the file manager opened on that file so it can be dragged into the
+                // page. Nothing is uploaded — there is no endpoint — the player attaches it.
+                if ui.button("diagnostics & report") {
+                    diagnostics = true;
                 }
                 ui.same_line();
                 if ui.button("close") {
@@ -1004,26 +992,26 @@ impl App {
             self.needs_fit = false;
             self.pending_resize = Some(Resize::Fit(used_height));
         }
-        if let Some(what) = diagnostics {
-            match what {
-                Diagnostics::Bundle => match crate::diag::write_bundle("panel button") {
-                    Ok((path, size)) => {
-                        let name = path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default();
-                        self.note = format!(
-                            "wrote {name} ({} KB) — attach it to your report",
-                            size / 1024
-                        );
-                        reveal(&path);
-                    }
-                    Err(e) => self.note = format!("diagnostics failed: {e}"),
-                },
-                Diagnostics::Issue => {
+        if diagnostics {
+            match crate::diag::write_bundle("panel button") {
+                Ok((path, size)) => {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    self.note = format!(
+                        "wrote {name} ({} KB) — attach it in the issue",
+                        size / 1024
+                    );
+                    // The page first, then the folder: a browser that opens *after* the file
+                    // manager would cover it, and the point is to drag the file into the page.
                     open_url(&crate::diag::issue_url());
-                    self.note = "opened the issue page — attach the diagnostics file".to_string();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(1200));
+                        reveal(&path);
+                    });
                 }
+                Err(e) => self.note = format!("diagnostics failed: {e}"),
             }
         }
         if reset_layout {

@@ -523,6 +523,60 @@ pub fn panel_pos(text: &str) -> Option<(i32, i32)> {
     Some((x, y))
 }
 
+
+/// Case-insensitive `String::replace`.
+///
+/// Windows paths are case-insensitive, and a redaction that misses `C:\Users\<name>` because it
+/// only replaced `c:\users\<name>` is a leaked user name.
+pub fn replace_ignore_case(text: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() {
+        return text.to_string();
+    }
+    let lower_text = text.to_ascii_lowercase();
+    let lower_needle = needle.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while let Some(found) = lower_text[at..].find(&lower_needle) {
+        let start = at + found;
+        out.push_str(&text[at..start]);
+        out.push_str(replacement);
+        at = start + needle.len();
+    }
+    out.push_str(&text[at..]);
+    out
+}
+
+/// Drop the character name out of a slots file name, keeping the scheme recognisable.
+pub fn redact_character_slug(text: &str) -> String {
+    const PREFIX: &str = "nr_casting_slots_";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(found) = rest.find(PREFIX) {
+        let (before, after) = rest.split_at(found + PREFIX.len());
+        out.push_str(before);
+        match after.find(['-', '.', '\\', '/', ' ']) {
+            Some(end) => {
+                out.push_str("<character>");
+                rest = &after[end..];
+            }
+            None => rest = after,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Apply a list of (needle, replacement) pairs, then the character-name rule.
+pub fn redact(text: &str, needles: &[(String, String)]) -> String {
+    let mut out = text.to_string();
+    for (needle, replacement) in needles {
+        if needle.len() > 3 {
+            out = replace_ignore_case(&out, needle, replacement);
+        }
+    }
+    redact_character_slug(&out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1073,6 +1127,36 @@ mod raw_tests {
         assert_eq!(panel_size("1800"), None);
         assert_eq!(panel_size("1800x"), None);
         assert_eq!(panel_size("huge"), None);
+    }
+
+
+    #[test]
+    fn redaction_covers_case_and_both_path_spellings() {
+        // The three spellings the diagnostics writer supplies for one home directory: the host
+        // path, its Windows-drive form, and the preface-less form a log can print.
+        let needles = vec![
+            ("C:\\users\\<name>".to_string(), "%USERPROFILE%".to_string()),
+            ("/var/home/<name>".to_string(), "%HOME%".to_string()),
+            ("\\var\\home\\<name>".to_string(), "%HOME%".to_string()),
+        ];
+        let text = "log at C:\\Users\\<name>\\AppData\\x.log and Z:\\var\\home\\<name>\\y and /var/home/<name>/z";
+        let out = redact(text, &needles);
+        assert!(!out.contains("<name>"), "{out}");
+        assert!(!out.contains("<name>"), "{out}");
+        assert!(out.contains("%USERPROFILE%"));
+        assert!(out.contains("%HOME%"));
+    }
+
+    #[test]
+    fn redaction_keeps_the_slots_scheme_but_drops_the_character() {
+        let out = redact_character_slug("nr_casting_slots_hamilcar-399e89de.txt");
+        // The hash stays: it is a per-character id, not a name.
+        assert_eq!(out, "nr_casting_slots_<character>-399e89de.txt");
+        // A line with the name inside a sentence, twice.
+        let line = "loaded nr_casting_slots_Warlock-2badd3.txt, also nr_casting_slots_warlock-2badd3.txt";
+        let out = redact_character_slug(line);
+        assert!(!out.to_lowercase().contains("warlock"), "{out}");
+        assert_eq!(out.matches("<character>").count(), 2);
     }
 
     #[test]
