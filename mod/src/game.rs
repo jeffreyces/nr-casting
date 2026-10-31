@@ -289,12 +289,17 @@ pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
     Some(unsafe { &*(raw as *const eldenring::cs::PlayerIns) })
 }
 
-/// Milliseconds since the epoch, low 32 bits (wrapping compares are fine).
+/// Milliseconds since boot, low 32 bits (wrapping compares are fine).
+///
+/// `GetTickCount64` reads a shared page; `SystemTime::now` is a syscall, and this runs several
+/// times per pad poll on the game's own input thread — up to 250 syscalls a second for a clock
+/// nobody needs to be wall-precise.
 pub(crate) fn now_ms() -> u32 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u32)
-        .unwrap_or(0)
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetTickCount64() -> u64;
+    }
+    unsafe { GetTickCount64() as u32 }
 }
 
 /// The character the game currently considers the player, without validating the object.

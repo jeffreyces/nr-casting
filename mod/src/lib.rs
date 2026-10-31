@@ -51,6 +51,7 @@ mod stats;
 mod logging;
 mod overlay;
 mod params;
+mod perf;
 mod pointer;
 mod probe;
 mod store;

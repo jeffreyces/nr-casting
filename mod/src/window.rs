@@ -1803,7 +1803,14 @@ pub fn start() {
                 });
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            // 60 Hz only while the panel is up. Closed, this thread exists to notice a hotkey:
+            // waking 60 times a second to read one key state competes with the game for nothing.
+            let idle = APP.with(|cell| {
+                cell.try_borrow()
+                    .map(|guard| guard.as_ref().is_none_or(|app| !app.shown))
+                    .unwrap_or(true)
+            });
+            std::thread::sleep(std::time::Duration::from_millis(if idle { 50 } else { 16 }));
         }
     });
 }

@@ -46,6 +46,9 @@ pub struct Config {
     pub panel_pos: Option<(i32, i32)>,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
+    /// Log a ten-second line of pad-poll timing: frame gaps as the game sees them, and the cost of
+    /// our own detour inside them. This is what a stutter report needs and the game does not log.
+    pub perf_log: bool,
     /// Panel planning mode: list spells the character cannot cast yet. Persisted when toggled.
     pub show_all: bool,
     /// Force the game's own spell-wheel selection to slot 1 so its HUD shows what R1 will cast.
@@ -104,6 +107,7 @@ impl Default for Config {
             panel_size: None,
             panel_pos: None,
             debug_log: false,
+            perf_log: false,
             show_all: false,
             hud_mirror: false,
             y_bumper: YBumper::Auto,
@@ -458,6 +462,9 @@ recluse_chr_ids = 8131
 [logging]
 ; Log every cast, not just captures and errors.
 debug_log = off
+; Perf log: one line every 10 s with the pad-poll interval (the game's frame time, as our hook
+; sees it) and the longest time our own code spent inside it. Use it to report stutter.
+perf_log = off
 ";
             if let Err(e) = std::fs::write(&file, defaults) {
                 crate::log(&format!("config: could not write {}: {e}", file.display()));
@@ -525,6 +532,7 @@ debug_log = off
                         }
                     }
                     "debug_log" => config.debug_log = truthy(value),
+                    "perf_log" => config.perf_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),
                     "ui_scale" => match nr_casting_core::ui_scale(value) {
                         Some((scale, spelling)) => {

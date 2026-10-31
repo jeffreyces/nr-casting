@@ -735,6 +735,9 @@ unsafe fn read_c_string(ptr: *const u8) -> String {
 
 /// Runs on whatever thread the game polls the pad from.
 unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
+    // Timed on every poll: two instructions, and the only way to know whether a stutter report is
+    // about the game's frame pacing or about this function.
+    let perf_started = crate::perf::ticks();
     let tramp = if VIA_EX.with(|flag| flag.get()) {
         TRAMPOLINE_EX.load(Ordering::Acquire)
     } else {
@@ -749,6 +752,7 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     if ret != 0 {
         crate::stats::pad_unplugged();
     }
+    crate::perf::report(perf_started);
     if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
         if ret == 0 {
             crate::rawinput::note_pad_ok();
