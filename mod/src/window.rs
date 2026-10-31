@@ -663,6 +663,13 @@ impl App {
             crate::log("panel: no panel graphics; staying closed");
             return;
         }
+        if open {
+            // The device survives between opens, so its last present can be minutes old: without
+            // this the watchdog below would rebuild a perfectly good swap chain on every open.
+            if let Some(gfx) = self.gfx.as_mut() {
+                gfx.last_present = Instant::now();
+            }
+        }
         self.shown = open;
         self.model.panel.set_visible(open);
         unsafe {
