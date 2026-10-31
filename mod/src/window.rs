@@ -1349,30 +1349,17 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 WM_GETMINMAXINFO => {
                     let info = lparam.0 as *mut MINMAXINFO;
                     if !info.is_null() {
-                        // The smallest window that still fits the layout at the current text scale.
-                        // The old fixed 900x620 let the window shrink below what the scaled layout
-                        // needs, so the content overflowed the client — which is the "minimum
-                        // viewport" the panel seemed to hit, and the point where the frame stopped
-                        // behaving. Never larger than the screen, or the panel could not be made
-                        // small enough to fit one.
-                        let scale = match app.gfx.as_ref() {
-                            Some(gfx) => gfx.scale,
-                            None => app.target_scale(),
-                        };
-                        let (width, height) = design_size(scale);
-                        let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0) as u32;
-                        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0) as u32;
-                        // A fixed floor, deliberately not derived from the content: a minimum that
-                        // grows when the layout overflows pushes back on the very drag the player
-                        // is making, and a window that cannot reach the size it asked for is a
-                        // window that stops moving. Content that does not fit simply scrolls.
-                        let minimum_height = (height as f32 * 0.5).max(240.0);
+                        // A small constant, and nothing else.
+                        //
+                        // This used to be the design size at the current text scale, and because
+                        // the scale follows the window that made the minimum depend on the size it
+                        // was limiting: every drag clamped the window to a minimum computed from
+                        // the size before the drag, so the panel appeared to hit a new minimum each
+                        // time and could never be made smaller. The panel needs no minimum — content
+                        // that does not fit is clipped — so this only stops a degenerate window.
                         unsafe {
-                            (*info).ptMinTrackSize.x =
-                                width.min(screen_width.saturating_sub(160)).max(600) as i32;
-                            (*info).ptMinTrackSize.y = (minimum_height
-                                .min(screen_height.saturating_sub(160) as f32)
-                                .max(400.0)) as i32;
+                            (*info).ptMinTrackSize.x = 400;
+                            (*info).ptMinTrackSize.y = 240;
                         }
                     }
                     Some(LRESULT(0))
