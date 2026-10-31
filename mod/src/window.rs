@@ -359,6 +359,13 @@ struct App {
     /// When the window size last changed without being saved. The write happens once the player
     /// has stopped resizing, not on every drag.
     pending_save: Option<Instant>,
+    /// How tall the layout is at 100%, measured from the last frame.
+    ///
+    /// The auto scale divides the window height by this rather than by the design constant, so a
+    /// window that was fitted to its content reads back as exactly the scale it was fitted at. Use
+    /// the design box instead and the fit and the scale disagree, and the panel drifts smaller
+    /// every time it opens.
+    natural_height: f32,
     /// How tall the layout actually was on the last frame, in pixels.
     ///
     /// The window's minimum height comes from this rather than from the design constant: the layout
@@ -380,6 +387,9 @@ enum Resize {
     Fit(f32),
 }
 
+/// How often a live resize may rebuild the UI. A drag delivers a `WM_SIZE` per pixel; rebuilding
+/// the font atlas that often would stutter, and 8 a second is already smooth to the eye.
+const SCALE_REBUILD_MS: u128 = 120;
 /// How long the player has to stop resizing before the size is written to the ini.
 const SAVE_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -419,6 +429,7 @@ impl App {
             last_scale: Instant::now(),
             pending_save: None,
             content_height: 0.0,
+            natural_height: 0.0,
         }
     }
 
@@ -460,17 +471,53 @@ impl App {
     }
 
 
-    /// The scale to build the UI at: the player's choice, or the screen's.
+    /// The scale the window's own size implies.
     ///
-    /// Deliberately *not* derived from the window: a scale that follows the window is a feedback
-    /// loop — shrinking the window shrinks the text, which shrinks the content, which allows a
-    /// smaller window — and in practice it only ever moved one way. The window decides how much
-    /// room the panel has; the font size is a choice.
+    /// The smaller of width/design and height/natural, where natural is the height the layout
+    /// takes at 100%: a window fitted to its content therefore reads back as the scale it was
+    /// fitted at, and dragging either edge moves the scale without the two fighting.
+    fn auto_scale(&self) -> f32 {
+        let mut rect = RECT::default();
+        let _ = unsafe { GetClientRect(self.hwnd, &mut rect) };
+        let width = (rect.right - rect.left).max(1) as f32;
+        let height = (rect.bottom - rect.top).max(1) as f32;
+        let natural = if self.natural_height > 1.0 {
+            self.natural_height
+        } else {
+            DESIGN_HEIGHT
+        };
+        // Both edges matter, averaged so neither one alone drags the text around: dragging wider
+        // or taller both enlarge the font, and a fitted window reads back as its own scale.
+        let raw = ((width / DESIGN_WIDTH) * (height / natural)).sqrt();
+        // Rounded to 5% so a framed client area still lands on the scale it was meant to.
+        let rounded = (raw * 20.0).round() / 20.0;
+        rounded.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
+    }
+
+    /// The scale to build the UI at: the player's choice, or the one the window implies.
     fn target_scale(&self) -> f32 {
         match self.ui_scale {
             Some(fixed) => fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE),
-            None => monitor_scale(),
+            None => self.auto_scale(),
         }
+    }
+
+    /// Follow the window while the player drags it, at a bounded rate (auto only).
+    fn follow_window_scale(&mut self) {
+        if self.ui_scale.is_some() {
+            return;
+        }
+        let Some(scale) = self.gfx.as_ref().map(|gfx| gfx.scale) else {
+            return;
+        };
+        let target = self.target_scale();
+        if (scale - target).abs() < 0.02 {
+            return;
+        }
+        if self.last_scale.elapsed().as_millis() < SCALE_REBUILD_MS {
+            return;
+        }
+        self.pending_scale = Some(target);
     }
 
     /// Take a scale the player picked in the panel: remember it, persist it, and queue the rebuild.
@@ -482,7 +529,7 @@ impl App {
         // A new font size changes how tall the layout is, so the window is re-fitted to it below.
         self.needs_fit = true;
         self.ui_scale = choice;
-        let scale = choice.unwrap_or_else(monitor_scale);
+        let scale = choice.unwrap_or_else(|| self.auto_scale());
         // A pinned scale owns the size (so it cannot be clipped); auto keeps the window it has and
         // remembers that size instead.
         let size = match choice {
@@ -707,8 +754,8 @@ impl App {
     }
 
     fn draw(&mut self, ui: &Ui) {
-        // Read before the model borrow: the combo shows the scale auto picks for this screen.
-        let auto_scale = monitor_scale();
+        // Read before the model borrow: the combo shows the scale auto picks for this window.
+        let auto_scale = self.auto_scale();
         let current_scale = self.ui_scale;
         let model = &mut self.model;
         let mut assign: Option<(usize, i32)> = None;
@@ -855,6 +902,10 @@ impl App {
                     "Drag the title band to move the panel here; the window edges resize it.",
                 );
                 used_height = ui.cursor_pos()[1] + ui.clone_style().window_padding[1];
+                // The same layout at 100%, so the auto scale can compare a window to the content it
+                // holds rather than to a design constant the layout no longer matches.
+                let scale_now = (ui.text_line_height() / BASE_FONT_PX).max(0.1);
+                self.natural_height = used_height / scale_now;
                 // The frame, on the window's own draw list at the window's own rect: both are
                 // inside the render target by construction, so no size can clip an edge.
                 let thickness = border_width(ui);
@@ -1109,7 +1160,7 @@ fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32
     let mut chosen = None;
     if let Some(_combo) = ui.begin_combo("##ui_scale", preview) {
         if imgui::Selectable::new(format!(
-            "auto — follows the screen ({} px)##ui_scale_auto",
+            "auto — follows the window ({} px)##ui_scale_auto",
             pixels(auto)
         ))
         .selected(current.is_none())
@@ -1672,7 +1723,8 @@ pub fn start() {
                     }
                     if app.shown && !minimized {
                         // Before drawing: a live resize should already be at the new scale.
-                        // The font size is a setting now: nothing follows the window.
+                        // Before drawing: a live resize should already be at the new scale.
+                        app.follow_window_scale();
                         app.render();
                     }
                     // Outside the `shown` check: closing the panel right after a resize must
