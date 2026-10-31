@@ -46,7 +46,8 @@ static CURSOR_RESTORE: AtomicBool = AtomicBool::new(false);
 /// Whether the "the pointer is visible now" line has been written for this open.
 static CURSOR_REPORTED: AtomicBool = AtomicBool::new(false);
 extern "system" {
-    fn ClipCursor(rect: *const u8) -> i32;
+    fn ClipCursor(rect: *const Rect) -> i32;
+    fn GetWindowRect(hwnd: *mut u8, rect: *mut Rect) -> i32;
     fn ShowCursor(show: i32) -> i32;
     fn ReleaseCapture() -> i32;
     fn GetCapture() -> *mut u8;
@@ -56,6 +57,15 @@ extern "system" {
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
     fn SetWindowLongPtrW(hwnd: *mut u8, index: i32, value: isize) -> isize;
+}
+
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
 }
 
 /// `GWL_WNDPROC`: the index `SetWindowLongPtrW` takes for a window procedure.
@@ -346,7 +356,7 @@ pub fn set_open(open: bool) {
     OPEN.store(open, Ordering::Relaxed);
     unsafe {
         if open {
-            ClipCursor(std::ptr::null());
+            confine_to_panel();
             CURSOR_REPORTED.store(false, Ordering::Relaxed);
             let visible = crate::input::game_shows_cursor();
             let shape = GetCursor();
@@ -360,8 +370,27 @@ pub fn set_open(open: bool) {
         } else {
             // Unwind on the thread that raised the counter, not this one.
             CURSOR_RESTORE.store(true, Ordering::Relaxed);
+            ClipCursor(std::ptr::null());
             crate::log("pointer: panel closed, game has the pointer again");
         }
+    }
+}
+
+/// Keep the pointer inside the panel window while the panel is open.
+///
+/// Clamped to the screen by Windows itself, so a panel hanging off the edge still gets a usable
+/// rectangle rather than a rejected clip.
+fn confine_to_panel() {
+    unsafe {
+        let panel = panel_window();
+        if panel.is_null() {
+            return;
+        }
+        let mut rect = Rect::default();
+        if GetWindowRect(panel, &mut rect) == 0 || rect.right <= rect.left || rect.bottom <= rect.top {
+            return;
+        }
+        ClipCursor(&rect);
     }
 }
 
@@ -371,7 +400,11 @@ pub fn frame() {
         return;
     }
     unsafe {
-        ClipCursor(std::ptr::null());
+        // The game's window has no cursor of its own and hides the OS pointer for mouse-look, and
+        // nothing we do from this side makes it reappear over the game's client area under Wine.
+        // Confining the pointer to the panel — which does draw a cursor — keeps it visible where
+        // the player actually needs it.
+        confine_to_panel();
         // Wine re-centres a captured pointer every frame, so the game must not keep its capture.
         // The panel's own capture is the window manager's sizing/moving loop — never touch it.
         let capture = GetCapture();

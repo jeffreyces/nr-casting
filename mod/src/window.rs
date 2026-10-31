@@ -226,6 +226,10 @@ struct Gfx {
     ui: Option<PanelUi>,
     last_frame: Instant,
     presented: bool,
+    /// When the last frame actually reached the screen. A window that stops presenting looks
+    /// frozen — the old picture stays on the client area, so the panel appears to lose its frame
+    /// and stop responding to a drag, and only an F8 brings it back.
+    last_present: Instant,
     /// The multiplier the current context and font atlas were built at.
     scale: f32,
 }
@@ -644,6 +648,7 @@ impl App {
             ui: Some(ui),
             last_frame: Instant::now(),
             presented: false,
+            last_present: Instant::now(),
             scale,
         };
         self.last_scale = Instant::now();
@@ -662,6 +667,11 @@ impl App {
         let Some(drag) = self.drag else { return };
         if unsafe { GetAsyncKeyState(VK_LBUTTON) } >= 0 {
             self.drag = None;
+            // Where the window ended up, so a drag that silently fails to move it is visible in the
+            // log instead of only in the player's report.
+            if let Some((x, y)) = window_pos(self.hwnd) {
+                crate::log(&format!("panel: drag ends at window {x},{y}"));
+            }
             return;
         }
         let mut point = POINT::default();
@@ -742,11 +752,14 @@ impl App {
         model.refresh_candidates();
         let candidates = Rc::clone(&model.candidates);
 
-        // The window fills the display: its frame is drawn separately on the foreground list, so
-        // nothing here has to leave room for a border ImGui would clip.
-        let size = ui.io().display_size;
+        // The window sits a border's width inside the display, so the frame it draws is always
+        // inside the render target: an edge at the very last pixel is what disappeared when the
+        // panel was dragged small.
+        let display = ui.io().display_size;
+        let inset = border_width(ui);
+        let size = [(display[0] - 2.0 * inset).max(1.0), (display[1] - 2.0 * inset).max(1.0)];
         imgui::Window::new("nr-casting")
-            .position([0.0, 0.0], Condition::Always)
+            .position([inset, inset], Condition::Always)
             .size(size, Condition::Always)
             .title_bar(false)
             .resizable(false)
@@ -873,17 +886,15 @@ impl App {
                     "Drag the title band to move the panel here; the window edges resize it.",
                 );
                 used_height = ui.cursor_pos()[1] + ui.clone_style().window_padding[1];
-                // The frame, drawn from the display size on the foreground list. Nothing the window
-                // does can clip it, so the edges stay visible — and the window keeps looking
-                // resizable — at any size.
-                let display = ui.io().display_size;
-                let thickness = (ui.text_line_height() / 15.0).clamp(1.0, 3.0);
+                // The frame, on the window's own draw list at the window's own rect: both are
+                // inside the render target by construction, so no size can clip an edge.
+                let thickness = border_width(ui);
                 let border = ui.clone_style().colors[StyleColor::Border as usize];
                 let half = thickness * 0.5;
-                ui.get_foreground_draw_list()
+                ui.get_window_draw_list()
                     .add_rect(
-                        [half, half],
-                        [display[0] - half - 1.0, display[1] - half - 1.0],
+                        [inset + half, inset + half],
+                        [inset + size[0] - half, inset + size[1] - half],
                         border,
                     )
                     .thickness(thickness)
@@ -987,6 +998,9 @@ impl App {
                     crate::log("panel: first frame presented");
                 }
                 let present = gfx.swap_chain.Present(1, Default::default());
+                if present.is_ok() {
+                    gfx.last_present = Instant::now();
+                }
                 if present.is_err() {
                     // A failing Present is invisible on screen: the panel keeps its last image and
                     // the window looks frozen or half-drawn. Say it once.
@@ -1206,6 +1220,18 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         if unsafe { GetCursorPos(&mut point) }.is_ok()
                             && unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
                         {
+                            crate::log(&format!(
+                                "panel: drag starts at pointer {},{} from window {},{}{}",
+                                point.x,
+                                point.y,
+                                rect.left,
+                                rect.top,
+                                if rect.left == 80 && rect.top == 80 {
+                                    " (still at the default spot)"
+                                } else {
+                                    ""
+                                }
+                            ));
                             app.drag = Some(Drag {
                                 from: [point.x, point.y],
                                 origin: [rect.left, rect.top],
@@ -1419,6 +1445,11 @@ fn window_size(hwnd: HWND) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
+/// How thick the panel's frame is, in pixels, at the current text scale.
+fn border_width(ui: &Ui) -> f32 {
+    (ui.text_line_height() / 15.0).clamp(1.0, 3.0)
+}
+
 /// The panel's client height in pixels: the area the layout is drawn into.
 fn client_height(hwnd: HWND) -> f32 {
     let mut rect = RECT::default();
@@ -1629,6 +1660,23 @@ pub fn start() {
                     // Before drawing: a drag has to move the window under the cursor, and the
                     // ImGui frame would otherwise be a frame behind the move.
                     app.drag_step();
+                    // A panel that has not reached the screen for a second is frozen: the swap
+                    // chain is stuck, and the old picture stays where it was — which reads as a
+                    // panel that lost its border and refuses to be dragged. Rebuild it here rather
+                    // than waiting for the player to hide and reopen the panel.
+                    if app.shown && !minimized {
+                        let stale = app
+                            .gfx
+                            .as_ref()
+                            .is_some_and(|gfx| gfx.last_present.elapsed().as_millis() > 1000);
+                        if stale {
+                            crate::log(
+                                "panel: no frame presented for a second — rebuilding the swap chain",
+                            );
+                            app.gfx = None;
+                            app.init_gfx();
+                        }
+                    }
                     if app.shown && !minimized {
                         // Before drawing: a live resize should already be at the new scale.
                         app.follow_window_scale();
