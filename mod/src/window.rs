@@ -46,7 +46,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP,
     WM_ACTIVATE, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WS_THICKFRAME, MINMAXINFO,
-    WM_PAINT, WM_HOTKEY, WM_ENTERSIZEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
+    WM_PAINT, WM_HOTKEY, WM_TIMER, WM_ENTERSIZEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
     WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE, GetSystemMetrics, SM_CXSCREEN,
@@ -58,7 +58,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::core::HSTRING;
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer, SW_SHOWNORMAL};
 use windows::Win32::UI::WindowsAndMessaging::WaitMessage;
 
 use crate::overlay::Panel;
@@ -370,6 +370,12 @@ struct App {
     saved_pos: (i32, i32),
     /// What the diagnostics buttons last did, shown under the controls.
     note: String,
+    /// The report waiting to be shown in the file manager, once the timer fires.
+    ///
+    /// `ShellExecuteW` from a spawned thread worked exactly once and then silently stopped, so the
+    /// reveal is a window timer on the panel's own thread instead: one event, one place, no
+    /// cross-thread shell calls.
+    reveal: Option<std::path::PathBuf>,
     /// Inside the window manager's modal sizing loop: the frame loop is blocked there, so frames are
     /// painted from `WM_PAINT` instead.
     sizing: bool,
@@ -412,6 +418,8 @@ enum Resize {
 
 /// The id this window registers its hotkey under; `WM_HOTKEY` carries it back.
 const HOTKEY_ID: i32 = 1;
+/// The timer that opens the file manager once the browser has had a moment.
+const REVEAL_TIMER_ID: usize = 2;
 /// `MOD_NOREPEAT`: holding the key must not toggle the panel on every auto-repeat.
 const MOD_NOREPEAT: u32 = 0x4000;
 
@@ -451,6 +459,7 @@ impl App {
             needs_fit: crate::config::load().panel_size.is_none(),
             saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
             note: String::new(),
+            reveal: None,
             sizing: false,
             // The size the window actually opened at, not what the file asked for: a saved size
             // that had to be fitted to a smaller screen must not be rewritten just because the
@@ -1015,10 +1024,12 @@ impl App {
                     // The page first, then the folder: a browser that opens *after* the file
                     // manager would cover it, and the point is to drag the file into the page.
                     open_url(&crate::diag::issue_url());
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(1200));
-                        reveal(&path);
-                    });
+                    // The page needs a moment to come up before the folder appears over it.
+                    self.reveal = Some(path);
+                    unsafe {
+                        let _ = KillTimer(Some(self.hwnd), REVEAL_TIMER_ID);
+                        SetTimer(Some(self.hwnd), REVEAL_TIMER_ID, 1200, None);
+                    }
                 }
                 Err(e) => self.note = format!("diagnostics failed: {e}"),
             }
@@ -1349,6 +1360,16 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             let mut guard = cell.try_borrow_mut().ok()?;
             let app = guard.as_mut()?;
             match msg {
+                WM_TIMER => {
+                    if wparam.0 == REVEAL_TIMER_ID {
+                        let _ = unsafe { KillTimer(Some(app.hwnd), REVEAL_TIMER_ID) };
+                        if let Some(path) = app.reveal.take() {
+                            reveal(&path);
+                        }
+                        return Some(LRESULT(0));
+                    }
+                    None
+                }
                 WM_HOTKEY => {
                     if wparam.0 as i32 == HOTKEY_ID {
                         let settled = app
