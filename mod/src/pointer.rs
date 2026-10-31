@@ -36,6 +36,13 @@ static PANEL_HWND: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 /// The game's window and its own window procedure, kept so ours can chain to it.
 static GAME_HWND: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static GAME_WNDPROC: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+/// `GCLP_HCURSOR`: the index `SetClassLongPtrW` takes for the window class's cursor.
+const GCLP_HCURSOR: i32 = -12;
+/// The class cursor the game's window had before we replaced it, so closing the panel can put the
+/// game's own (absent) cursor back.
+static GAME_CLASS_CURSOR: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+/// Whether the "clip to the panel" line has been written.
+static CLIP_LOGGED: AtomicBool = AtomicBool::new(false);
 /// Whether the "cursor supplied for the game's window" line has been written.
 static GAME_CURSOR_LOGGED: AtomicBool = AtomicBool::new(false);
 /// Pushes made from the *game's* thread. `ShowCursor`'s counter lives in the calling thread's input
@@ -57,6 +64,7 @@ extern "system" {
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
     fn SetWindowLongPtrW(hwnd: *mut u8, index: i32, value: isize) -> isize;
+    fn SetClassLongPtrW(hwnd: *mut u8, index: i32, value: isize) -> isize;
 }
 
 #[repr(C)]
@@ -102,6 +110,10 @@ pub fn adopt_game_window(hwnd: usize) {
         }
         GAME_WNDPROC.store(previous as *mut (), Ordering::Release);
         GAME_HWND.store(hwnd as *mut (), Ordering::Release);
+        // A cursor of its own is the lever that survives Wine's own cursor handling: with a class
+        // cursor set, the window manager's own enter-window path supplies it, no matter whether the
+        // game ever calls `DefWindowProc`, and no matter what the game's `SetCursor` asked for.
+        set_class_cursor(true);
         crate::log("pointer: game window adopted — its client gets the arrow while the panel is open");
     }
 }
@@ -127,6 +139,35 @@ unsafe extern "system" fn game_wndproc(hwnd: *mut u8, msg: u32, wparam: usize, l
     let chained: unsafe extern "system" fn(*mut u8, u32, usize, isize) -> isize =
         std::mem::transmute(original);
     chained(hwnd, msg, wparam, lparam)
+}
+
+/// Give the game's window class an arrow, or put back the (absent) cursor it had.
+///
+/// `WM_SETCURSOR` only reaches us if the game's own window procedure chains, which it does not have
+/// to; the class cursor is consulted by the window manager itself.
+fn set_class_cursor(on: bool) {
+    let hwnd = GAME_HWND.load(Ordering::Acquire) as *mut u8;
+    if hwnd.is_null() {
+        return;
+    }
+    unsafe {
+        if on {
+            let arrow = arrow();
+            if arrow.is_null() {
+                return;
+            }
+            let previous = SetClassLongPtrW(hwnd, GCLP_HCURSOR, arrow as isize);
+            if previous != 0 && GAME_CLASS_CURSOR.load(Ordering::Acquire).is_null() {
+                GAME_CLASS_CURSOR.store(previous as *mut (), Ordering::Release);
+                crate::log("pointer: game window class cursor set to the arrow");
+            }
+        } else {
+            let previous = GAME_CLASS_CURSOR.load(Ordering::Acquire);
+            if !previous.is_null() {
+                SetClassLongPtrW(hwnd, GCLP_HCURSOR, previous as isize);
+            }
+        }
+    }
 }
 
 fn panel_window() -> *mut u8 {
@@ -356,6 +397,7 @@ pub fn set_open(open: bool) {
     OPEN.store(open, Ordering::Relaxed);
     unsafe {
         if open {
+            set_class_cursor(true);
             confine_to_panel();
             CURSOR_REPORTED.store(false, Ordering::Relaxed);
             let visible = crate::input::game_shows_cursor();
@@ -371,6 +413,7 @@ pub fn set_open(open: bool) {
             // Unwind on the thread that raised the counter, not this one.
             CURSOR_RESTORE.store(true, Ordering::Relaxed);
             ClipCursor(std::ptr::null());
+            set_class_cursor(false);
             crate::log("pointer: panel closed, game has the pointer again");
         }
     }
@@ -390,7 +433,14 @@ fn confine_to_panel() {
         if GetWindowRect(panel, &mut rect) == 0 || rect.right <= rect.left || rect.bottom <= rect.top {
             return;
         }
-        ClipCursor(&rect);
+        let clipped = ClipCursor(&rect);
+        if !CLIP_LOGGED.swap(true, Ordering::Relaxed) {
+            crate::log(if clipped != 0 {
+                "pointer: pointer clipped to the panel"
+            } else {
+                "pointer: ClipCursor refused — the pointer can leave the panel, and the game hides it there"
+            });
+        }
     }
 }
 
