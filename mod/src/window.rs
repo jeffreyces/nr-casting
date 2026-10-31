@@ -121,8 +121,11 @@ struct Model {
     show_all: bool,
     /// The loaded character's name — the key the assignments are filed under.
     who: String,
-    /// INT/FAI/ARC as the game applies them, and a note when a rune or talisman is doing the work.
+    /// INT/FAI/ARC as the game applies them.
     stats: String,
+    /// The note that a rune or talisman is doing the work, empty when the base stats are what is
+    /// being used.
+    boost: String,
     /// How many spells the pickers are offering, against the whole table.
     listed: String,
     /// Rebuilt only when the filter or the character's stats change. The panel redraws every
@@ -153,6 +156,7 @@ impl Model {
             show_all: crate::config::load().show_all,
             who: "waiting for the player...".to_string(),
             stats: String::new(),
+            boost: String::new(),
             listed: String::new(),
             candidates: Rc::new(Vec::new()),
             candidates_key: String::new(),
@@ -166,21 +170,23 @@ impl Model {
         self.panel.set_filter(self.search.clone());
         self.panel.set_show_all(self.show_all);
         let listed = self.panel.candidates(&self.search).len();
-        let stats = crate::player_effective_stats()
-            .map(|(int, fai, arc)| {
-                // Say when a rune or talisman is doing the work, so a requirement the base
-                // stats do not meet does not read as a bug.
+        let (stats, boost) = match crate::player_effective_stats() {
+            Some((int, fai, arc)) => {
+                // Say when a rune or talisman is doing the work, so a requirement the base stats
+                // do not meet does not read as a bug.
                 let boosted = crate::player_stats().is_some_and(|base| base != (int, fai, arc));
-                format!(
-                    "INT {int}   FAI {fai}   ARC {arc}{}",
-                    if boosted { "   (incl. rune/talisman)" } else { "" }
+                (
+                    format!("INT {int}   FAI {fai}   ARC {arc}"),
+                    if boosted { "incl. rune/talisman".to_string() } else { String::new() },
                 )
-            })
-            .unwrap_or_else(|| "stats unavailable".to_string());
+            }
+            None => ("stats unavailable".to_string(), String::new()),
+        };
         // The character name is the key the assignments are filed under, so showing it says
         // which file the panel is editing.
         self.who = crate::character_name().unwrap_or_else(|| "no character".to_string());
         self.stats = stats;
+        self.boost = boost;
         self.listed = format!("{listed}/{} spells listed", self.panel.spell_count());
     }
 
@@ -236,6 +242,16 @@ struct PanelUi {
 unsafe fn build_ui(device: &ID3D11Device, scale: f32) -> Result<PanelUi, String> {
     let mut imgui = imgui::Context::create();
     imgui.set_ini_filename(None);
+    // imgui-rs 0.8 leaves `io.key_map` at Dear ImGui's default of -1, "unmapped", so every key
+    // shortcut was dead while typed characters arrived through `add_input_character`: Backspace,
+    // the arrow keys, Enter, Home/End and Ctrl+A/C/V all read `keys_down[-1]`. The map is the
+    // identity here — our `keys_down` indices are the `ImGuiKey` values themselves.
+    {
+        let io = imgui.io_mut();
+        for key in imgui::Key::VARIANTS {
+            io.key_map[key as usize] = key as u32;
+        }
+    }
     imgui.fonts().add_font(&[imgui::FontSource::DefaultFontData {
         config: Some(imgui::FontConfig {
             size_pixels: BASE_FONT_PX * scale,
@@ -670,10 +686,7 @@ impl App {
             .resizable(false)
             .movable(false)
             .collapsible(false)
-            // A short window scrolls instead of hiding the bottom of the layout: the content is
-            // taller than the space at some heights, and clipping it mid-row read as "the bottom
-            // border disappeared".
-            .scroll_bar(true)
+            .scroll_bar(false)
             .build(ui, || {
                 ui.text("nr-casting");
                 ui.separator();
@@ -701,14 +714,18 @@ impl App {
                 // information rather than as settings.
                 ui.text(format!("Character: {}", model.who));
                 ui.text_disabled(&model.stats);
-                ui.text_disabled(&model.listed);
+                if !model.boost.is_empty() {
+                    ui.text_disabled(&model.boost);
+                }
+                ui.spacing();
                 ui.spacing();
                 ui.set_next_item_width(ui.content_region_avail()[0]);
                 ui.input_text("##search", &mut model.search)
                     .hint("search spells by name")
                     .build();
+                ui.text_disabled(&model.listed);
                 let mut show = model.show_all;
-                if ui.checkbox("show everything", &mut show) {
+                if ui.checkbox("list everything", &mut show) {
                     model.show_all = show;
                     model.panel.set_show_all(show);
                 }
@@ -731,36 +748,30 @@ impl App {
 
                 ui.columns(1, "footer", false);
                 // ---- controls --------------------------------------------------------------
-                // The buttons and the scale picker sit in their own panel between the three
-                // columns and the help text, so the columns only ever hold spells and the
-                // controls only ever hold the panel's own settings.
-                let bar = ui.frame_height() + 10.0;
-                imgui::ChildWindow::new("controls")
-                    .size([ui.content_region_avail()[0], bar])
-                    .border(true)
-                    .build(ui, || {
-                        if ui.button("refresh") {
-                            model.reload();
-                        }
-                        ui.same_line();
-                        // Two characters with the same name, slot and appearance cannot be told
-                        // apart, so the file is shared; this clears it for the one that is loaded.
-                        if ui.button("reset slots") {
-                            crate::store::clear_character();
-                            model.reload();
-                        }
-                        ui.same_line();
-                        if ui.button("close") {
-                            // Handled after the frame: closing mid-frame would drop the state.
-                            assign = assign.or(Some((usize::MAX, 0)));
-                        }
-                        ui.same_line();
-                        ui.text("UI scale");
-                        ui.same_line();
-                        if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
-                            scale_choice = Some(choice);
-                        }
-                    });
+                // A section like the help text below it: a separator, the row, a separator. No
+                // frame of its own — the extra box only made the panel look smaller.
+                ui.separator();
+                if ui.button("refresh") {
+                    model.reload();
+                }
+                ui.same_line();
+                // Two characters with the same name, slot and appearance cannot be told apart, so
+                // the file is shared; this clears it for the one that is loaded.
+                if ui.button("reset slots") {
+                    crate::store::clear_character();
+                    model.reload();
+                }
+                ui.same_line();
+                if ui.button("close") {
+                    // Handled after the frame: closing mid-frame would drop the state.
+                    assign = assign.or(Some((usize::MAX, 0)));
+                }
+                ui.same_line();
+                ui.text("UI scale");
+                ui.same_line();
+                if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
+                    scale_choice = Some(choice);
+                }
                 ui.separator();
                 ui.text_disabled(
                     "Pad:  R1/R2 = right hand,  L1/L2 = left hand,  Y + R2 / Y + L2 = third spell,  \

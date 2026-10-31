@@ -228,12 +228,13 @@ With the panel installed:
 - **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L1 / Y+L2. **Right
   column**: the right-hand weapon with R1 / R2 / Y+R1 / Y+R2 (the fourth row first, matching
   slot order). Each row shows its mouse binding beside the pad one.
-  **Middle**: the character whose assignments are being edited, your INT/FAI/ARC, the spell
-  currently selected in game, search, `refresh` and `reset slots`. A footer spells out both
-  mappings.
+  **Middle**: the character whose assignments are being edited, your effective INT/FAI/ARC (and a
+  line saying when a rune or talisman is doing the work), a spell search box, how many spells the
+  pickers are offering, and `list everything`. Under the three columns, a controls row holds
+  `refresh`, `reset slots`, `close` and the UI scale; below it a footer spells out both mappings.
 - Dropdowns list only spells the character **owns** and **can cast** — requirements are checked
   against INT/FAI/ARC *including active effects*, so a Great Rune or a stat talisman counts and the
-  stats line says when it is doing the work. `show everything` bypasses both for planning a build.
+  stats line says when it is doing the work. `list everything` bypasses both for planning a build.
 - **Assignments survive upgrades.** They are filed on the weapon's base id (`33090000`, not
   `33090010`), so taking a staff to the smith no longer empties it. Slots files written by older
   versions are folded onto base ids the first time they are read.
@@ -268,7 +269,7 @@ Two consequences:
   accepted trade for never losing assignments mid-play.
 - **Assignments a character cannot cast are dropped when it loads**, which is what makes the
   shared-file case harmless: a fresh character never inherits spells its stats cannot use. The drop
-  is skipped while `show everything` is enabled, since that is planning mode and uncastable picks
+  is skipped while `list everything` is enabled, since that is planning mode and uncastable picks
   are the point. That toggle is saved to the ini (`show_all`), so planning mode survives a restart.
 
 `reset slots` in the panel clears the loaded character's assignments outright, for when you want a

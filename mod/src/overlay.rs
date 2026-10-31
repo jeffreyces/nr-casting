@@ -16,7 +16,7 @@
 //! ```
 //!
 //! A spell is offered only when the character owns it (a goods entry in the inventory)
-//! **and** the character's INT/FAI/ARC meet its requirement. `show everything` bypasses
+//! **and** the character's INT/FAI/ARC meet its requirement. `list everything` bypasses
 //! both, for planning a build the character cannot cast yet.
 //!
 //! While the panel is open the game's input messages are blocked and the cursor clip is
@@ -265,7 +265,7 @@ impl Panel {
         self.owned = spells;
     }
 
-    /// Owned **and** castable. `show everything` bypasses both gates.
+    /// Owned **and** castable. `list everything` bypasses both gates.
     fn offered(&self, spell: &Spell, stats: Option<(u32, u32, u32)>) -> bool {
         if self.show_all {
             return true;
