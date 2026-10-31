@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use imgui::{Condition, Ui};
+use imgui::{Condition, StyleColor, Ui};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::{
@@ -263,6 +263,11 @@ unsafe fn build_ui(device: &ID3D11Device, scale: f32) -> Result<PanelUi, String>
     // A fresh context carries the default style, so this scales exactly once however often the
     // panel is rescaled.
     imgui.style_mut().scale_all_sizes(scale);
+    // The panel draws its own frame on the foreground list (see `draw`). ImGui paints a window
+    // border on the window's own rect, expanded half a pixel outward, so a window that does not fit
+    // its buffer loses the right and bottom rules — which is what made the panel look frozen and
+    // un-resizable once it was dragged small.
+    imgui.style_mut().window_border_size = 0.0;
     imgui.style_mut().window_rounding = 4.0 * scale;
     imgui.style_mut().frame_rounding = 3.0 * scale;
     let renderer = imgui_dx11_renderer::Renderer::new(&mut imgui, device)
@@ -329,7 +334,20 @@ struct App {
     /// happen while a frame is being built.
     pending_scale: Option<f32>,
     /// A window resize waiting for the frame loop, which can run it outside the `App` borrow.
-    pending_resize: Option<f32>,
+    pending_resize: Option<Resize>,
+    /// Ask the frame loop to put the window back in the middle of the screen ("reset layout").
+    pending_center: bool,
+    /// A scale the window keeps while it is being fitted to its content.
+    ///
+    /// The panel's auto scale is derived from the window height, so shrinking the window to the
+    /// content would shrink the text, and the content with it — a feedback loop. The scale is held
+    /// for the fit and released the moment the player drags the window.
+    hold_scale: Option<f32>,
+    /// One-shot: nobody has sized this panel by hand, so it should open exactly as tall as its
+    /// content instead of at the design height with a band of empty space under it.
+    needs_fit: bool,
+    /// The saved corner, so a drag that moves nothing does not rewrite the file.
+    saved_pos: (i32, i32),
     /// The panel size last written to the ini, so a move/resize drag that changes nothing does not
     /// rewrite the file every time the window is nudged.
     saved_size: (u32, u32),
@@ -345,6 +363,19 @@ struct App {
     /// is shorter than the 620 px box it was designed in, and a fixed minimum forced that much empty
     /// space at the bottom of the panel.
     content_height: f32,
+}
+
+/// What the frame loop should do to the window once the frame is done.
+///
+/// `SetWindowPos` delivers `WM_SIZE` synchronously and the window procedure cannot borrow `App`
+/// while the frame that asked for the resize still holds it, so the request is taken out of the
+/// borrow and run by the loop.
+#[derive(Clone, Copy)]
+enum Resize {
+    /// The design box at this scale: a pinned UI scale owns the window.
+    Design(f32),
+    /// Exactly as tall as the layout used, no taller.
+    Fit(f32),
 }
 
 /// How often a live resize may rebuild the UI. A drag delivers a `WM_SIZE` per pixel; rebuilding
@@ -378,6 +409,10 @@ impl App {
             ui_scale: crate::config::load().ui_scale,
             pending_scale: None,
             pending_resize: None,
+            pending_center: false,
+            hold_scale: None,
+            needs_fit: crate::config::load().panel_size.is_none(),
+            saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
             // The size the window actually opened at, not what the file asked for: a saved size
             // that had to be fitted to a smaller screen must not be rewritten just because the
             // player moved the panel.
@@ -407,33 +442,39 @@ impl App {
         self.pending_scale = Some(target);
     }
 
-    /// Note that the window size changed; the ini write waits for the player to stop.
+    /// Note that the window moved or changed size; the ini write waits for the player to stop.
     ///
     /// A drag calls this on every `WM_SIZE`, and a slow deliberate drag can easily span several
     /// seconds, so the timer restarts each time and one write lands at the end of the drag — not
     /// one per pixel, and not one per drag when the player resizes twice in a row.
-    fn note_window_size(&mut self) {
+    fn note_window_geometry(&mut self) {
         let Some(size) = window_size(self.hwnd) else { return };
-        if size == self.saved_size {
+        let pos = window_pos(self.hwnd).unwrap_or(self.saved_pos);
+        if size == self.saved_size && pos == self.saved_pos {
             return;
         }
         self.pending_save = Some(Instant::now());
     }
 
-    /// Write the size once the player has stopped resizing for `SAVE_QUIET`.
-    fn flush_pending_size(&mut self) {
+    /// Write the size and corner once the player has stopped dragging for `SAVE_QUIET`.
+    fn flush_pending_geometry(&mut self) {
         let Some(since) = self.pending_save else { return };
         if since.elapsed() < SAVE_QUIET {
             return;
         }
         self.pending_save = None;
         let Some(size) = window_size(self.hwnd) else { return };
-        if size == self.saved_size {
+        let pos = window_pos(self.hwnd).unwrap_or(self.saved_pos);
+        if size == self.saved_size && pos == self.saved_pos {
             return;
         }
         self.saved_size = size;
-        crate::config::save_panel_size(Some(size));
-        crate::log(&format!("panel: size saved {}x{}", size.0, size.1));
+        self.saved_pos = pos;
+        crate::config::save_panel_geometry(Some(size), Some(pos));
+        crate::log(&format!(
+            "panel: geometry saved {}x{} at {},{}",
+            size.0, size.1, pos.0, pos.1
+        ));
     }
 
     /// The UI scale implied by the window's own size: the smaller of width/design and height/design.
@@ -452,8 +493,12 @@ impl App {
         rounded.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
     }
 
-    /// The scale to build the UI at: the player's choice, or the one the window's size implies.
+    /// The scale to build the UI at: a held scale while the window is fitted, then the player's
+    /// choice, then the one the window's size implies.
     fn target_scale(&self) -> f32 {
+        if let Some(held) = self.hold_scale {
+            return held.clamp(MIN_UI_SCALE, MAX_UI_SCALE);
+        }
         match self.ui_scale {
             Some(fixed) => fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE),
             None => self.auto_scale(),
@@ -466,13 +511,17 @@ impl App {
     /// window procedure cannot reach `App` while the frame that picked the scale is holding it —
     /// it would fall through to `DefWindowProcW` and the swap chain would keep its old size.
     fn set_ui_scale(&mut self, choice: Option<f32>) {
+        // Picking a scale is the player taking ownership of the text size: the fitted scale stops
+        // applying.
+        self.hold_scale = None;
+        self.needs_fit = false;
         self.ui_scale = choice;
         let scale = choice.unwrap_or_else(|| self.auto_scale());
         // A pinned scale owns the size (so it cannot be clipped); auto keeps the window it has and
         // remembers that size instead.
         let size = match choice {
             Some(scale) => {
-                self.pending_resize = Some(scale);
+                self.pending_resize = Some(Resize::Design(scale));
                 design_size(scale)
             }
             None => window_size(self.hwnd).unwrap_or_else(|| design_size(scale)),
@@ -685,6 +734,7 @@ impl App {
         let model = &mut self.model;
         let mut assign: Option<(usize, i32)> = None;
         let mut scale_choice: Option<Option<f32>> = None;
+        let mut reset_layout = false;
         // Where the layout ended up vertically, measured at the end of the frame.
         let mut used_height = 0.0f32;
 
@@ -692,6 +742,8 @@ impl App {
         model.refresh_candidates();
         let candidates = Rc::clone(&model.candidates);
 
+        // The window fills the display: its frame is drawn separately on the foreground list, so
+        // nothing here has to leave room for a border ImGui would clip.
         let size = ui.io().display_size;
         imgui::Window::new("nr-casting")
             .position([0.0, 0.0], Condition::Always)
@@ -768,6 +820,9 @@ impl App {
                 // A section like the help text below it: a separator, the row, a separator. No
                 // frame of its own — the extra box only made the panel look smaller.
                 ui.separator();
+                // Breathing room of its own: the row sits between two rules, and without a margin
+                // its buttons and the dropdown crowd the separators above and below.
+                vspace(ui, 10.0);
                 if ui.button("refresh") {
                     model.reload();
                 }
@@ -777,6 +832,13 @@ impl App {
                 if ui.button("reset slots") {
                     crate::store::clear_character();
                     model.reload();
+                }
+                ui.same_line();
+                // Back to the size and spot a first run would use: the way to see the first-open
+                // layout again (and to recover from a panel dragged off the screen) without
+                // hand-editing the ini.
+                if ui.button("reset layout") {
+                    reset_layout = true;
                 }
                 ui.same_line();
                 if ui.button("close") {
@@ -789,6 +851,7 @@ impl App {
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
                     scale_choice = Some(choice);
                 }
+                vspace(ui, 10.0);
                 ui.separator();
                 help_line(
                     ui,
@@ -810,11 +873,45 @@ impl App {
                     "Drag the title band to move the panel here; the window edges resize it.",
                 );
                 used_height = ui.cursor_pos()[1] + ui.clone_style().window_padding[1];
+                // The frame, drawn from the display size on the foreground list. Nothing the window
+                // does can clip it, so the edges stay visible — and the window keeps looking
+                // resizable — at any size.
+                let display = ui.io().display_size;
+                let thickness = (ui.text_line_height() / 15.0).clamp(1.0, 3.0);
+                let border = ui.clone_style().colors[StyleColor::Border as usize];
+                let half = thickness * 0.5;
+                ui.get_foreground_draw_list()
+                    .add_rect(
+                        [half, half],
+                        [display[0] - half - 1.0, display[1] - half - 1.0],
+                        border,
+                    )
+                    .thickness(thickness)
+                    .build();
             });
 
         // The window's minimum height follows what the layout used, so the panel can be dragged
         // down to the content instead of being forced to keep a designed-in empty band.
         self.content_height = used_height;
+        // First open: nobody has sized this panel by hand, so it opens exactly as tall as its
+        // content instead of at the design height with a band of empty space under the last line.
+        if self.needs_fit && used_height > 0.0 {
+            self.needs_fit = false;
+            self.hold_scale = Some(self.target_scale());
+            self.pending_resize = Some(Resize::Fit(used_height));
+        }
+        if reset_layout {
+            // Nothing is moved here: `SetWindowPos` delivers `WM_SIZE` synchronously and this frame
+            // still holds `App`. The frame loop does it once the borrow is released.
+            self.saved_size = (0, 0);
+            self.saved_pos = (0, 0);
+            self.pending_save = None;
+            self.hold_scale = None;
+            self.needs_fit = true;
+            self.pending_center = true;
+            crate::config::save_panel_geometry(None, None);
+            crate::log("panel: layout reset (size and position back to the first-open defaults)");
+        }
 
         if let Some((index, spell_id)) = assign {
             if index == usize::MAX {
@@ -1194,8 +1291,15 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         let _ = InvalidateRect(Some(app.hwnd), None, true);
                         let _ = UpdateWindow(app.hwnd);
                     }
-                    // The player finished a drag: start the quiet period for the saved size.
-                    app.note_window_size();
+                    // The player finished a drag. A move is not a resize: the fitted scale is only
+                    // stale once the window no longer matches the content it was fitted to, and
+                    // dropping it on a move would shrink the text and leave a fresh band of empty
+                    // space at the bottom.
+                    let client = client_height(app.hwnd);
+                    if (client - app.content_height).abs() > 4.0 {
+                        app.hold_scale = None;
+                    }
+                    app.note_window_geometry();
                     Some(LRESULT(0))
                 }
                 WM_SIZE => {
@@ -1238,7 +1342,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     }
                     // Every pixel of a drag lands here, so this only restarts the quiet timer.
                     // The UI follows the new size from the frame loop (`follow_window_scale`).
-                    app.note_window_size();
+                    app.note_window_geometry();
                     Some(LRESULT(0))
                 }
                 WM_MOUSEMOVE => {
@@ -1315,6 +1419,70 @@ fn window_size(hwnd: HWND) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
+/// The panel's client height in pixels: the area the layout is drawn into.
+fn client_height(hwnd: HWND) -> f32 {
+    let mut rect = RECT::default();
+    if unsafe { GetClientRect(hwnd, &mut rect) }.is_err() {
+        return 0.0;
+    }
+    (rect.bottom - rect.top).max(0) as f32
+}
+
+/// The panel window's current top-left corner, in screen pixels.
+fn window_pos(hwnd: HWND) -> Option<(i32, i32)> {
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+    Some((rect.left, rect.top))
+}
+
+/// Put the panel back in the middle of the screen, clamped so no part of it leaves the desktop.
+fn center_window(hwnd: HWND) {
+    let (Some((width, height)), screen_width, screen_height) = (
+        window_size(hwnd),
+        unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0),
+        unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0),
+    ) else {
+        return;
+    };
+    let x = ((screen_width - width as i32) / 2).max(0);
+    let y = ((screen_height - height as i32) / 2).max(0);
+    let _ = unsafe {
+        SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+    };
+}
+
+/// Resize the window so its client area is exactly as tall as the layout used.
+///
+/// The non-client height (the WS_THICKFRAME sizing border) has to be added back, or the content
+/// would lose those few pixels off the bottom every time the panel is fitted.
+fn fit_window_height(hwnd: HWND, content_height: f32) {
+    let mut outer = RECT::default();
+    let mut client = RECT::default();
+    let measured = unsafe {
+        (
+            GetWindowRect(hwnd, &mut outer),
+            GetClientRect(hwnd, &mut client),
+        )
+    };
+    if measured.0.is_err() || measured.1.is_err() {
+        return;
+    }
+    let frame_height = (outer.bottom - outer.top) - (client.bottom - client.top);
+    let height = content_height.ceil() as i32 + frame_height.max(0);
+    let width = outer.right - outer.left;
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            width,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+}
+
 /// Fit a saved size to this screen: a panel saved on a 4K TV must not open bigger than a 1080p one.
 fn fit_to_screen(size: (u32, u32)) -> (u32, u32) {
     let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0) as u32;
@@ -1345,6 +1513,23 @@ fn initial_window_size() -> (i32, i32) {
     (width as i32, height as i32)
 }
 
+/// The corner the panel opens at: the one the player left it at, or the default spot.
+///
+/// A saved corner from a monitor that is no longer attached would otherwise open the panel somewhere
+/// the player cannot see it, so it is clamped to leave the title band reachable.
+fn initial_window_pos() -> (i32, i32) {
+    let (x, y) = crate::config::load().panel_pos.unwrap_or((80, 80));
+    let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0);
+    let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0);
+    if screen_width == 0 || screen_height == 0 {
+        return (x, y);
+    }
+    (
+        x.clamp(0, (screen_width - 200).max(0)),
+        y.clamp(0, (screen_height - 120).max(0)),
+    )
+}
+
 fn create_window() -> Option<HWND> {
     unsafe {
         let instance = GetModuleHandleW(PCWSTR::null()).ok()?;
@@ -1352,6 +1537,8 @@ fn create_window() -> Option<HWND> {
         let title = wide("nr-casting - spell slots");
         // A pinned `ui_scale` decides the size, then the one the player saved, then the screen.
         let (width, height) = initial_window_size();
+        // Where the player last parked it, kept on the desktop.
+        let (x, y) = initial_window_pos();
         let class = WNDCLASSW {
             lpfnWndProc: Some(wnd_proc),
             hInstance: instance.into(),
@@ -1367,8 +1554,8 @@ fn create_window() -> Option<HWND> {
             PCWSTR(class_name.as_ptr()),
             PCWSTR(title.as_ptr()),
             WS_POPUP | WS_THICKFRAME,
-            80,
-            80,
+            x,
+            y,
             width,
             height,
             None,
@@ -1448,15 +1635,24 @@ pub fn start() {
                         app.render();
                     }
                     // Outside the `shown` check: closing the panel right after a resize must
-                    // still save the size.
-                    app.flush_pending_size();
+                    // still save the geometry.
+                    app.flush_pending_geometry();
                     // Taken out here and run below, outside the borrow: the resize delivers
                     // window messages, and the window procedure cannot borrow `App` twice.
-                    app.pending_resize.take().map(|scale| (app.hwnd, scale))
+                    let center = std::mem::take(&mut app.pending_center);
+                    let resize = app.pending_resize.take();
+                    (resize.is_some() || center).then_some((app.hwnd, resize, center))
                 })
             }));
-            if let Ok(Some((hwnd, scale))) = frame {
-                size_window(hwnd, scale);
+            if let Ok(Some((hwnd, resize, center))) = frame {
+                if center {
+                    center_window(hwnd);
+                }
+                match resize {
+                    Some(Resize::Design(scale)) => size_window(hwnd, scale),
+                    Some(Resize::Fit(height)) => fit_window_height(hwnd, height),
+                    None => {}
+                }
             }
             if frame.is_err() {
                 crate::log(

@@ -503,6 +503,26 @@ pub fn panel_size(text: &str) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
+/// The panel window's saved top-left corner: `auto` (or `0,0`) means "use the default spot".
+///
+/// Negative coordinates are allowed — a panel parked on a monitor to the left of the primary has
+/// a negative x, and refusing that would put it back on the primary every launch.
+pub fn panel_pos(text: &str) -> Option<(i32, i32)> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("auto") {
+        return Some((0, 0));
+    }
+    let (x, y) = text.split_once(',').or_else(|| text.split_once(['x', 'X']))?;
+    let x: i32 = x.trim().parse().ok()?;
+    let y: i32 = y.trim().parse().ok()?;
+    // Beyond this a saved position is a typo or a monitor that no longer exists; the clamp to the
+    // screen at open time handles the rest.
+    if x.abs() > 32768 || y.abs() > 32768 {
+        return None;
+    }
+    Some((x, y))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1053,5 +1073,18 @@ mod raw_tests {
         assert_eq!(panel_size("1800"), None);
         assert_eq!(panel_size("1800x"), None);
         assert_eq!(panel_size("huge"), None);
+    }
+
+    #[test]
+    fn panel_pos_reads_a_saved_corner() {
+        assert_eq!(panel_pos("auto"), Some((0, 0)));
+        assert_eq!(panel_pos("120,80"), Some((120, 80)));
+        assert_eq!(panel_pos(" 1920 , 40 "), Some((1920, 40)));
+        // A monitor to the left of the primary has a negative origin.
+        assert_eq!(panel_pos("-1920,120"), Some((-1920, 120)));
+        assert_eq!(panel_pos("1920x40"), Some((1920, 40)));
+        assert_eq!(panel_pos("left"), None);
+        assert_eq!(panel_pos("120"), None);
+        assert_eq!(panel_pos("100000,80"), None);
     }
 }

@@ -41,6 +41,9 @@ pub struct Config {
     /// The panel window's size, as saved when the player last resized it. `None` = auto: size the
     /// window from the screen. Only used when `ui_scale` is auto — a pinned scale decides the size.
     pub panel_size: Option<(u32, u32)>,
+    /// The panel window's top-left corner, as saved when the player last moved it. `None` = the
+    /// default spot (80, 80), clamped onto the screen. Saved with the size, one ini write.
+    pub panel_pos: Option<(i32, i32)>,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
     /// Panel planning mode: list spells the character cannot cast yet. Persisted when toggled.
@@ -99,6 +102,7 @@ impl Default for Config {
             ui_scale: None,
             ui_scale_name: "auto".to_string(),
             panel_size: None,
+            panel_pos: None,
             debug_log: false,
             show_all: false,
             hud_mirror: false,
@@ -310,13 +314,20 @@ pub fn save_show_all(show: bool) {
     save_ui_key("show_all", if show { "on" } else { "off" });
 }
 
-/// Remember the panel window's size (`None` = auto) across sessions.
-pub fn save_panel_size(size: Option<(u32, u32)>) {
-    let value = match size {
+/// Remember the panel window's size and corner in one ini write.
+///
+/// Both change during the same drag — moving and resizing are the same gesture as far as the player
+/// is concerned — so they are written together, once, after the drag settles.
+pub fn save_panel_geometry(size: Option<(u32, u32)>, pos: Option<(i32, i32)>) {
+    let size = match size {
         Some((width, height)) => format!("{width}x{height}"),
         None => "auto".to_string(),
     };
-    save_ui_key("panel_size", &value);
+    let pos = match pos {
+        Some((x, y)) => format!("{x},{y}"),
+        None => "auto".to_string(),
+    };
+    save_ui_keys("ui", &[("panel_size", &size), ("panel_pos", &pos)]);
 }
 
 /// Remember a UI scale and the window size that goes with it in one ini write.
@@ -423,6 +434,7 @@ show_all = off
 ui_scale = auto
 ; Panel window size, saved when you resize the panel. auto sizes it from the screen; WxH pins it.
 panel_size = auto
+panel_pos = auto
 ; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off: the wheel
 ; stays yours (on, it rewrites the selection ~30x a second and fights your D-pad scrolling).
 hud_mirror = off
@@ -531,6 +543,14 @@ debug_log = off
                         None => crate::log(&format!(
                             "config: panel_size '{value}' is not recognised (auto or WxH, at least \
                              900x620); sizing the panel from the screen"
+                        )),
+                    },
+                    "panel_pos" => match nr_casting_core::panel_pos(value) {
+                        Some((0, 0)) => config.panel_pos = None,
+                        Some(pos) => config.panel_pos = Some(pos),
+                        None => crate::log(&format!(
+                            "config: panel_pos '{value}' is not recognised (auto or X,Y); \
+                             opening the panel at its default spot"
                         )),
                     },
                     "hud_mirror" => config.hud_mirror = truthy(value),

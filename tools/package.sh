@@ -42,6 +42,8 @@ show_all = off
 ui_scale = auto
 ; Panel window size: auto sizes it from the screen. Saved when you resize the panel.
 panel_size = auto
+; Panel window position: auto opens at the default spot. Saved when you drag the panel.
+panel_pos = auto
 ; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off by default:
 ; on, it rewrites the selection ~30x a second and fights your D-pad scrolling.
 hud_mirror = off
