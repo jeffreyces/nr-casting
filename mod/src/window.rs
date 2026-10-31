@@ -969,7 +969,7 @@ impl App {
                 help_line(
                     ui,
                     "Bug reports: the diagnostics button writes one file (log, GPU, CPU, modules, \
-                     frame times) and opens the issue page — no ini setting needed.",
+                     frame times) and opens the issue page. No ini setting needed.",
                 );
                 used_height = ui.cursor_pos()[1] + ui.clone_style().window_padding[1];
                 // The same layout at 100%, so the auto scale can compare a window to the content it
@@ -1017,7 +1017,7 @@ impl App {
                         .unwrap_or_default();
                     copy_to_clipboard(&path.display().to_string());
                     self.note = format!(
-                        "wrote {name} ({} KB). Path copied — paste it into the file dialog, or \
+                        "wrote {name} ({} KB). Path copied; paste it into the file dialog, or \
                          drag the selected file onto the issue page.",
                         size / 1024
                     );
@@ -1278,16 +1278,16 @@ fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32
     let pixels = |scale: f32| (BASE_FONT_PX * scale).round() as i32;
     let preview = match current {
         Some(scale) => format!(
-            "{:.0}% — {} px##ui_scale_preview",
+            "{:.0}% - {} px##ui_scale_preview",
             scale * 100.0,
             pixels(scale)
         ),
-        None => format!("auto — {} px##ui_scale_preview", pixels(auto)),
+        None => format!("auto - {} px##ui_scale_preview", pixels(auto)),
     };
     let mut chosen = None;
     if let Some(_combo) = ui.begin_combo("##ui_scale", preview) {
         if imgui::Selectable::new(format!(
-            "auto — follows the window ({} px)##ui_scale_auto",
+            "auto - follows the window ({} px)##ui_scale_auto",
             pixels(auto)
         ))
         .selected(current.is_none())
@@ -1299,7 +1299,7 @@ fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32
             let percent = (scale * 100.0).round() as i32;
             let pinned = current.is_some_and(|value| (value - scale).abs() < 0.01);
             if imgui::Selectable::new(format!(
-                "{percent}% — {} px##ui_scale_{percent}",
+                "{percent}% - {} px##ui_scale_{percent}",
                 pixels(scale)
             ))
             .selected(pinned)
