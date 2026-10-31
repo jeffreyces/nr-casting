@@ -207,6 +207,20 @@ struct ChordPress {
 static Y_SUPPRESS_UNTIL: AtomicU32 = AtomicU32::new(0);
 const Y_SUPPRESS_MS: u32 = 700;
 
+/// How long the borrowed magic entry outlives the pad report that steered it.
+///
+/// The entry used to go back on the first poll without a spell input held, on the assumption that a
+/// pad cast is performed by the report it arrives in. It is *started* by that report, but the spell
+/// the animation casts is read a frame or two later — the same delay that made the mouse path cast
+/// the wheel's spell (see `hold_borrowed`). A quick tap is short enough that the release lands
+/// inside that window: the entry goes back to the player's wheel spell, and a catalyst that cannot
+/// cast it performs the "casting failed" gesture instead of the spell that was bound. Holding the
+/// entry a little past release is what makes the first tap work, not the second.
+///
+/// 250 ms: long enough for a buffered action, short enough that the player's own wheel selection is
+/// effectively never held hostage.
+const PAD_BORROW_HOLD_MS: u32 = 250;
+
 /// Whether the previous report already had Y down. A press that brings Y and the button in the
 /// same report was never seen by the game as "Y held", so it needs no staged release.
 static Y_BEFORE: AtomicBool = AtomicBool::new(false);
@@ -1006,18 +1020,25 @@ fn adjust_inner(state: &mut XInputState) {
         // rewritten in place: skipping it handed the game Y+R2 (the chord) and the staff got
         // two-handed instead of a spell cast. This is pad-only work, so it happens before any
         // game-memory check: a world that is not readable yet must not let a chord through.
+        //
+        // The steer happens here too, not only on the full pass: a press whose first report we see
+        // on a repeat used to be rewritten with nothing steered, which is the game casting the
+        // wheel's spell. `press_cast` costs two atomic reads when the entry already holds `bound`.
         if let Some(press) = chord {
             if press.spell > 0 {
-                rewrite_cast(pad, press.right_hand, now);
+                press_cast(pad, press.right_hand, press.spell, press.label, now);
             } else {
                 swallow_chord(pad);
             }
         } else if let Route::Cast {
-            right_hand, slot, ..
+            right_hand,
+            slot,
+            label,
         } = route
         {
-            if bound_spell(right_hand, slot) > 0 {
-                rewrite_cast(pad, right_hand, now);
+            let bound = bound_spell(right_hand, slot);
+            if bound > 0 {
+                press_cast(pad, right_hand, bound, label, now);
             }
         }
         return;
@@ -1078,13 +1099,13 @@ fn adjust_inner(state: &mut XInputState) {
 
     // Make the report safe before asking whether the world is readable: a chord that reaches the
     // game while pointers are being re-validated is a two-hand, and the pad edit needs no game
-    // memory at all.
-    if let Some(press) = chord {
-        if press.spell > 0 {
-            rewrite_cast(pad, press.right_hand, now);
-        } else {
-            swallow_chord(pad);
-        }
+    // memory at all. Safe means *swallowed*, not "rewritten into a cast": the steer is a game-memory
+    // write that has not happened yet at this point, so a shoulder press sent from here would cast
+    // whatever the wheel held — the "casting failed" gesture whenever that spell belongs to the
+    // other hand's catalyst. The press is rebuilt below, once the world is readable and the entry
+    // actually holds the spell.
+    if chord.is_some() {
+        swallow_chord(pad);
     }
 
     probe::maybe_validate();
@@ -1331,22 +1352,39 @@ fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad, now
         debug!("input: {which} has no bound spell");
         return false;
     }
-    rewrite_cast(pad, right, now);
+    press_cast(pad, right, bound, which, now)
+}
+
+/// Steer the wheel at `bound`, then turn this report's spell input into the cast press.
+///
+/// The order is the whole point: **the press is only written once the entry actually holds the spell
+/// it is meant to cast.** Writing the shoulder first and steering after meant a failed steer — an
+/// unreadable magic-data pointer, an empty entry list — still handed the game a cast press, and the
+/// game performed it against whatever the wheel held. On a staff with an incantation on the wheel
+/// that is the "casting failed" gesture, and the player has to press again. A press that cannot be
+/// steered is swallowed instead: nothing is better than the wrong spell.
+fn press_cast(pad: &mut XInputGamepad, right: bool, bound: i32, which: &str, now: u32) -> bool {
     // Steering is a write to game memory behind two readability checks and two locks. It is only
     // needed once per press: after that the borrowed entry already holds the spell and the
     // selection already points at it. Redoing it on every poll of a held button was real work at
     // up to 125 Hz that changed nothing — the per-poll cost most likely to be felt as a hitch
     // while casting. Skip it while the borrow and the selection both still agree.
-    if crate::game::steered_spell() == bound && selection_is(bound) {
-        return true;
-    }
-    if !select_spell(bound) {
-        debug!("input: {which} bound to {bound} but magic data unreadable");
+    let steered = crate::game::steered_spell() == bound && selection_is(bound);
+    if !steered && !select_spell(bound) {
+        debug!("input: {which} bound to {bound} but magic data unreadable — press swallowed");
+        swallow_chord(pad);
         return false;
     }
-    let key = (slot as u32) << 1 | u32::from(right);
+    rewrite_cast(pad, right, now);
+    // Keep the entry steered past the press: the game's own read of it must not land after the
+    // restore (see `PAD_BORROW_HOLD_MS`).
+    crate::game::hold_borrowed(PAD_BORROW_HOLD_MS);
+    let key = (bound as u32) << 1 | u32::from(right);
     if LAST_INPUT.swap(key, Ordering::Relaxed) != key {
-        debug!("{which} -> spell {bound}");
+        debug!(
+            "{which} -> spell {bound} ({})",
+            if steered { "already steered" } else { "steered" }
+        );
     }
     true
 }
