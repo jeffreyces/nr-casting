@@ -247,7 +247,11 @@ fn run() {
         probe::maybe_validate();
         // A reload destroys the character and builds a new one. Logging the edge is what tells
         // us whether a freeze happened while we were holding game memory.
-        let character = game::character_key();
+        //
+        // Read only while a world exists: the key walks game memory and allocates a string, and
+        // on the title screen there is nothing there to read.
+        let world_live = player().is_some();
+        let character = if world_live { game::character_key() } else { None };
         if character != last_character {
             last_character = character;
             if let Some((name, id)) = last_character.as_ref() {
@@ -259,14 +263,10 @@ fn run() {
                 ));
             }
         }
-        let world_live = player().is_some();
         if world_live != world_was_live {
             world_was_live = world_live;
             if world_live {
                 log("world: character present");
-                // The frame series belongs to this character: start the five minutes the report
-                // wants from here, and let the diagnostics button count them down.
-                crate::perf::restart_series();
                 // Assignments are per character: switch the store to this one's file before
                 // anything reads a slot.
                 crate::store::sync_character();
