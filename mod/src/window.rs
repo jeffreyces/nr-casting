@@ -1648,12 +1648,40 @@ fn design_size(scale: f32) -> (u32, u32) {
 }
 
 /// The panel's current outer size, in pixels.
-fn window_size(hwnd: HWND) -> Option<(u32, u32)> {
+/// The window and the screen, in one place: every caller wanted the same rectangle or the same
+/// two `GetSystemMetrics` calls, and each was free to disagree about the clamping.
+fn window_rect(hwnd: HWND) -> Option<RECT> {
     let mut rect = RECT::default();
     unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+    Some(rect)
+}
+
+fn window_size(hwnd: HWND) -> Option<(u32, u32)> {
+    let rect = window_rect(hwnd)?;
     let width = (rect.right - rect.left).max(1) as u32;
     let height = (rect.bottom - rect.top).max(1) as u32;
     Some((width, height))
+}
+
+/// The primary screen, or `None` when there is no display to measure.
+fn screen_size() -> Option<(i32, i32)> {
+    let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+/// `(x, y)` moved so at least `visible` pixels of the window stay on the desktop.
+///
+/// A saved corner from a monitor that is no longer attached would otherwise put the panel
+/// somewhere the player cannot reach it.
+fn clamp_to_screen(x: i32, y: i32, visible: (i32, i32)) -> (i32, i32) {
+    let Some((screen_width, screen_height)) = screen_size() else {
+        return (x, y);
+    };
+    (
+        x.clamp(0, (screen_width - visible.0).max(0)),
+        y.clamp(0, (screen_height - visible.1).max(0)),
+    )
 }
 
 /// How thick the panel's frame is, in pixels, at the current text scale.
@@ -1663,22 +1691,23 @@ fn border_width(ui: &Ui) -> f32 {
 
 /// The panel window's current top-left corner, in screen pixels.
 fn window_pos(hwnd: HWND) -> Option<(i32, i32)> {
-    let mut rect = RECT::default();
-    unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+    let rect = window_rect(hwnd)?;
     Some((rect.left, rect.top))
 }
 
 /// Put the panel back in the middle of the screen, clamped so no part of it leaves the desktop.
 fn center_window(hwnd: HWND) {
-    let (Some((width, height)), screen_width, screen_height) = (
-        window_size(hwnd),
-        unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0),
-        unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0),
-    ) else {
+    let Some(((width, height), (screen_width, screen_height))) =
+        window_size(hwnd).zip(screen_size())
+    else {
         return;
     };
-    let x = ((screen_width - width as i32) / 2).max(0);
-    let y = ((screen_height - height as i32) / 2).max(0);
+    // The whole window, since the point of centring is that all of it is visible.
+    let (x, y) = clamp_to_screen(
+        ((screen_width - width as i32) / 2).max(0),
+        ((screen_height - height as i32) / 2).max(0),
+        (width as i32, height as i32),
+    );
     let _ = unsafe {
         SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
     };
@@ -1824,15 +1853,8 @@ fn open_url(url: &str) -> bool {
 /// the player cannot see it, so it is clamped to leave the title band reachable.
 fn initial_window_pos() -> (i32, i32) {
     let (x, y) = crate::config::load().panel_pos.unwrap_or((80, 80));
-    let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0);
-    let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0);
-    if screen_width == 0 || screen_height == 0 {
-        return (x, y);
-    }
-    (
-        x.clamp(0, (screen_width - 200).max(0)),
-        y.clamp(0, (screen_height - 120).max(0)),
-    )
+    // Enough of the title band left on screen to grab and drag.
+    clamp_to_screen(x, y, (200, 120))
 }
 
 fn create_window() -> Option<HWND> {
