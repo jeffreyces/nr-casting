@@ -49,7 +49,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE, GetSystemMetrics, SM_CXSCREEN,
-    SM_CYSCREEN, SWP_FRAMECHANGED,
+    SM_CYSCREEN, SWP_FRAMECHANGED, GetDesktopWindow,
 };
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
 
@@ -339,6 +339,12 @@ struct App {
     /// When the window size last changed without being saved. The write happens once the player
     /// has stopped resizing, not on every drag.
     pending_save: Option<Instant>,
+    /// How tall the layout actually was on the last frame, in pixels.
+    ///
+    /// The window's minimum height comes from this rather than from the design constant: the layout
+    /// is shorter than the 620 px box it was designed in, and a fixed minimum forced that much empty
+    /// space at the bottom of the panel.
+    content_height: f32,
 }
 
 /// How often a live resize may rebuild the UI. A drag delivers a `WM_SIZE` per pixel; rebuilding
@@ -378,6 +384,7 @@ impl App {
             saved_size: window_size(hwnd).unwrap_or((0, 0)),
             last_scale: Instant::now(),
             pending_save: None,
+            content_height: 0.0,
         }
     }
 
@@ -639,16 +646,20 @@ impl App {
         self.model.panel.set_visible(open);
         unsafe {
             if open {
-                let _ = ShowWindow(self.hwnd, SW_SHOW);
-            }
-            if open {
+                // Read the foreground window *before* showing ourselves: showing a topmost popup
+                // makes it the foreground window under Wine, and then this would adopt the panel
+                // itself — which is why the subclass never ran in the last session.
                 let previous = GetForegroundWindow();
-                if !previous.0.is_null() && previous != self.hwnd {
-                    // The window we just took focus from is the game's; give it a cursor so the
-                    // pointer is visible over it while the panel is open.
+                if !previous.0.is_null()
+                    && previous != self.hwnd
+                    && previous != GetDesktopWindow()
+                {
+                    // The window we are about to take focus from is the game's; give it a cursor so
+                    // the pointer is visible over it while the panel is open.
                     crate::pointer::adopt_game_window(previous.0 as usize);
                     self.previous_foreground = Some(previous);
                 }
+                let _ = ShowWindow(self.hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(self.hwnd);
             } else if let Some(previous) = self.previous_foreground.take() {
                 // Focus goes back to the game *before* our window disappears: once the popup is
@@ -674,6 +685,8 @@ impl App {
         let model = &mut self.model;
         let mut assign: Option<(usize, i32)> = None;
         let mut scale_choice: Option<Option<f32>> = None;
+        // Where the layout ended up vertically, measured at the end of the frame.
+        let mut used_height = 0.0f32;
 
         // Recomputed each frame so the search box takes effect immediately.
         model.refresh_candidates();
@@ -751,13 +764,6 @@ impl App {
                 }
 
                 ui.columns(1, "footer", false);
-                // Push the controls row and the help text to the bottom of the window so the
-                // slack lands inside the columns area instead of as a dark band under everything.
-                let line = ui.text_line_height_with_spacing();
-                let controls = ui.frame_height() + 2.0 * ui.clone_style().window_padding[1];
-                let help = line * 7.0; // the help lines, with room for the wrapping ones
-                let slack = (ui.content_region_avail()[1] - controls - help).max(0.0);
-                vspace(ui, slack);
                 // ---- controls --------------------------------------------------------------
                 // A section like the help text below it: a separator, the row, a separator. No
                 // frame of its own — the extra box only made the panel look smaller.
@@ -803,7 +809,12 @@ impl App {
                     ui,
                     "Drag the title band to move the panel here; the window edges resize it.",
                 );
+                used_height = ui.cursor_pos()[1] + ui.clone_style().window_padding[1];
             });
+
+        // The window's minimum height follows what the layout used, so the panel can be dragged
+        // down to the content instead of being forced to keep a designed-in empty band.
+        self.content_height = used_height;
 
         if let Some((index, spell_id)) = assign {
             if index == usize::MAX {
@@ -1130,11 +1141,23 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         let (width, height) = design_size(scale);
                         let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0) as u32;
                         let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0) as u32;
+                        // Height: what the layout actually used, once a frame has been drawn. Width:
+                        // the design width at this scale, which is what the three columns need.
+                        let minimum_height = if app.content_height > 0.0 {
+                            app.content_height
+                        } else {
+                            height as f32
+                        };
+                        // Never more than the design box at this scale: a layout that overflows a
+                        // too-short window would otherwise push its own minimum up and trap the
+                        // window at whatever size it was left in.
+                        let minimum_height = minimum_height.min(height as f32);
                         unsafe {
                             (*info).ptMinTrackSize.x =
                                 width.min(screen_width.saturating_sub(160)).max(600) as i32;
-                            (*info).ptMinTrackSize.y =
-                                height.min(screen_height.saturating_sub(160)).max(400) as i32;
+                            (*info).ptMinTrackSize.y = (minimum_height
+                                .min(screen_height.saturating_sub(160) as f32)
+                                .max(400.0)) as i32;
                         }
                     }
                     Some(LRESULT(0))
@@ -1192,8 +1215,23 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                                 Default::default(),
                             ) {
                                 crate::log(&format!("panel: resize failed: {e}"));
-                            } else {
-                                debug!("panel: swap chain now {width}x{height}");
+                            }
+                            // The swap chain is the truth about how many pixels exist, not the
+                            // client rect we just asked for. ImGui is told this size, and its window
+                            // is drawn with it: if the two ever disagree the window's right and
+                            // bottom edges fall outside the buffer and their borders simply vanish.
+                            if let Ok(desc) = gfx.swap_chain.GetDesc() {
+                                let buffer = (desc.BufferDesc.Width, desc.BufferDesc.Height);
+                                if buffer != (width, height) {
+                                    crate::log(&format!(
+                                        "panel: swap chain is {}x{} while the client is \
+                                         {width}x{height} — drawing at the buffer size",
+                                        buffer.0, buffer.1
+                                    ));
+                                    gfx.size = buffer;
+                                } else {
+                                    debug!("panel: swap chain now {width}x{height}");
+                                }
                             }
                             gfx.rebuild_view();
                         }
