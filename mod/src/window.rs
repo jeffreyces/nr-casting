@@ -342,12 +342,6 @@ struct App {
     pending_resize: Option<Resize>,
     /// Ask the frame loop to put the window back in the middle of the screen ("reset layout").
     pending_center: bool,
-    /// A scale the window keeps while it is being fitted to its content.
-    ///
-    /// The panel's auto scale is derived from the window height, so shrinking the window to the
-    /// content would shrink the text, and the content with it — a feedback loop. The scale is held
-    /// for the fit and released the moment the player drags the window.
-    hold_scale: Option<f32>,
     /// One-shot: nobody has sized this panel by hand, so it should open exactly as tall as its
     /// content instead of at the design height with a band of empty space under it.
     needs_fit: bool,
@@ -386,9 +380,6 @@ enum Resize {
     Fit(f32),
 }
 
-/// How often a live resize may rebuild the UI. A drag delivers a `WM_SIZE` per pixel; rebuilding
-/// the font atlas that often would stutter, and 8 a second is already smooth to the eye.
-const SCALE_REBUILD_MS: u128 = 120;
 /// How long the player has to stop resizing before the size is written to the ini.
 const SAVE_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -418,7 +409,6 @@ impl App {
             pending_scale: None,
             pending_resize: None,
             pending_center: false,
-            hold_scale: None,
             needs_fit: crate::config::load().panel_size.is_none(),
             saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
             sizing: false,
@@ -434,23 +424,6 @@ impl App {
 
     /// Follow the window's size while the player is still dragging.
     ///
-    /// A live resize used to wait for the drag to end, so the layout stayed at the old scale the
-    /// whole time and the panel looked like it refused to scale. The rebuild is throttled because
-    /// each one re-rasterises the font atlas and recompiles the renderer's shaders.
-    fn follow_window_scale(&mut self) {
-        let Some(scale) = self.gfx.as_ref().map(|gfx| gfx.scale) else {
-            return;
-        };
-        let target = self.target_scale();
-        if (scale - target).abs() < 0.02 {
-            return;
-        }
-        if self.last_scale.elapsed().as_millis() < SCALE_REBUILD_MS {
-            return;
-        }
-        self.pending_scale = Some(target);
-    }
-
     /// Note that the window moved or changed size; the ini write waits for the player to stop.
     ///
     /// A drag calls this on every `WM_SIZE`, and a slow deliberate drag can easily span several
@@ -486,31 +459,17 @@ impl App {
         ));
     }
 
-    /// The UI scale implied by the window's own size: the smaller of width/design and height/design.
-    ///
-    /// The smaller of the two because the layout is three columns side by side — growing the window
-    /// in one direction only should give the columns more room, not stretch the text.
-    fn auto_scale(&self) -> f32 {
-        let mut rect = RECT::default();
-        let _ = unsafe { GetClientRect(self.hwnd, &mut rect) };
-        let width = (rect.right - rect.left).max(1) as f32;
-        let height = (rect.bottom - rect.top).max(1) as f32;
-        let raw = (width / DESIGN_WIDTH).min(height / DESIGN_HEIGHT);
-        // Round to 5% so a framed window's client area (a few pixels inside the size it was
-        // created at) still lands on the scale it was meant to: 1.974 is 2.0, not 197%.
-        let rounded = (raw * 20.0).round() / 20.0;
-        rounded.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
-    }
 
-    /// The scale to build the UI at: a held scale while the window is fitted, then the player's
-    /// choice, then the one the window's size implies.
+    /// The scale to build the UI at: the player's choice, or the screen's.
+    ///
+    /// Deliberately *not* derived from the window: a scale that follows the window is a feedback
+    /// loop — shrinking the window shrinks the text, which shrinks the content, which allows a
+    /// smaller window — and in practice it only ever moved one way. The window decides how much
+    /// room the panel has; the font size is a choice.
     fn target_scale(&self) -> f32 {
-        if let Some(held) = self.hold_scale {
-            return held.clamp(MIN_UI_SCALE, MAX_UI_SCALE);
-        }
         match self.ui_scale {
             Some(fixed) => fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE),
-            None => self.auto_scale(),
+            None => monitor_scale(),
         }
     }
 
@@ -520,12 +479,10 @@ impl App {
     /// window procedure cannot reach `App` while the frame that picked the scale is holding it —
     /// it would fall through to `DefWindowProcW` and the swap chain would keep its old size.
     fn set_ui_scale(&mut self, choice: Option<f32>) {
-        // Picking a scale is the player taking ownership of the text size: the fitted scale stops
-        // applying.
-        self.hold_scale = None;
-        self.needs_fit = false;
+        // A new font size changes how tall the layout is, so the window is re-fitted to it below.
+        self.needs_fit = true;
         self.ui_scale = choice;
-        let scale = choice.unwrap_or_else(|| self.auto_scale());
+        let scale = choice.unwrap_or_else(monitor_scale);
         // A pinned scale owns the size (so it cannot be clipped); auto keeps the window it has and
         // remembers that size instead.
         let size = match choice {
@@ -743,8 +700,8 @@ impl App {
     }
 
     fn draw(&mut self, ui: &Ui) {
-        // Read before the model borrow: the combo shows the scale auto would pick right now.
-        let auto_scale = self.auto_scale();
+        // Read before the model borrow: the combo shows the scale auto picks for this screen.
+        let auto_scale = monitor_scale();
         let current_scale = self.ui_scale;
         let model = &mut self.model;
         let mut assign: Option<(usize, i32)> = None;
@@ -913,7 +870,6 @@ impl App {
         // content instead of at the design height with a band of empty space under the last line.
         if self.needs_fit && used_height > 0.0 {
             self.needs_fit = false;
-            self.hold_scale = Some(self.target_scale());
             self.pending_resize = Some(Resize::Fit(used_height));
         }
         if reset_layout {
@@ -922,7 +878,6 @@ impl App {
             self.saved_size = (0, 0);
             self.saved_pos = (0, 0);
             self.pending_save = None;
-            self.hold_scale = None;
             self.needs_fit = true;
             self.pending_center = true;
             crate::config::save_panel_geometry(None, None);
@@ -1131,29 +1086,39 @@ fn hand_column(
 /// Returns the new choice (outer `Some`) when the player picked one, `None` when nothing changed.
 /// `auto` is what auto would pick right now, so the row says what it is doing.
 fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32>> {
-    // "auto" is a real choice, so it is spelled as one: the percentage after it is what the window
-    // currently implies, not a selection. The width is capped so the popup cannot be wider than
-    // the panel — ImGui sizes it to the combo unless an item is wider, which is how it used to
-    // spill past the right edge.
-    ui.set_next_item_width(ui.frame_height() * 7.0);
+    // Every choice is spelled as the font size it produces: a percentage means nothing on its own,
+    // and "auto" is not a percentage at all — it is whatever this screen needs. The width is capped
+    // so the popup cannot be wider than the panel, which is how it used to spill past the edge.
+    ui.set_next_item_width(ui.frame_height() * 8.0);
+    let pixels = |scale: f32| (BASE_FONT_PX * scale).round() as i32;
     let preview = match current {
-        Some(scale) => format!("{:.0}%##ui_scale_preview", scale * 100.0),
-        None => format!("auto ({:.0}%)##ui_scale_preview", auto * 100.0),
+        Some(scale) => format!(
+            "{:.0}% — {} px##ui_scale_preview",
+            scale * 100.0,
+            pixels(scale)
+        ),
+        None => format!("auto — {} px##ui_scale_preview", pixels(auto)),
     };
     let mut chosen = None;
     if let Some(_combo) = ui.begin_combo("##ui_scale", preview) {
-        if imgui::Selectable::new("auto — follow window##ui_scale_auto")
-            .selected(current.is_none())
-            .build(ui)
+        if imgui::Selectable::new(format!(
+            "auto — follows the screen ({} px)##ui_scale_auto",
+            pixels(auto)
+        ))
+        .selected(current.is_none())
+        .build(ui)
         {
             chosen = Some(None);
         }
         for scale in UI_SCALE_CHOICES {
             let percent = (scale * 100.0).round() as i32;
             let pinned = current.is_some_and(|value| (value - scale).abs() < 0.01);
-            if imgui::Selectable::new(format!("{percent}% (pinned)##ui_scale_{percent}"))
-                .selected(pinned)
-                .build(ui)
+            if imgui::Selectable::new(format!(
+                "{percent}% — {} px##ui_scale_{percent}",
+                pixels(scale)
+            ))
+            .selected(pinned)
+            .build(ui)
             {
                 chosen = Some(Some(scale));
             }
@@ -1333,14 +1298,6 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 }
                 WM_EXITSIZEMOVE => {
                     app.sizing = false;
-                    let scale = app.target_scale();
-                    let changed = app
-                        .gfx
-                        .as_ref()
-                        .is_some_and(|gfx| (gfx.scale - scale).abs() >= 0.02);
-                    if changed {
-                        app.pending_scale = Some(scale);
-                    }
                     // Force the window manager to recompute the non-client area and repaint it.
                     // After a drag that went below a certain size the frame stopped being drawn
                     // and with it the resize grips, which an F8 hide/show used to cure.
@@ -1361,14 +1318,8 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         let _ = InvalidateRect(Some(app.hwnd), None, true);
                         let _ = UpdateWindow(app.hwnd);
                     }
-                    // The player finished a drag. A move is not a resize: the fitted scale is only
-                    // stale once the window no longer matches the content it was fitted to, and
-                    // dropping it on a move would shrink the text and leave a fresh band of empty
-                    // space at the bottom.
-                    let client = client_height(app.hwnd);
-                    if (client - app.content_height).abs() > 4.0 {
-                        app.hold_scale = None;
-                    }
+                    // Only the geometry is saved: the font size no longer follows the window, so
+                    // ending a drag has nothing to rescale.
                     app.note_window_geometry();
                     Some(LRESULT(0))
                 }
@@ -1492,15 +1443,6 @@ fn window_size(hwnd: HWND) -> Option<(u32, u32)> {
 /// How thick the panel's frame is, in pixels, at the current text scale.
 fn border_width(ui: &Ui) -> f32 {
     (ui.text_line_height() / 15.0).clamp(1.0, 3.0)
-}
-
-/// The panel's client height in pixels: the area the layout is drawn into.
-fn client_height(hwnd: HWND) -> f32 {
-    let mut rect = RECT::default();
-    if unsafe { GetClientRect(hwnd, &mut rect) }.is_err() {
-        return 0.0;
-    }
-    (rect.bottom - rect.top).max(0) as f32
 }
 
 /// The panel window's current top-left corner, in screen pixels.
@@ -1723,7 +1665,7 @@ pub fn start() {
                     }
                     if app.shown && !minimized {
                         // Before drawing: a live resize should already be at the new scale.
-                        app.follow_window_scale();
+                        // The font size is a setting now: nothing follows the window.
                         app.render();
                     }
                     // Outside the `shown` check: closing the panel right after a resize must

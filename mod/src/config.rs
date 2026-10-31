@@ -33,13 +33,13 @@ pub struct Config {
     pub hotkey_name: String,
     /// Open the assignment panel window. Off = casting only.
     pub overlay: bool,
-    /// Panel UI scale: `None` = follow the panel's own size (see `window::ui_scale`), `Some(n)` =
-    /// that multiplier regardless of the window. Persisted when changed in the panel.
+    /// Panel font scale: `None` = follow the screen (`window::monitor_scale`), `Some(n)` = that
+    /// multiplier (15 px base font). Persisted when changed in the panel.
     pub ui_scale: Option<f32>,
     /// How the scale is spelled in the ini, for log messages.
     pub ui_scale_name: String,
     /// The panel window's size, as saved when the player last resized it. `None` = auto: size the
-    /// window from the screen. Only used when `ui_scale` is auto — a pinned scale decides the size.
+    /// window from the screen.
     pub panel_size: Option<(u32, u32)>,
     /// The panel window's top-left corner, as saved when the player last moved it. `None` = the
     /// default spot (80, 80), clamped onto the screen. Saved with the size, one ini write.
