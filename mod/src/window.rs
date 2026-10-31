@@ -49,8 +49,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE, GetSystemMetrics, SM_CXSCREEN,
-    SM_CYSCREEN,
+    SM_CYSCREEN, SWP_FRAMECHANGED,
 };
+use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
 
 use crate::overlay::Panel;
 
@@ -404,10 +405,6 @@ impl App {
     /// seconds, so the timer restarts each time and one write lands at the end of the drag — not
     /// one per pixel, and not one per drag when the player resizes twice in a row.
     fn note_window_size(&mut self) {
-        // A pinned scale decides the size at open, so the window's own size is not the setting.
-        if self.ui_scale.is_some() {
-            return;
-        }
         let Some(size) = window_size(self.hwnd) else { return };
         if size == self.saved_size {
             return;
@@ -646,6 +643,9 @@ impl App {
             if open {
                 let previous = GetForegroundWindow();
                 if !previous.0.is_null() && previous != self.hwnd {
+                    // The window we just took focus from is the game's; give it a cursor so the
+                    // pointer is visible over it while the panel is open.
+                    crate::pointer::adopt_game_window(previous.0 as usize);
                     self.previous_foreground = Some(previous);
                 }
                 let _ = SetForegroundWindow(self.hwnd);
@@ -1109,6 +1109,26 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     if changed {
                         app.pending_scale = Some(scale);
                     }
+                    // Force the window manager to recompute the non-client area and repaint it.
+                    // After a drag that went below a certain size the frame stopped being drawn
+                    // and with it the resize grips, which an F8 hide/show used to cure.
+                    unsafe {
+                        let _ = SetWindowPos(
+                            app.hwnd,
+                            None,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE
+                                | SWP_NOSIZE
+                                | SWP_NOZORDER
+                                | SWP_NOACTIVATE
+                                | SWP_FRAMECHANGED,
+                        );
+                        let _ = InvalidateRect(Some(app.hwnd), None, true);
+                        let _ = UpdateWindow(app.hwnd);
+                    }
                     // The player finished a drag: start the quiet period for the saved size.
                     app.note_window_size();
                     Some(LRESULT(0))
@@ -1234,10 +1254,11 @@ fn fit_to_screen(size: (u32, u32)) -> (u32, u32) {
 /// display open at 2x instead of at a 900x620 postage stamp.
 fn initial_window_size() -> (i32, i32) {
     let config = crate::config::load();
-    let (width, height) = match (config.ui_scale, config.panel_size) {
-        (Some(fixed), _) => design_size(fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE)),
-        (None, Some(saved)) => fit_to_screen(saved),
-        (None, None) => design_size(monitor_scale()),
+    // A size the player dragged is the window they want, whatever the text scale is: a pinned
+    // `ui_scale` only fixes the text, it does not get to override the window.
+    let (width, height) = match config.panel_size {
+        Some(saved) => fit_to_screen(saved),
+        None => design_size(config.ui_scale.unwrap_or_else(monitor_scale)),
     };
     (width as i32, height as i32)
 }

@@ -222,9 +222,10 @@ With the panel installed:
   and letting go recomputes the scale from the window (the smaller of width and height against the
   900×620 design), so a bigger window means bigger text, not more empty background — and the size
   you settled on is written to `panel_size`, so the next session opens the panel you sized. The
-  `UI scale` dropdown pins the text size to 100%–200% instead (the window then keeps more room
-  rather than growing the text, and the size is not saved), `ui_scale` in the ini does the same
-  across sessions, and `auto` hands both back to the window and the screen.
+  `UI scale` dropdown pins the text size to 100%–200% instead (a corner drag then gives the layout
+  more room rather than bigger text), `ui_scale` in the ini does the same across sessions, and
+  `auto` hands the text size back to the window. The window size and the text scale are separate
+  settings: resizing always remembers the window, whatever the scale is pinned to.
 - **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L1 / Y+L2. **Right
   column**: the right-hand weapon with R1 / R2 / Y+R1 / Y+R2 (the fourth row first, matching
   slot order). Each row shows its mouse binding beside the pad one.

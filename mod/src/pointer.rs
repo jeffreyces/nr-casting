@@ -33,6 +33,11 @@ static SETCURSOR_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 /// `DefWindowProcW` runs on a frame drag depends on having the capture, and swallowing it left the
 /// panel unable to resize (and with no frame drawn) after dragging it small.
 static PANEL_HWND: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+/// The game's window and its own window procedure, kept so ours can chain to it.
+static GAME_HWND: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+static GAME_WNDPROC: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+/// Whether the "cursor supplied for the game's window" line has been written.
+static GAME_CURSOR_LOGGED: AtomicBool = AtomicBool::new(false);
 /// Pushes made from the *game's* thread. `ShowCursor`'s counter lives in the calling thread's input
 /// queue, so only that thread can bring the pointer back over the game's window.
 static CURSOR_SHOWS_GAME: AtomicI32 = AtomicI32::new(0);
@@ -50,11 +55,68 @@ extern "system" {
     fn LoadCursorW(instance: *mut u8, name: *const u16) -> *mut u8;
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
+    fn SetWindowLongPtrW(hwnd: *mut u8, index: i32, value: isize) -> isize;
 }
+
+/// `GWL_WNDPROC`: the index `SetWindowLongPtrW` takes for a window procedure.
+const GWLP_WNDPROC: i32 = -4;
+const WM_SETCURSOR: u32 = 0x0020;
+/// `WM_SETCURSOR`'s lparam low word: the pointer is over the client area rather than a frame.
+const HTCLIENT: u32 = 1;
 
 /// Tell the pointer layer which window is the panel's.
 pub fn set_panel_window(hwnd: usize) {
     PANEL_HWND.store(hwnd as *mut (), Ordering::Release);
+}
+
+/// Take over `WM_SETCURSOR` for the game's window so the panel can supply a pointer for it.
+///
+/// ELDEN RING's window class has no cursor at all, so there is nothing for the window manager to
+/// draw over the game while the panel is open — `GetCursorInfo` reports the cursor as *showing*
+/// and still nothing appears, which is what the log said. A window's cursor comes from its own
+/// `WM_SETCURSOR` handling, and the only way to add one to a window in this process that we do not
+/// own is to subclass it and chain to its original procedure.
+pub fn adopt_game_window(hwnd: usize) {
+    if hwnd == 0 || !GAME_HWND.load(Ordering::Acquire).is_null() {
+        return;
+    }
+    unsafe {
+        let previous = SetWindowLongPtrW(
+            hwnd as *mut u8,
+            GWLP_WNDPROC,
+            game_wndproc as *const () as isize,
+        );
+        if previous == 0 {
+            crate::log("pointer: could not subclass the game's window for the cursor");
+            return;
+        }
+        GAME_WNDPROC.store(previous as *mut (), Ordering::Release);
+        GAME_HWND.store(hwnd as *mut (), Ordering::Release);
+        crate::log("pointer: game window adopted — its client gets the arrow while the panel is open");
+    }
+}
+
+/// Our procedure for the game's window: supply a cursor for the client area, then chain.
+unsafe extern "system" fn game_wndproc(hwnd: *mut u8, msg: u32, wparam: usize, lparam: isize) -> isize {
+    if msg == WM_SETCURSOR && is_open() && (lparam & 0xFFFF) as u32 == HTCLIENT {
+        let arrow = arrow();
+        if !arrow.is_null() {
+            let _ = SetCursor(arrow);
+            if !GAME_CURSOR_LOGGED.swap(true, Ordering::Relaxed) {
+                crate::log("pointer: arrow supplied for the game's window while the panel is open");
+            }
+            // Handled: a chained DefWindowProc would clear it again, because the class has no
+            // cursor of its own.
+            return 1;
+        }
+    }
+    let original = GAME_WNDPROC.load(Ordering::Acquire);
+    if original.is_null() {
+        return 0;
+    }
+    let chained: unsafe extern "system" fn(*mut u8, u32, usize, isize) -> isize =
+        std::mem::transmute(original);
+    chained(hwnd, msg, wparam, lparam)
 }
 
 fn panel_window() -> *mut u8 {
