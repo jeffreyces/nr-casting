@@ -932,7 +932,9 @@ impl App {
                 }
                 if !self.note.is_empty() {
                     vspace(ui, 4.0);
-                    ui.text_disabled(&self.note);
+                    // Wrapped, like the help lines: an unwrapped status line runs off the panel
+                    // edge exactly when it carries a long file name.
+                    help_line(ui, &self.note);
                 }
                 vspace(ui, 10.0);
                 ui.separator();
@@ -1004,8 +1006,10 @@ impl App {
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
+                    copy_to_clipboard(&path.display().to_string());
                     self.note = format!(
-                        "wrote {name} ({} KB) — attach it in the issue",
+                        "wrote {name} ({} KB). Path copied — paste it into the file dialog, or \
+                         drag the selected file onto the issue page.",
                         size / 1024
                     );
                     // The page first, then the folder: a browser that opens *after* the file
@@ -1700,6 +1704,39 @@ fn initial_window_size() -> (i32, i32) {
         None => design_size(config.ui_scale.unwrap_or_else(monitor_scale)),
     };
     (width as i32, height as i32)
+}
+
+/// Put text on the clipboard.
+///
+/// The report's file name is long and the file manager opens at whatever size it last had, so the
+/// selected name is often cut off. Pasting the full path into a file dialog's name field opens that
+/// exact file whatever the list is showing, which is faster than reading a truncated name.
+fn copy_to_clipboard(text: &str) {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    const CF_UNICODETEXT: u32 = 13;
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return;
+        }
+        let _ = EmptyClipboard();
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        if let Ok(handle) = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) {
+            let memory = GlobalLock(handle);
+            if !memory.is_null() {
+                std::ptr::copy_nonoverlapping(wide.as_ptr(), memory as *mut u16, wide.len());
+                let _ = GlobalUnlock(handle);
+                // On success the clipboard owns the block; on failure it is left for the process
+                // to reclaim at exit, which is cheaper than a `GlobalFree` binding that this
+                // windows-rs version does not expose.
+                let _ = SetClipboardData(CF_UNICODETEXT, Some(HANDLE(handle.0)));
+            }
+        }
+        let _ = CloseClipboard();
+    }
 }
 
 /// Show a file in the file manager, selected, so it can be dragged straight into a chat window.

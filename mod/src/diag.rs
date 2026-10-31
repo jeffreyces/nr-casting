@@ -38,8 +38,12 @@ pub fn issue_url() -> String {
             .map(|m| m.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", "))
             .unwrap_or_else(|| "unknown".to_string()),
     );
+    // The title too: an empty one is a field the reporter has to think about, and the version is
+    // the one part we always want in it.
+    let title = format!("nr_casting {} — ", env!("CARGO_PKG_VERSION"));
     format!(
-        "https://github.com/jeffreyces/nr-casting/issues/new?body={}",
+        "https://github.com/jeffreyces/nr-casting/issues/new?title={}&body={}",
+        percent_encode(&title),
         percent_encode(&body)
     )
 }
@@ -396,7 +400,7 @@ fn local_stamp() -> String {
     use windows::Win32::System::SystemInformation::GetLocalTime;
     let now = unsafe { GetLocalTime() };
     format!(
-        "{:04}-{:02}-{:02} {:02}-{:02}-{:02}",
+        "{:04}-{:02}-{:02}_{:02}{:02}{:02}",
         now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond
     )
 }
