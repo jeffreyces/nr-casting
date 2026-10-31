@@ -955,6 +955,11 @@ impl App {
                     ui,
                     "Drag the title band to move the panel here; the window edges resize it.",
                 );
+                help_line(
+                    ui,
+                    "Bug reports: the diagnostics button writes one file (log, GPU, CPU, modules, \
+                     frame times) and opens the issue page — no ini setting needed.",
+                );
                 used_height = ui.cursor_pos()[1] + ui.clone_style().window_padding[1];
                 // The same layout at 100%, so the auto scale can compare a window to the content it
                 // holds rather than to a design constant the layout no longer matches.

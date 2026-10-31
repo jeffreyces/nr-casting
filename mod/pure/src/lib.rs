@@ -566,7 +566,40 @@ pub fn redact_character_slug(text: &str) -> String {
     out
 }
 
-/// Apply a list of (needle, replacement) pairs, then the character-name rule.
+/// Redact the account segment of every user path, whatever the environment says.
+///
+/// `USERPROFILE` and `HOME` can be missing, or point somewhere that is not the path the log
+/// carries — under Proton, `USERPROFILE` is the Wine account while the paths are
+/// `/var/home/<user>` and `Z:\\var\\home\\<user>`. The *shape* of the path is the reliable signal, so
+/// this works the same on Windows (`C:\\Users\\<name>\\`) and on Linux (`/home/<name>/`,
+/// `/var/home/<name>/`).
+pub fn redact_user_paths(text: &str) -> String {
+    let mut out = text.to_string();
+    for marker in ["\\users\\", "\\home\\"] {
+        out = scrub_after(&out, marker, '\\');
+    }
+    for marker in ["/users/", "/home/"] {
+        out = scrub_after(&out, marker, '/');
+    }
+    out
+}
+
+fn scrub_after(text: &str, marker: &str, separator: char) -> String {
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while let Some(found) = lower[at..].find(marker) {
+        let segment_start = at + found + marker.len();
+        let Some(length) = text[segment_start..].find(separator) else { break };
+        out.push_str(&text[at..segment_start]);
+        out.push_str("%USER%");
+        at = segment_start + length;
+    }
+    out.push_str(&text[at..]);
+    out
+}
+
+/// Apply a list of (needle, replacement) pairs, then the path shape, then the character name.
 pub fn redact(text: &str, needles: &[(String, String)]) -> String {
     let mut out = text.to_string();
     for (needle, replacement) in needles {
@@ -574,7 +607,7 @@ pub fn redact(text: &str, needles: &[(String, String)]) -> String {
             out = replace_ignore_case(&out, needle, replacement);
         }
     }
-    redact_character_slug(&out)
+    redact_character_slug(&redact_user_paths(&out))
 }
 
 #[cfg(test)]
@@ -1129,6 +1162,31 @@ mod raw_tests {
         assert_eq!(panel_size("huge"), None);
     }
 
+
+
+    #[test]
+    fn redaction_works_by_path_shape_on_both_platforms() {
+        // Windows: the account segment goes, whatever the environment claims.
+        let out = redact_user_paths(r"C:\Users\<name>\AppData\Local\garyttierney\me3\config");
+        assert!(!out.contains("<name>"), "{out}");
+        assert!(out.contains(r"C:\Users\%USER%\AppData"), "{out}");
+        // Linux and Proton's drive-letter spelling of it.
+        for text in [
+            "/home/<name>/.local/share/Steam",
+            "/var/home/<name>/Documents/Github",
+            r"Z:\var\home\<name>\Documents\Github",
+        ] {
+            let out = redact_user_paths(text);
+            assert!(!out.contains("<name>"), "{out} -> {out}");
+            assert!(out.contains("%USER%"), "{out}");
+        }
+    }
+
+    #[test]
+    fn redaction_leaves_a_path_without_a_user_segment_alone() {
+        let text = r"C:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe";
+        assert_eq!(redact_user_paths(text), text);
+    }
 
     #[test]
     fn redaction_covers_case_and_both_path_spellings() {

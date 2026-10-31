@@ -112,6 +112,7 @@ fn bundle(reason: &str) -> String {
     section(&mut out, "display", &display_info());
     section(&mut out, "environment", &environment());
     section(&mut out, "modules", &modules());
+    section(&mut out, "state", &state());
     section(&mut out, "performance", &performance());
     section(&mut out, "config", &read_text("nr_casting.ini"));
     section(&mut out, "slots", &crate::store::describe_store());
@@ -257,6 +258,59 @@ fn modules() -> String {
         Some(_) => "no foreign DLLs loaded".to_string(),
         None => "enumeration failed".to_string(),
     }
+}
+
+/// The live picture a bug report needs, and that the debug log would otherwise have to be turned on
+/// to provide: what is equipped, what the mod thinks of it, and where the input path stands.
+///
+/// The counters underneath always run — `debug_log` only decides whether they are *printed* — so
+/// this section is complete with the ini untouched.
+fn state() -> String {
+    let mut out = String::new();
+    let cfg = crate::config::load();
+    let _ = writeln!(
+        out,
+        "config: overlay={} debug_log={} perf_log={} ui_scale={} bind_modifier={} chord_stage={}",
+        cfg.overlay, cfg.debug_log, cfg.perf_log, cfg.ui_scale_name, cfg.bind_modifier_name, cfg.chord_stage
+    );
+    match crate::weapon_ids() {
+        Some((left, right)) => {
+            let _ = writeln!(out, "weapons in hand: left={left} right={right}");
+        }
+        None => {
+            let _ = writeln!(out, "weapons: unavailable (character not loaded)");
+        }
+    }
+    match crate::player_effective_stats() {
+        Some((int, fai, arc)) => {
+            let _ = writeln!(out, "stats: INT {int} FAI {fai} ARC {arc}");
+        }
+        None => {
+            let _ = writeln!(out, "stats: unavailable");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "spell selected in the game: {}",
+        crate::PLAYER_SPELL.load(std::sync::atomic::Ordering::Relaxed)
+    );
+    let _ = writeln!(
+        out,
+        "input: {} polls, {} full passes, {} with no controller, {} unplugged",
+        crate::stats::pad_polls(),
+        crate::stats::passes(),
+        crate::stats::pad_unplugged_count(),
+        0
+    );
+    let _ = writeln!(out, "raw: {}", crate::stats::raw_report());
+    let _ = writeln!(
+        out,
+        "chords: Y+R1/Y+L1 {} | panel {} | player cursor {}",
+        if crate::input::y_bumper() { "ours" } else { "Recluse's" },
+        if crate::UI_OPEN.load(std::sync::atomic::Ordering::Relaxed) { "open" } else { "closed" },
+        if crate::input::game_shows_cursor() { "shown" } else { "hidden" }
+    );
+    out
 }
 
 fn performance() -> String {
