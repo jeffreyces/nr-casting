@@ -141,13 +141,17 @@ fn section(out: &mut String, name: &str, body: &str) {
     out.push('\n');
 }
 
+/// The first section: what wrote this, against which exe, and how long it had been loaded.
+///
+/// No log path. It was there to say where the tail came from, the tail is in the file, and a path
+/// is the one thing a reporter's own username can survive in: `%USERPROFILE%\AppData\Local\
+/// garyttierney\me3\...` names no user, but it is their machine and it does not need to travel.
 fn report_header(reason: &str) -> String {
     format!(
-        "mod: nr_casting {}\nexe: {}\nreason: {reason}\nuptime: {} ms\nlog: {}",
+        "mod: nr_casting {}\nexe: {}\nreason: {reason}\nuptime: {} ms",
         env!("CARGO_PKG_VERSION"),
         crate::probe::exe_version(),
         crate::logging::uptime_ms(),
-        crate::logging::log_path().display(),
     )
 }
 
