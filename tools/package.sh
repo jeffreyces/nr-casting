@@ -40,6 +40,8 @@ show_all = off
 ; Panel text and widget size: auto follows the window (and the screen it opens on), 125 / 150% /
 ; 1.5 / 200% pins it. Saved when you change it in the panel.
 ui_scale = auto
+; Panel window size: auto sizes it from the screen. Saved when you resize the panel.
+panel_size = auto
 ; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off by default:
 ; on, it rewrites the selection ~30x a second and fights your D-pad scrolling.
 hud_mirror = off
@@ -147,8 +149,8 @@ INSTALL — me3 Manager (the graphical one)
 IN GAME
 
    F8                      open/close the assignment panel
-   panel size              the panel scales to your screen; drag its corner for bigger text,
-                           or pick a UI scale in the panel (auto by default)
+   panel size              the panel scales to your screen and remembers the size you drag it
+                           to; pick a UI scale in the panel to pin the text size instead
    R1 / R2                 cast slot 1 / slot 2 of the right-hand catalyst
    L1 / L2                 cast slot 1 / slot 2 of the left-hand catalyst
    Y + R2 / Y + L2         cast slot 3 of the right / left-hand catalyst

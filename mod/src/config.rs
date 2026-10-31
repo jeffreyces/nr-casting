@@ -38,6 +38,9 @@ pub struct Config {
     pub ui_scale: Option<f32>,
     /// How the scale is spelled in the ini, for log messages.
     pub ui_scale_name: String,
+    /// The panel window's size, as saved when the player last resized it. `None` = auto: size the
+    /// window from the screen. Only used when `ui_scale` is auto — a pinned scale decides the size.
+    pub panel_size: Option<(u32, u32)>,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
     /// Panel planning mode: list spells the character cannot cast yet. Persisted when toggled.
@@ -95,6 +98,7 @@ impl Default for Config {
             overlay: true,
             ui_scale: None,
             ui_scale_name: "auto".to_string(),
+            panel_size: None,
             debug_log: false,
             show_all: false,
             hud_mirror: false,
@@ -306,36 +310,69 @@ pub fn save_show_all(show: bool) {
     save_ui_key("show_all", if show { "on" } else { "off" });
 }
 
-/// Remember the panel's UI scale (`None` = auto) across sessions.
-pub fn save_ui_scale(scale: Option<f32>) {
-    let value = match scale {
+/// Remember the panel window's size (`None` = auto) across sessions.
+pub fn save_panel_size(size: Option<(u32, u32)>) {
+    let value = match size {
+        Some((width, height)) => format!("{width}x{height}"),
+        None => "auto".to_string(),
+    };
+    save_ui_key("panel_size", &value);
+}
+
+/// Remember a UI scale and the window size that goes with it in one ini write.
+///
+/// Picking a scale resizes the window, so the two are saved together; two separate writers would
+/// read and rewrite the whole file twice for one user action.
+pub fn save_panel_layout(scale: Option<f32>, size: Option<(u32, u32)>) {
+    let scale = match scale {
         Some(scale) => format!("{:.0}%", scale * 100.0),
         None => "auto".to_string(),
     };
-    save_ui_key("ui_scale", &value);
+    let size = match size {
+        Some((width, height)) => format!("{width}x{height}"),
+        None => "auto".to_string(),
+    };
+    save_ui_keys(&[("ui_scale", &scale), ("panel_size", &size)]);
 }
 
 /// Rewrite one key in the ini, keeping every other line (comments included) as it is.
 fn save_ui_key(key: &str, value: &str) {
+    save_ui_keys(&[(key, value)]);
+}
+
+/// Rewrite several keys in one pass, keeping every other line (comments included) as they are.
+///
+/// A key that is not in the file is appended, so an install shipped before the key existed gains it
+/// the first time the panel writes that setting.
+fn save_ui_keys(pairs: &[(&str, &str)]) {
     let file = ini_file();
     let text = std::fs::read_to_string(&file).unwrap_or_default();
-    let mut out = String::with_capacity(text.len() + 16);
-    let mut written = false;
+    let mut out = String::with_capacity(text.len() + 16 * pairs.len());
+    let mut written = vec![false; pairs.len()];
     for line in text.lines() {
-        let bare = line.split([';', '#']).next().unwrap_or("").trim();
-        if !written && bare.to_ascii_lowercase().starts_with(key) && bare.contains('=') {
-            out.push_str(&format!("{key} = {value}\n"));
-            written = true;
-        } else {
+        let bare = line.split([';', '#']).next().unwrap_or("").trim().to_ascii_lowercase();
+        let mut replaced = false;
+        for (index, (key, value)) in pairs.iter().enumerate() {
+            if !written[index] && bare.starts_with(key) && bare.contains('=') {
+                out.push_str(&format!("{key} = {value}\n"));
+                written[index] = true;
+                replaced = true;
+                break;
+            }
+        }
+        if !replaced {
             out.push_str(line);
             out.push('\n');
         }
     }
-    if !written {
-        out.push_str(&format!("{key} = {value}\n"));
+    for (index, (key, value)) in pairs.iter().enumerate() {
+        if !written[index] {
+            out.push_str(&format!("{key} = {value}\n"));
+        }
     }
     if let Err(e) = std::fs::write(&file, out) {
-        crate::log(&format!("config: could not save {key}: {e}"));
+        let keys: Vec<&str> = pairs.iter().map(|(key, _)| *key).collect();
+        crate::log(&format!("config: could not save {}: {e}", keys.join(", ")));
     }
 }
 
@@ -358,6 +395,8 @@ show_all = off
 ; monitor it opens on and with the window when you drag its corner. Set 125 / 150% / 1.5 / 200%
 ; to pin it. Saved when you change it in the panel.
 ui_scale = auto
+; Panel window size, saved when you resize the panel. auto sizes it from the screen; WxH pins it.
+panel_size = auto
 ; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off: the wheel
 ; stays yours (on, it rewrites the selection ~30x a second and fights your D-pad scrolling).
 hud_mirror = off
@@ -458,6 +497,14 @@ debug_log = off
                             "config: ui_scale '{value}' is not recognised (auto, 150, 150%, 1.5 — \
                              100% to 300%); keeping {}",
                             config.ui_scale_name
+                        )),
+                    },
+                    "panel_size" => match nr_casting_core::panel_size(value) {
+                        Some((0, 0)) => config.panel_size = None,
+                        Some(size) => config.panel_size = Some(size),
+                        None => crate::log(&format!(
+                            "config: panel_size '{value}' is not recognised (auto or WxH, at least \
+                             900x620); sizing the panel from the screen"
                         )),
                     },
                     "hud_mirror" => config.hud_mirror = truthy(value),

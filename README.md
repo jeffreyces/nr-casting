@@ -160,6 +160,7 @@ overlay = on             ; on | off — the panel window (casting works either w
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 show_all = off           ; list spells the character cannot cast yet (planning mode)
 ui_scale = auto          ; auto | 125 | 150% | 1.5 | 200% — panel text and widget size
+panel_size = auto        ; auto | 1800x1240 — panel window size, saved when you resize it
 hud_mirror = off         ; on = force the game's wheel to slot 1 (fights your own scrolling)
 
 [input]
@@ -219,9 +220,11 @@ With the panel installed:
 - **Size**: the panel opens at the scale the screen implies (screen height ÷ 1080), so a 4K TV gets
   a 1800×1240 window with 30 px text rather than a 900×620 one with 15 px text. Dragging a corner
   and letting go recomputes the scale from the window (the smaller of width and height against the
-  900×620 design), so a bigger window means bigger text, not more empty background. The
-  `UI scale` dropdown pins it to 100%–200% instead, `ui_scale` in the ini does the same across
-  sessions, and `auto` hands it back to the window size.
+  900×620 design), so a bigger window means bigger text, not more empty background — and the size
+  you settled on is written to `panel_size`, so the next session opens the panel you sized. The
+  `UI scale` dropdown pins the text size to 100%–200% instead (the window then keeps more room
+  rather than growing the text, and the size is not saved), `ui_scale` in the ini does the same
+  across sessions, and `auto` hands both back to the window and the screen.
 - **Left column**: the left-hand weapon with dropdowns for L1 / L2 / Y+L1 / Y+L2. **Right
   column**: the right-hand weapon with R1 / R2 / Y+R1 / Y+R2 (the fourth row first, matching
   slot order). Each row shows its mouse binding beside the pad one.

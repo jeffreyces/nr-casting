@@ -48,7 +48,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_THICKFRAME, MINMAXINFO,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
     WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE, GetSystemMetrics, SM_CXSCREEN,
+    SM_CYSCREEN,
 };
 
 use crate::overlay::Panel;
@@ -79,7 +80,6 @@ const UI_SCALE_CHOICES: [f32; 5] = [1.0, 1.25, 1.5, 1.75, 2.0];
 /// The panel is its own window, so this is the desktop's own resolution — under Proton that is the
 /// virtual desktop, which is what the drawn window is measured against anyway.
 fn monitor_scale() -> f32 {
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CYSCREEN};
     let height = unsafe { GetSystemMetrics(SM_CYSCREEN) } as f32;
     if height <= 0.0 {
         return 1.0;
@@ -300,6 +300,9 @@ struct App {
     pending_scale: Option<f32>,
     /// A window resize waiting for the frame loop, which can run it outside the `App` borrow.
     pending_resize: Option<f32>,
+    /// The panel size last written to the ini, so a move/resize drag that changes nothing does not
+    /// rewrite the file every time the window is nudged.
+    saved_size: (u32, u32),
 }
 
 thread_local! {
@@ -327,6 +330,10 @@ impl App {
             ui_scale: crate::config::load().ui_scale,
             pending_scale: None,
             pending_resize: None,
+            // The size the window actually opened at, not what the file asked for: a saved size
+            // that had to be fitted to a smaller screen must not be rewritten just because the
+            // player moved the panel.
+            saved_size: window_size(hwnd).unwrap_or((0, 0)),
         }
     }
 
@@ -361,12 +368,34 @@ impl App {
     /// it would fall through to `DefWindowProcW` and the swap chain would keep its old size.
     fn set_ui_scale(&mut self, choice: Option<f32>) {
         self.ui_scale = choice;
-        crate::config::save_ui_scale(choice);
         let scale = choice.unwrap_or_else(|| self.auto_scale());
-        if choice.is_some() {
-            self.pending_resize = Some(scale);
-        }
+        // A pinned scale owns the size (so it cannot be clipped); auto keeps the window it has and
+        // remembers that size instead.
+        let size = match choice {
+            Some(scale) => {
+                self.pending_resize = Some(scale);
+                design_size(scale)
+            }
+            None => window_size(self.hwnd).unwrap_or_else(|| design_size(scale)),
+        };
+        self.saved_size = size;
+        crate::config::save_panel_layout(choice, Some(size));
         self.pending_scale = Some(scale);
+    }
+
+    /// Remember the size the player settled on — the whole point of a saved panel size.
+    fn save_window_size(&mut self) {
+        // A pinned scale decides the size at open, so the window's own size is not the setting.
+        if self.ui_scale.is_some() {
+            return;
+        }
+        let Some(size) = window_size(self.hwnd) else { return };
+        if size == self.saved_size {
+            return;
+        }
+        self.saved_size = size;
+        crate::config::save_panel_size(Some(size));
+        crate::log(&format!("panel: size saved {}x{}", size.0, size.1));
     }
 
     /// Rebuild the ImGui context and its font atlas at `scale`. Between frames only.
@@ -955,6 +984,9 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     if changed {
                         app.pending_scale = Some(scale);
                     }
+                    // And remember the size the player settled on, so the next open is the one
+                    // they chose instead of the screen default.
+                    app.save_window_size();
                     Some(LRESULT(0))
                 }
                 WM_SIZE => {
@@ -1021,8 +1053,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
 /// Called from the frame loop, never from inside the `App` borrow: `SetWindowPos` delivers
 /// `WM_SIZE` synchronously and the window procedure needs that same `RefCell`.
 fn size_window(hwnd: HWND, scale: f32) {
-    let width = (DESIGN_WIDTH * scale).round() as i32;
-    let height = (DESIGN_HEIGHT * scale).round() as i32;
+    let (width, height) = design_size(scale);
     // NOZORDER keeps the panel topmost; NOACTIVATE keeps focus where it is (the panel owns it
     // already, and stealing it would close the panel through WM_ACTIVATE).
     let _ = unsafe {
@@ -1031,11 +1062,57 @@ fn size_window(hwnd: HWND, scale: f32) {
             None,
             0,
             0,
-            width,
-            height,
+            width as i32,
+            height as i32,
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         )
     };
+}
+
+/// The window size that holds the design at `scale`.
+fn design_size(scale: f32) -> (u32, u32) {
+    (
+        (DESIGN_WIDTH * scale).round() as u32,
+        (DESIGN_HEIGHT * scale).round() as u32,
+    )
+}
+
+/// The panel's current outer size, in pixels.
+fn window_size(hwnd: HWND) -> Option<(u32, u32)> {
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+    let width = (rect.right - rect.left).max(1) as u32;
+    let height = (rect.bottom - rect.top).max(1) as u32;
+    Some((width, height))
+}
+
+/// Fit a saved size to this screen: a panel saved on a 4K TV must not open bigger than a 1080p one.
+fn fit_to_screen(size: (u32, u32)) -> (u32, u32) {
+    let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) }.max(0) as u32;
+    let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) }.max(0) as u32;
+    if screen_width == 0 || screen_height == 0 {
+        return size;
+    }
+    // Leave room for the spot the panel opens at (80,80), so a full-screen-sized panel does not
+    // open with its bottom edge below the screen; never below what the layout needs.
+    let max_width = screen_width.saturating_sub(160).max(DESIGN_WIDTH as u32);
+    let max_height = screen_height.saturating_sub(160).max(DESIGN_HEIGHT as u32);
+    (size.0.min(max_width), size.1.min(max_height))
+}
+
+/// The size the panel window is created at.
+///
+/// A pinned `ui_scale` decides it (so the layout cannot be clipped), then a size the player saved,
+/// then the screen: the design scaled by the screen height over 1080, which is what makes a 4K
+/// display open at 2x instead of at a 900x620 postage stamp.
+fn initial_window_size() -> (i32, i32) {
+    let config = crate::config::load();
+    let (width, height) = match (config.ui_scale, config.panel_size) {
+        (Some(fixed), _) => design_size(fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE)),
+        (None, Some(saved)) => fit_to_screen(saved),
+        (None, None) => design_size(monitor_scale()),
+    };
+    (width as i32, height as i32)
 }
 
 fn create_window() -> Option<HWND> {
@@ -1043,12 +1120,8 @@ fn create_window() -> Option<HWND> {
         let instance = GetModuleHandleW(PCWSTR::null()).ok()?;
         let class_name = wide("nr_casting_panel");
         let title = wide("nr-casting - spell slots");
-        // Open at the scale the screen implies (a pinned `ui_scale` replaces it on the first
-        // frame), instead of a fixed 900x620 that is unreadable on a TV.
-        let scale = crate::config::load()
-            .ui_scale
-            .map(|fixed| fixed.clamp(MIN_UI_SCALE, MAX_UI_SCALE))
-            .unwrap_or_else(monitor_scale);
+        // A pinned `ui_scale` decides the size, then the one the player saved, then the screen.
+        let (width, height) = initial_window_size();
         let class = WNDCLASSW {
             lpfnWndProc: Some(wnd_proc),
             hInstance: instance.into(),
@@ -1066,8 +1139,8 @@ fn create_window() -> Option<HWND> {
             WS_POPUP | WS_THICKFRAME,
             80,
             80,
-            (DESIGN_WIDTH * scale).round() as i32,
-            (DESIGN_HEIGHT * scale).round() as i32,
+            width,
+            height,
             None,
             None,
             Some(instance.into()),

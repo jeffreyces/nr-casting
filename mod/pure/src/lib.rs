@@ -481,6 +481,28 @@ pub fn ui_scale(text: &str) -> Option<(Option<f32>, String)> {
     Some((Some(scale), format!("{:.0}%", scale * 100.0)))
 }
 
+/// The panel window's saved size, from the ini: `auto`, or `<width>x<height>` in pixels.
+///
+/// `auto` (and no value at all) means "size the window from the screen". Anything smaller than the
+/// size the layout needs, or larger than any screen, is rejected rather than clamped: the caller
+/// then falls back to auto and the file keeps what the player wrote.
+pub fn panel_size(text: &str) -> Option<(u32, u32)> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("auto") {
+        return Some((0, 0));
+    }
+    let (width, height) = text
+        .split_once(['x', 'X', '×'])
+        .or_else(|| text.split_once(','))?;
+    let width: u32 = width.trim().parse().ok()?;
+    let height: u32 = height.trim().parse().ok()?;
+    // 900x620 is the design size and the window's own minimum; 8192 leaves room for an 8K panel.
+    if !(900..=8192).contains(&width) || !(620..=8192).contains(&height) {
+        return None;
+    }
+    Some((width, height))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1016,5 +1038,20 @@ mod raw_tests {
         assert_eq!(ui_scale("4"), None);
         assert_eq!(ui_scale("big"), None);
         assert_eq!(ui_scale(""), None);
+    }
+
+    #[test]
+    fn panel_size_reads_the_saved_geometry() {
+        assert_eq!(panel_size("auto"), Some((0, 0)));
+        assert_eq!(panel_size("1800x1240"), Some((1800, 1240)));
+        // Hand-edited spellings are not worth rejecting.
+        assert_eq!(panel_size("1800X1240"), Some((1800, 1240)));
+        assert_eq!(panel_size("1800,1240"), Some((1800, 1240)));
+        assert_eq!(panel_size(" 1350 x 930 "), Some((1350, 930)));
+        // Anything the layout cannot use falls back to auto at the caller.
+        assert_eq!(panel_size("800x600"), None);
+        assert_eq!(panel_size("1800"), None);
+        assert_eq!(panel_size("1800x"), None);
+        assert_eq!(panel_size("huge"), None);
     }
 }
