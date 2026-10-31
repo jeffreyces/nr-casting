@@ -486,12 +486,14 @@ impl App {
         } else {
             DESIGN_HEIGHT
         };
-        // Both edges matter, averaged so neither one alone drags the text around: dragging wider
-        // or taller both enlarge the font, and a fitted window reads back as its own scale.
-        let raw = ((width / DESIGN_WIDTH) * (height / natural)).sqrt();
-        // Rounded to 5% so a framed client area still lands on the scale it was meant to.
-        let rounded = (raw * 20.0).round() / 20.0;
-        rounded.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
+        // The *smaller* of the two, because the scale has to fit: averaging them guarantees the
+        // content is wider or taller than the window on the axis that binds, which is what put
+        // scrollbars on both sides. A few pixels are held back for the frame and the window
+        // padding, so the last row does not tip into a scrollbar either.
+        let raw = (width / DESIGN_WIDTH).min((height - 8.0).max(1.0) / natural);
+        // Floored, never rounded up: half a percent over the fit is a scrollbar.
+        let stepped = (raw * 20.0).floor() / 20.0;
+        stepped.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
     }
 
     /// The scale to build the UI at: the player's choice, or the one the window implies.
@@ -681,6 +683,10 @@ impl App {
             if let Some((x, y)) = window_pos(self.hwnd) {
                 crate::log(&format!("panel: drag ends at window {x},{y}"));
             }
+            // Our own drag moves the window with `SetWindowPos`, which never produces the
+            // `WM_EXITSIZEMOVE` the other path relies on: without this the panel would open at the
+            // old spot next time even though the player had moved it.
+            self.note_window_geometry();
             return;
         }
         let mut point = POINT::default();
