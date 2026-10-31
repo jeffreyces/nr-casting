@@ -77,6 +77,17 @@ pub fn tick_if_due(poll_ticks: u64) {
     }
 }
 
+/// Whether the game has polled the pad within the last couple of seconds.
+///
+/// The whole frame measurement hangs off the pad poll: it is the only per-frame call the game makes
+/// into code we are allowed to hook (no swap-chain hook, deliberately). No polls means no frame
+/// clock at all - a run with no controller connected records six empty minutes, so the UI refuses to
+/// start one and the report says why rather than printing zeros.
+pub fn pad_live() -> bool {
+    let last = LAST.load(Ordering::Relaxed);
+    last != 0 && micros(ticks().saturating_sub(last)) <= 2_000_000
+}
+
 /// How long the series still needs before it holds a full five minutes, in seconds.
 ///
 /// The diagnostics button waits on this: a report that says "300 s sampled" should have

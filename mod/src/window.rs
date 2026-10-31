@@ -942,21 +942,33 @@ impl App {
                     help_line(
                         ui,
                         &format!(
-                            "Bundle run: load a character, stand somewhere quiet and still, then \
-                             start. {} phases of {} s: everything on, then each subsystem off on its \
-                             own, then all of them off. The report is written and opened when the \
-                             {} minutes are up. Casting stops during the pad phase - that is \
-                             expected.",
+                            "Bundle run: load a character with the controller connected, stand \
+                             somewhere quiet and still, then start. {} phases of {} s: everything on, \
+                             then each subsystem off on its own, then all of them off. The report is \
+                             written and opened when the {} minutes are up. Casting stops during the \
+                             pad phase - that is expected.",
                             crate::bisect::phases(),
                             crate::bisect::PHASE_SECONDS,
                             crate::bisect::total_seconds() / 60
                         ),
                     );
                     vspace(ui, 6.0);
-                    if ui.button(format!(
-                        "start the {} minute run and close the panel",
-                        crate::bisect::total_seconds() / 60
-                    )) {
+                    let pad_live = crate::perf::pad_live();
+                    if !pad_live {
+                        help_line(
+                            ui,
+                            "No pad polls right now: connect the controller, wait until a character \
+                             is loaded and the game is polling (the log says so), then start. Six \
+                             empty minutes is all this run would record.",
+                        );
+                        vspace(ui, 4.0);
+                    }
+                    if pad_live
+                        && ui.button(format!(
+                            "start the {} minute run and close the panel",
+                            crate::bisect::total_seconds() / 60
+                        ))
+                    {
                         bundle_started = true;
                         bundle_prompt = false;
                     }

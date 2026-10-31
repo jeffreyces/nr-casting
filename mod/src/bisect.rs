@@ -156,6 +156,13 @@ pub fn section() -> String {
         "# six phases of 60 s, switched by the mod, nothing for the player to change\n\
          # worst gap per second is what one second's slowest frame cost; 32 ms is two frames at 60 Hz\n",
     );
+    if (0..PLAN.len()).all(|index| samples(index).iter().all(|us| *us == 0)) {
+        out.push_str(
+            "# every phase is empty: the game never polled XInput, so there is no frame clock.\n\
+             # connect a controller (the game only polls the pad when one is present at launch),\n\
+             # start the character, and run this again.\n",
+        );
+    }
     for (index, (label, bits)) in PLAN.iter().enumerate() {
         let values = samples(index);
         out.push_str(&format!(
