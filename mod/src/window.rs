@@ -1028,7 +1028,12 @@ impl App {
                     );
                     // The page first, then the folder: a browser that opens *after* the file
                     // manager would cover it, and the point is to drag the file into the page.
-                    open_url(&crate::diag::issue_url());
+                    if !open_url(&crate::diag::issue_url()) {
+                        self.note = format!(
+                            "wrote {name} ({} KB), but the browser did not open. \
+                             The issue page is {}", size / 1024, crate::diag::ISSUE_PAGE
+                        );
+                    }
                     // The page needs a moment to come up before the folder appears over it.
                     self.reveal = Some(path);
                     unsafe {
@@ -1373,7 +1378,12 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     if wparam.0 == REVEAL_TIMER_ID {
                         let _ = unsafe { KillTimer(Some(app.hwnd), REVEAL_TIMER_ID) };
                         if let Some(path) = app.reveal.take() {
-                            reveal(&path);
+                            if !reveal(&path) {
+                                app.note = format!(
+                                    "the file manager did not open; the file is {}",
+                                    path.display()
+                                );
+                            }
                         }
                         return Some(LRESULT(0));
                     }
@@ -1770,11 +1780,11 @@ fn copy_to_clipboard(text: &str) {
 }
 
 /// Show a file in the file manager, selected, so it can be dragged straight into a chat window.
-fn reveal(path: &std::path::Path) {
+fn reveal(path: &std::path::Path) -> bool {
     let verb = HSTRING::from("open");
     let program = HSTRING::from("explorer.exe");
     let arguments = HSTRING::from(format!("/select,\"{}\"", path.display()));
-    unsafe {
+    let result = unsafe {
         ShellExecuteW(
             None,
             &verb,
@@ -1782,17 +1792,30 @@ fn reveal(path: &std::path::Path) {
             &arguments,
             None,
             SW_SHOWNORMAL,
-        );
+        )
+    };
+    log_shell_failure("file manager", result.0 as isize);
+    result.0 as isize > 32
+}
+
+/// A `ShellExecuteW` result above 32 is a success; anything else is an error code.
+///
+/// The failure used to be discarded, so a shell that refused (no file manager, a locked-down
+/// desktop) looked exactly like one that opened — the same silence that made the folder stop
+/// opening after the first press. Now it is a log line naming the code.
+fn log_shell_failure(what: &str, result: isize) {
+    if result <= 32 {
+        crate::log(&format!("panel: could not open the {what} (shell error {result})"));
     }
 }
 
 /// Open a URL in the player's browser.
-fn open_url(url: &str) {
+fn open_url(url: &str) -> bool {
     let verb = HSTRING::from("open");
     let target = HSTRING::from(url);
-    unsafe {
-        ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL);
-    }
+    let result = unsafe { ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL) };
+    log_shell_failure("issue page", result.0 as isize);
+    result.0 as isize > 32
 }
 
 /// The corner the panel opens at: the one the player left it at, or the default spot.

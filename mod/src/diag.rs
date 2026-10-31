@@ -22,6 +22,9 @@ extern "system" {
     fn RtlGetVersion(info: *mut OSVERSIONINFOW) -> i32;
 }
 
+/// The issue page without a body, for a note that has to name it in one line.
+pub const ISSUE_PAGE: &str = "https://github.com/jeffreyces/nr-casting/issues/new";
+
 /// The GitHub issue page, with a body that already contains the numbers we would ask for.
 ///
 /// Returned rather than opened so the caller decides when to shell out.
@@ -42,7 +45,7 @@ pub fn issue_url() -> String {
     // the one part we always want in it.
     let title = format!("nr_casting {} — ", env!("CARGO_PKG_VERSION"));
     format!(
-        "https://github.com/jeffreyces/nr-casting/issues/new?title={}&body={}",
+        "{ISSUE_PAGE}?title={}&body={}",
         percent_encode(&title),
         percent_encode(&body)
     )
