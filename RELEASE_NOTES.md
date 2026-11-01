@@ -1,3 +1,76 @@
+# v0.2.10 — the hook that never was, and a quieter binary
+
+Two fixes that turned out to be one story. The pad hook has been patching the *export's prologue*
+on every machine this mod has ever run on, because the code that should have routed the game's own
+import slot never worked — and a binary that patches another module's code reads, to a scanner, like
+a loader. That is now the pointer store it was always meant to be, and a few things that made the
+DLL look worse than it is are gone.
+
+**Upgrade is the DLL.** Nothing else changes; your ini and assignments are untouched.
+
+## Fixed
+
+- **The pad hook finally takes the clean route.** `XInputGetState: routed the game's import slot to
+  our detour … (no code patched)`. Until now the import walk read the PE header by hand, got a
+  nonsense `e_lfanew` on both Windows and Proton, and fell back to rewriting the prologue of a
+  function the game calls fifty to a hundred and twenty times a second. It now asks the loader
+  (`RtlImageNtHeader` / `RtlImageDirectoryEntryToData`) and writes one aligned pointer instead. The
+  log prints what the game actually imports — `import walk: XINPUT1_4.dll: [ordinal 3, ordinal 2]` —
+  so a future "the hook is not being called" report starts from a fact rather than a guess.
+- **The report's input line said two things and meant one.** `N with no controller, 0 unplugged` was
+  a single counter plus a hardcoded zero, so a wireless pad that dropped nine times in a session
+  looked like a probe that had never seen a controller. It is now one number: reads the driver
+  refused.
+- **"Open the file manager" no longer launches `explorer.exe` by name.** The shell opens the folder
+  directly. The file is not pre-selected any more; the folder is.
+
+## Added
+
+- **The pad is described in the report.** `pad: wireless, gamepad, flags 0x0004, battery
+  alkaline/low` — transport, device class and battery state, read once from XInput. A stutter that
+  only appears with a controller attached is a completely different problem depending on those three
+  answers, and no earlier report could tell them apart.
+- **`[input] pad_hook = on|off`.** `off` installs no XInput hook at all: pad casting stops, mouse
+  casting is untouched. It exists so "is it our code, or merely our presence in the call path" can be
+  answered with one ini line — the guided run keeps every hook installed on purpose, and unplugging
+  the controller removes the game's calls and our hook at the same time.
+- **A packaging guard.** `tools/package.sh` now fails if the built DLL has no resource section, and
+  prints the version and signature state either way. 0.2.9 shipped without one.
+
+## Removed, for the scanners
+
+None of this changes what the mod does in game.
+
+- **The write probe is gone.** It snapshotted 132 bytes of the magic-slot struct, wrote a sentinel,
+  read it back, restored it and compared every byte — once per process, to prove the write path
+  before any cast. That sequence is what a loader does, and it is not worth the shape in the binary.
+  The same evidence now comes from the first real cast: the write the mod has to make anyway is read
+  back, and a failure is logged once. The offsets file says `read verified` instead of
+  `read and write verified`.
+- **The clipboard is gone.** Copying the report's path away was one button's convenience and cost
+  four clipboard APIs in the import table. The note now shows the path; the folder still opens, so
+  the file can be dragged onto the issue page as before.
+- **`keybd_event` → `SendInput`** for the Recluse hand-off. Same effect, current API.
+- **The DLL identifies itself.** Company name, product, description and version are embedded
+  (`Properties → Details` shows them), so a quarantined file names its product instead of appearing
+  as an anonymous payload. It remains unsigned: that needs a certificate, and it is the next step.
+
+Import table: 183 → 178.
+
+## If you are upgrading from 0.2.9
+
+- If your workflow was "copy the path from the clipboard", copy it from the note text instead.
+- The report's input line now reads `… reads refused by the driver …` with one number.
+- Nothing in the ini needs editing, and `pad_hook` defaults to `on`.
+
+## Verified
+
+62 unit tests green. Built with the same toolchain the release uses (`cargo xwin` → MSVC on Linux);
+the packaged DLL carries its resource section and reports version 0.2.10.0. The hook change was
+executed end to end on Linux/Proton against a real character: `routed the game's import slot … (no
+code patched)`, 300 s sampled at p50 16.77 ms with **zero** seconds over 32 ms, and all six bundle
+phases free of hitches.
+
 # v0.2.9 — prove it, then measure it
 
 Two things this release does that the last one could not: it *proves* the game memory it writes to
@@ -64,37 +137,3 @@ configure.
 character: six phases of 60 s, p50 14.75–15.33 ms, 0 hitches in every phase. The write probe
 reports `slot 0 -> 1 -> 0, 132 bytes intact`. The report was reviewed line by line, including the
 redaction and the catalogue section, which is where the marker and size defects were found.
-
-# v0.2.8 — the report keeps its log
-
-Two fixes to the diagnostics file, both found by reading a reporter's bundle rather than by testing:
-the section that matters most was arriving empty, and the header carried a path that did not need to
-travel.
-
-**Upgrade is the DLL.** Nothing else changes.
-
-## Fixed
-
-- **`==== log tail ====` arrived as `(empty)`.** The tail is read with a UTF-8 parse in the report,
-  and a log containing a single byte that is not valid UTF-8 makes that parse fail — the whole read
-  was discarded and the section printed as empty, in a file whose own header named the log. The log
-  carries whatever the game's text does, so this was a matter of time. It is read as bytes and
-  decoded lossily now, and a file that genuinely cannot be read says which path failed and why,
-  instead of pretending to be empty.
-- **The header no longer carries your log path.** `log: C:\Users\<you>\AppData\...` became
-  `log: %USERPROFILE%\AppData\Local\garyttierney\me3\...` after redaction — no user name, but
-  your machine's own layout in a file that already contains the log it points at. The line is gone;
-  `mod`, `exe`, `reason` and `uptime` are what the header says now.
-
-## Also
-
-- The shipped ini's `ui_scale` and `panel_size` comments described the behaviour of two releases ago
-  ("the window size no longer changes the font", "auto sizes it from the screen"). They now describe
-  what those settings do: `auto` picks the largest scale that fits the window, and the size opens at
-  the design size for the screen with its height fitted to the content.
-
-## Verified
-
-52 unit tests green. The report's sections, catalogue (316 spells), sample line and redaction were
-checked against a real reporter bundle on Windows 11 / RTX 3080, which is where both defects came
-from.
