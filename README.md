@@ -437,8 +437,12 @@ the mod still works and the panel shows bare ids.
 
 `fromsoftware-rs` maps an exact exe version to an RVA table and panics otherwise. The vendored
 copy **falls back to the newest known table** for an unrecognised version and records what it
-detected; nothing is written to game memory until a structural probe passes (weapon ids in
-range, stats plausible, 14 magic slots with a valid selection). On failure the mod stays out of
+detected; nothing is written to game memory until a structural probe passes (weapon ids in range,
+stats plausible, 14 magic slots with a valid selection) and a write probe round-trips the one field
+the mod writes (the selected slot: written, read back, restored, and the rest of the structure
+compared byte for byte). That second check is what makes an unrecognised build trustworthy rather
+than probable — it is the difference between "the fields we read look sane" and "the field we write
+is where we think it is, and writing it moves nothing else". On failure the mod stays out of
 the way and `nr_casting_offsets.txt` names the check that failed. `NR_CASTING_FORCE_RVA=1`
 exercises the fallback on a known-good build.
 

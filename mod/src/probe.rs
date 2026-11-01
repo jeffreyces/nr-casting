@@ -192,6 +192,14 @@ pub(crate) fn exe_version() -> String {
     }
 }
 
+/// The loaded executable's `[base, base + size)`, for deciding whether a pointer is code.
+pub(crate) fn image_range() -> Option<(usize, usize)> {
+    // SAFETY: GetModuleHandleA(NULL) is the main module.
+    let base = unsafe { GetModuleHandleA(std::ptr::null()) } as usize;
+    let (_, size) = exe_fingerprint();
+    (base != 0 && size > 0).then_some((base, size as usize))
+}
+
 /// Whether the RVA layer found a table for this exact build.
 pub(crate) fn version_recognised() -> bool {
     eldenring::rva::resolved_info()
@@ -266,14 +274,24 @@ pub fn validate_player() {
         }
     }
 
+    // Reading the right fields is half of it: we also *write* the selected slot. Prove, once, that
+    // the field takes a value and gives it back, and that the bytes around it do not move.
+    if failure.is_none() {
+        match crate::game::verify_selected_slot_write() {
+            Ok(line) => results.push(line),
+            Err(reason) => failure = Some(reason),
+        }
+    }
+
     match failure {
         None => {
             STATE.store(VALIDATED, Ordering::Relaxed);
             results.push(if !version_recognised() {
-                "probe = PASSED on an unrecognised build (fallback table) — steering enabled"
+                "probe = PASSED on an unrecognised build (fallback table), read and write \
+                 verified — steering enabled"
                     .to_string()
             } else {
-                "probe = PASSED — steering enabled".to_string()
+                "probe = PASSED, read and write verified — steering enabled".to_string()
             });
             crate::log("probe: structure validation passed");
             write_map(&results);
