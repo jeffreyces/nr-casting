@@ -207,3 +207,20 @@ TXT
 
 echo "packaged: $OUT"
 ls -1 "$OUT"
+
+# The release must be identifiable. A DLL with no resource section has no product name, no
+# publisher and no version anywhere Windows or an antivirus UI can read - the state 0.2.9 shipped
+# in, and part of why a scanner treated it as an anonymous payload. build.rs embeds the block, so
+# this only fails when that silently stopped working (a missing resource compiler, say).
+VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/mod/Cargo.toml" | head -1)
+if command -v objdump >/dev/null 2>&1; then
+    resource=$(objdump -p "$OUT/nr_casting.dll" | awk '/Entry 2 /{print $3" "$4}')
+    signature=$(objdump -p "$OUT/nr_casting.dll" | awk '/Entry 4 /{print $3" "$4}')
+    if [[ "$resource" == "0000000000000000 00000000" ]]; then
+        echo "ERROR: no VERSIONINFO in the packaged DLL — the release would be anonymous" >&2
+        exit 1
+    fi
+    echo "identity: version $VERSION, resource $resource, signature ${signature%% *} (empty = unsigned)"
+else
+    echo "identity: cannot check (no objdump) — verify VERSIONINFO before shipping $VERSION" >&2
+fi

@@ -47,8 +47,6 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_System_SystemInformation",
-    "Win32_System_DataExchange",
-    "Win32_System_Memory",
     "Win32_UI_Shell",
 ] }
 # Pinned to the commit that added the ELDEN RING 2.7.2.0 (Ww2720) RVA table,

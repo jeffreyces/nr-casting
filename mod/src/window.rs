@@ -19,7 +19,7 @@ use crate::panel_geometry::{
     center_window, design_size, fit_window_height, initial_window_pos, initial_window_size,
     size_window, window_pos, window_size,
 };
-use crate::panel_shell::{copy_to_clipboard, open_url, reveal};
+use crate::panel_shell::{open_url, reveal};
 
 // The design size and the scale bounds live in the core crate, with the fit that uses them, so
 // the formula the panel runs is the one the tests cover.
@@ -752,7 +752,7 @@ impl App {
         };
     }
 
-    /// Write the report, put its path on the clipboard, open the issue page, then reveal the file.
+    /// Write the report, open the issue page, then reveal the folder holding the file.
     ///
     /// One function because three callers need exactly this sequence: the button, the end of a
     /// bundle run, and anything else that decides a report is due. The order is the point - the page
@@ -765,10 +765,8 @@ impl App {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                copy_to_clipboard(&path.display().to_string());
                 self.note = format!(
-                    "wrote {name} ({} KB). Path copied; paste it into the file dialog, or \
-                     drag the selected file onto the issue page.",
+                    "wrote {name} ({} KB). The folder opens; drag it onto the issue page.",
                     size / 1024
                 );
                 if !open_url(&crate::diag::issue_url()) {
