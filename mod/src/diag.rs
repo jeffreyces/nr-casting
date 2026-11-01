@@ -289,6 +289,9 @@ fn graphics() -> String {
         {
             continue;
         }
+        // The size from the file, not the bytes we read: the read is capped at 8 MiB for speed and
+        // reporting the cap as the size was nonsense (six 8 MiB files on a 220 MiB exe).
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(bytes.len() as u64);
         let markers = markers_in(&bytes);
         let built = pe_build_date(&bytes)
             .map(|date| format!("built {date}"))
@@ -296,7 +299,7 @@ fn graphics() -> String {
         let _ = writeln!(
             out,
             "{name}: {} KiB, {built}{}",
-            bytes.len() / 1024,
+            size / 1024,
             if markers.is_empty() {
                 String::new()
             } else {
@@ -308,8 +311,10 @@ fn graphics() -> String {
         return "no DLLs loaded from the game folder".to_string();
     }
     out.push_str(
-        "# a wrapper here hooks the present path: to test it, rename the file (dxgi.dll -> dxgi.dll.off)\n\
-         # and run the bundle again. Phase 1 is the comparison - same clock, same standstill.\n",
+        "# these are the files this process loaded from the game's folder - mods, overlays and any\n\
+         # wrapper sitting under a system name. 'contains' names strong markers only: an absence is\n\
+         # not proof. To test one, rename it (dxgi.dll -> dxgi.dll.off), run the bundle again and\n\
+         # compare phase 1 - same clock, same standstill, so the two runs are the same measurement.\n",
     );
     out
 }
@@ -333,14 +338,18 @@ fn game_directory() -> Option<String> {
 
 /// Known wrapper strings, matched case-insensitively anywhere in the file.
 fn markers_in(bytes: &[u8]) -> Vec<&'static str> {
-    const MARKERS: [(&str, &[u8]); 7] = [
+    // Six bytes and up, and distinctive. "enb" is three bytes: in an 8 MiB binary it matches by
+    // chance about a third of the time, which is how a first version of this section labelled two
+    // NVIDIA DLLs as ENB and ReShade.
+    const MARKERS: [(&str, &[u8]); 8] = [
         ("DXVK", b"dxvk"),
         ("ReShade", b"reshade"),
         ("Special K", b"special k"),
-        ("ENB", b"enb"),
+        ("SpecialK", b"specialk"),
         ("Vulkan", b"vkcreateinstance"),
         ("DLSS-G", b"nvngx_dlssg"),
-        ("frame generation", b"dlssg"),
+        ("D3D12 Agility", b"d3d12core"),
+        ("Streamline", b"sl.interposer"),
     ];
     let lower: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
     MARKERS
