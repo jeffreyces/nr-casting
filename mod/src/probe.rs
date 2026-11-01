@@ -128,18 +128,22 @@ fn write_map(extra: &[String]) {
     let base = unsafe { GetModuleHandleA(std::ptr::null()) } as usize;
 
     let table = info.as_ref().map(|i| i.table).unwrap_or("unknown");
-    let version = info
-        .as_ref()
-        .map(|i| i.exe_version.clone())
-        .unwrap_or_else(|| "unknown".to_string());
     let fallback = info.as_ref().map(|i| i.used_fallback).unwrap_or(false);
 
     let mut out = String::new();
     out.push_str("# nr-casting resolved map\n");
     out.push_str("# Regenerated automatically when the executable changes.\n");
-    out.push_str(&format!("exe_version = {version}\n"));
+    out.push_str(&format!("exe_version = {}\n", exe_version()));
     out.push_str(&format!("rva_table = {table}\n"));
-    out.push_str(&format!("version_recognised = {}\n", !fallback));
+    out.push_str(&format!(
+        "version_recognised = {} ({})\n",
+        !fallback,
+        if fallback {
+            "no table for this exact build: the newest one is used and the probe decides"
+        } else {
+            "table matches this build"
+        }
+    ));
     out.push_str(&format!("module_base = {base:#x}\n"));
     out.push_str(&format!("exe_hash = {hash:#018x}\n"));
     out.push_str(&format!("exe_size = {size}\n"));
@@ -174,10 +178,25 @@ fn write_map(extra: &[String]) {
 }
 
 /// The game's own version string, as the RVA layer resolved it. `unknown` before load finishes.
+///
+/// The layer appends its own error in brackets when it had to fall back ("2.7.1.0 (Unsupported game
+/// version 2.7.1.0)"), which reads like a refusal. The version is just the number; whether a table
+/// exists for it is a separate fact, reported as `version_recognised`.
 pub(crate) fn exe_version() -> String {
-    eldenring::rva::resolved_info()
+    let raw = eldenring::rva::resolved_info()
         .map(|info| info.exe_version)
-        .unwrap_or_else(|| "unknown".to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    match raw.find(" (") {
+        Some(at) => raw[..at].to_string(),
+        None => raw,
+    }
+}
+
+/// Whether the RVA layer found a table for this exact build.
+pub(crate) fn version_recognised() -> bool {
+    eldenring::rva::resolved_info()
+        .map(|info| !info.used_fallback)
+        .unwrap_or(false)
 }
 
 /// Phase one: note what the RVA layer resolved. Called before anything reads game state.
@@ -185,8 +204,10 @@ pub fn resolve_table() {
     let info = eldenring::rva::resolved_info();
     match &info {
         Some(info) if info.used_fallback => crate::log(&format!(
-            "rva: exe {} is NOT in the table — falling back to {}; validating before use",
-            info.exe_version, info.table
+            "rva: no table for exe {} — using the {} table and validating it before use (the probe \
+             decides whether steering is safe on this build)",
+            exe_version(),
+            info.table
         )),
         Some(info) => crate::log(&format!(
             "rva: exe {} -> table {}",
@@ -248,7 +269,12 @@ pub fn validate_player() {
     match failure {
         None => {
             STATE.store(VALIDATED, Ordering::Relaxed);
-            results.push("probe = PASSED — steering enabled".to_string());
+            results.push(if !version_recognised() {
+                "probe = PASSED on an unrecognised build (fallback table) — steering enabled"
+                    .to_string()
+            } else {
+                "probe = PASSED — steering enabled".to_string()
+            });
             crate::log("probe: structure validation passed");
             write_map(&results);
         }
