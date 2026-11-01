@@ -111,7 +111,11 @@ WHAT IS IN THIS FOLDER
 
 INSTALL — the short way (no editing)
 
-   1. Keep these four files together, in a folder outside the game directory.
+   1. Extract this zip into a real folder first (anywhere outside the game
+      directory), then keep these four files together there. Do not launch from
+      a 7-Zip or WinRAR preview window: those unpack to a temporary folder that
+      is deleted when the archive is closed, and the profile then points at a
+      file that no longer exists.
 
    2. Launch, passing the profile BY PATH:
 
@@ -194,6 +198,13 @@ IF IT DOES NOT WORK
    Read nr_casting\nr_casting_probe.log first. It lists every DLL loaded besides
    Windows' own, and that is usually the answer:
 
+     - NOTHING happened and there is no nr_casting\ folder at all: the DLL was
+       never loaded, so the game ran vanilla. me3's own log says why, one line
+       above the launch: "specified path does not exist or is inaccessible",
+       and its attach config reads "natives: []". That is almost always a
+       profile pointing into a temporary extraction folder (7-Zip, WinRAR) that
+       has since been deleted - extract the zip somewhere permanent and pass
+       the profile from there.
      - the panel could not get a D3D11 device. Casting still works. Look for a
        "panel:" line saying "no panel graphics" or "device creation failed".
      - a mod that also ships an overlay, or rewrites the spell wheel, can fight
