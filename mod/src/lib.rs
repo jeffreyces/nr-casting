@@ -54,6 +54,7 @@ mod overlay;
 mod params;
 mod panel_geometry;
 mod panel_report;
+mod present;
 mod panel_shell;
 mod perf;
 mod diag;
@@ -210,6 +211,13 @@ fn run() {
     log("crash: exception observer installed (faults are logged with module and offset)");
     // The frame heartbeat, installed whether or not the panel is enabled: casting-only players
     // report stutters too, and without a controller the pad poll does not exist to measure them.
+    // The frame clock, and the only place this mod touches the graphics path: a pass-through
+    // timer on Present. Everything downstream - the series, the report, the bisect phases - reads
+    // frames from here when it is available.
+    match present::install() {
+        Ok(()) => log("clock: Present hook installed (frames timed where the game presents them)"),
+        Err(e) => log(&format!("clock: no Present clock, falling back to the pad or the pump: {e}")),
+    }
     match pump::install() {
         Ok(()) => log("pump: PeekMessageW hook installed (frame heartbeat)"),
         Err(e) => log(&format!("pump: no frame heartbeat: {e}")),

@@ -62,6 +62,8 @@ static FORCE_LINE: AtomicBool = AtomicBool::new(true);
 static TICKED_AT: AtomicU64 = AtomicU64::new(0);
 /// When the pad was last polled, so the keyboard path knows to stand down.
 static PAD_AT: AtomicU64 = AtomicU64::new(0);
+/// When the game last presented: the frame clock, when the pass-through Present hook is in place.
+static PRESENT_AT: AtomicU64 = AtomicU64::new(0);
 
 /// Advance the one-second series by one sample.
 ///
@@ -170,6 +172,23 @@ pub fn start_writer() {
 /// How many ticks the recorder has seen, for per-phase tick rates.
 pub fn poll_count() -> u64 {
     POLLS.load(Ordering::Relaxed) as u64
+}
+
+/// Whether presents are being seen: the preferred clock, because presenting is what a frame is.
+pub fn present_live() -> bool {
+    let last = PRESENT_AT.load(Ordering::Relaxed);
+    last != 0 && micros(ticks().saturating_sub(last)) <= LIVE_WINDOW_US
+}
+
+/// One present, timed on entry. The pass-through hook calls this and nothing else.
+pub fn report_present(started: u64) {
+    let now = ticks();
+    if now == 0 || started == 0 {
+        return;
+    }
+    let cost = micros(now.saturating_sub(started));
+    PRESENT_AT.store(now, Ordering::Relaxed);
+    record(now, cost);
 }
 
 /// Whether the game has polled the pad within the last couple of seconds.
@@ -381,6 +400,11 @@ pub fn report(started: u64) {
     }
     let cost = micros(now.saturating_sub(started));
     PAD_AT.store(now, Ordering::Relaxed);
+    // A real per-frame clock is in place: the pad poll and the pump are proxies for it, and mixing
+    // them in would make every gap a mixture of two cadences.
+    if present_live() {
+        return;
+    }
     if pump_pinned() {
         // The pad still tells us a controller is there (so the panel does not claim otherwise), but
         // it must not feed the gaps: a run is measuring the pump.
@@ -402,7 +426,7 @@ pub fn report_pump(started: u64) {
     if now == 0 || started == 0 {
         return;
     }
-    if pad_live() && !pump_pinned() {
+    if present_live() || (pad_live() && !pump_pinned()) {
         return;
     }
     let cost = micros(now.saturating_sub(started));

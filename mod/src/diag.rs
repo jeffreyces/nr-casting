@@ -420,9 +420,12 @@ fn state() -> String {
         if crate::input::y_bumper() { "ours" } else { "Recluse's" },
         if crate::UI_OPEN.load(std::sync::atomic::Ordering::Relaxed) { "open" } else { "closed" },
         if crate::input::game_shows_cursor() { "shown" } else { "hidden" },
-        // Which hook is providing the frame clock: the pad poll when a controller is in use, the
-        // message pump otherwise. "none" means a report would have no frame data at all.
-        if crate::perf::pad_live() {
+        // Which hook is providing the frame clock: Present when the pass-through timer is in place
+        // (frames, by definition), otherwise the pad poll when a controller is in use, otherwise
+        // the message pump. "none" means a report would have no frame data at all.
+        if crate::perf::present_live() {
+            "present"
+        } else if crate::perf::pad_live() {
             "pad"
         } else if crate::pump::installed() && crate::perf::frame_clock_live() {
             "pump"

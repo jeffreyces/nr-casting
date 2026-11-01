@@ -387,6 +387,15 @@ struct App {
     /// When the UI was last rebuilt at a new scale: the rebuild is not free, so a live resize
     /// follows the window at a bounded rate instead of once per drag message.
     last_scale: Instant,
+    /// When the panel went idle with a device still resident, so it can be released.
+    ///
+    /// The device is built on first open and, until now, never dropped: that saved a hitch on every
+    /// reopen, and cost a D3D11 device, a swap chain and two back buffers resident in a running
+    /// game for the rest of the session. One of those is a suspect for stutter that appears with
+    /// any input device and no version before the panel existed - so it is released once the panel
+    /// has been closed for a minute, and the next open pays the one hitch it always paid the first
+    /// time.
+    idle_since: Option<Instant>,
     /// When the window size last changed without being saved. The write happens once the player
     /// has stopped resizing, not on every drag.
     pending_save: Option<Instant>,
@@ -424,6 +433,8 @@ const HOTKEY_ID: i32 = 1;
 const REVEAL_TIMER_ID: usize = 2;
 /// The one-second timer that samples the frame series, whether or not a pad is being polled.
 const SAMPLER_TIMER_ID: usize = 3;
+/// How long the panel may stay closed with a D3D11 device resident before it is released.
+const GFX_IDLE_DROP: std::time::Duration = std::time::Duration::from_secs(60);
 /// `MOD_NOREPEAT`: holding the key must not toggle the panel on every auto-repeat.
 const MOD_NOREPEAT: u32 = 0x4000;
 
@@ -476,6 +487,7 @@ impl App {
             // player moved the panel.
             saved_size: window_size(hwnd).unwrap_or((0, 0)),
             last_scale: Instant::now(),
+            idle_since: None,
             pending_save: None,
             content_height: 0.0,
             natural_height: 0.0,
@@ -584,6 +596,29 @@ impl App {
         self.saved_size = size;
         crate::config::save_panel_layout(choice, Some(size));
         self.pending_scale = Some(scale);
+    }
+
+    /// Release the device, swap chain and ImGui context once the panel has been closed a while.
+    ///
+    /// The skimpiest possible thing in the game's graphics stack: for the first time since the
+    /// panel existed, a session that opens it once and plays for an hour does not leave a second
+    /// D3D11 device resident and idle.
+    fn drop_gfx_if_idle(&mut self) {
+        if self.shown || self.gfx.is_none() {
+            self.idle_since = None;
+            return;
+        }
+        let since = *self.idle_since.get_or_insert_with(Instant::now);
+        if since.elapsed() < GFX_IDLE_DROP {
+            return;
+        }
+        // The ImGui context goes first: imgui-rs allows one current context per process, and the
+        // next open creates a new one.
+        if let Some(mut gfx) = self.gfx.take() {
+            drop(gfx.ui.take());
+            crate::log("panel: device released after being closed for a minute (rebuilt on next open)");
+        }
+        self.idle_since = None;
     }
 
     /// Rebuild the ImGui context and its font atlas at `scale`. Between frames only.
@@ -1191,7 +1226,12 @@ impl App {
                     gfx.presented = true;
                     crate::log("panel: first frame presented");
                 }
+                // Our own present is not a game frame: the clock hook reads every present in the
+                // process, including this one, and counting the panel's 60 Hz would flatten the
+                // series the moment it opens.
+                crate::present::in_our_present(true);
                 let present = gfx.swap_chain.Present(1, Default::default());
+                crate::present::in_our_present(false);
                 if present.is_ok() {
                     gfx.last_present = Instant::now();
                 }
@@ -1853,25 +1893,41 @@ pub fn start() {
             // the thread blocks on its message queue — no timer, no wakeups, and `WM_HOTKEY` wakes
             // it immediately. Without it, poll the key at 100 ms, which is still prompt to a human
             // and 6x cheaper than the 16 ms loop this used to run while closed.
-            let (idle, owed, registered) = APP.with(|cell| {
+            let (idle, owed, registered, resident) = APP.with(|cell| {
                 cell.try_borrow()
                     .map(|guard| {
-                        guard.as_ref().map_or((true, false, false), |app| {
+                        guard.as_ref().map_or((true, false, false, false), |app| {
                             (
                                 !app.shown,
                                 app.pending_save.is_some() || app.pending_resize.is_some(),
                                 app.hotkey_registered,
+                                // A device still resident means this thread owes the release check,
+                                // so it must keep waking: `WaitMessage` would sleep until the next
+                                // hotkey and never get there.
+                                app.gfx.is_some(),
                             )
                         })
                     })
-                    .unwrap_or((true, false, false))
+                    .unwrap_or((true, false, false, false))
             });
+            if idle {
+                // Nothing is drawn while closed; if a device is still resident from the last open,
+                // release it after a minute of not being needed.
+                APP.with(|cell| {
+                    if let Ok(mut guard) = cell.try_borrow_mut() {
+                        if let Some(app) = guard.as_mut() {
+                            app.drop_gfx_if_idle();
+                        }
+                    }
+                });
+            }
             if !idle || owed {
                 std::thread::sleep(std::time::Duration::from_millis(16));
-            } else if registered {
+            } else if registered && !resident {
                 let _ = unsafe { WaitMessage() };
             } else {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                // No timer, no 16 ms loop: one wake a second is all a release check needs.
+                std::thread::sleep(std::time::Duration::from_millis(1000));
             }
         }
     });
