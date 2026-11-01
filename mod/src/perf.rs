@@ -24,6 +24,12 @@ static GAP_MAX_US: AtomicU32 = AtomicU32::new(0);
 static GAP_OVER_32MS: AtomicU32 = AtomicU32::new(0);
 /// Longest time spent inside our own detour for one poll.
 static DETOUR_MAX_US: AtomicU32 = AtomicU32::new(0);
+/// Total time spent inside our own detour, so the *average* poll cost is known as well as the worst.
+/// A worst case of 200 us every ten seconds is noise; an average of 200 us over 120 polls a second
+/// is 2.4% of the frame budget and worth knowing. Only the max was ever recorded, which cannot tell
+/// those two apart - and a reporter's stutter that appears with a controller attached is exactly the
+/// case where the pad path's average matters.
+static DETOUR_SUM_US: AtomicU64 = AtomicU64::new(0);
 /// One sample per second of the worst gap in that second, kept for the diagnostics report.
 ///
 /// A ten-second average hides the thing people report — "every couple of seconds" — because a
@@ -121,7 +127,7 @@ pub fn pump_pinned() -> bool {
 /// plus a flush, in the middle of a frame, every ten seconds. Measured at up to 17 ms in a
 /// reporter's log (`our detour max 17055us`), which is a stutter we were causing ourselves. The
 /// hook now only stores these numbers; a thread that is allowed to block writes them.
-static PENDING: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
+static PENDING: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 static PENDING_OPEN: AtomicBool = AtomicBool::new(false);
 static HAS_PENDING: AtomicBool = AtomicBool::new(false);
 
@@ -143,15 +149,17 @@ pub fn start_writer() {
         let cost_peak = PENDING[4].load(Ordering::Relaxed);
         let elapsed = PENDING[5].load(Ordering::Relaxed);
         let cpu_peak = PENDING[6].load(Ordering::Relaxed);
+        let cost_mean = PENDING[7].load(Ordering::Relaxed);
         let mean = if polls > 0 { sum / polls } else { 0 };
         let open = PENDING_OPEN.load(Ordering::Relaxed);
         crate::log(&format!(
             "perf: {polls} input ticks in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), \
-             our detour max {}us, frame thread cpu max {:.1}ms, panel {}",
+             our detour mean {}us max {}us, frame thread cpu max {:.1}ms, panel {}",
             elapsed as f64 / 1_000_000.0,
             mean as f64 / 1000.0,
             peak as f64 / 1000.0,
             over,
+            cost_mean,
             cost_peak,
             cpu_peak as f64 / 1000.0,
             if open { "open" } else { "closed" }
@@ -427,6 +435,7 @@ fn record(now: u64, cost: u32) {
         SECOND_MAX_US.fetch_max(gap, Ordering::Relaxed);
     }
     DETOUR_MAX_US.fetch_max(cost, Ordering::Relaxed);
+    DETOUR_SUM_US.fetch_add(cost as u64, Ordering::Relaxed);
     // Stand in for a timer that never armed; with the timer working this is two loads and a
     // compare, because `TICKED_AT` is always a second or less old.
     tick_if_due(now);
@@ -443,6 +452,8 @@ fn record(now: u64, cost: u32) {
     let peak = GAP_MAX_US.swap(0, Ordering::Relaxed);
     let over = GAP_OVER_32MS.swap(0, Ordering::Relaxed);
     let cost_peak = DETOUR_MAX_US.swap(0, Ordering::Relaxed);
+    let cost_sum = DETOUR_SUM_US.swap(0, Ordering::Relaxed);
+    let cost_mean = if polls > 0 { cost_sum / polls as u64 } else { 0 };
     let cpu_peak = CPU_MAX_US.swap(0, Ordering::Relaxed);
     WINDOW.store(now, Ordering::Relaxed);
     let mean = if polls > 0 { sum / polls as u64 } else { 0 };
@@ -472,6 +483,7 @@ fn record(now: u64, cost: u32) {
     PENDING[4].store(cost_peak as u64, Ordering::Relaxed);
     PENDING[5].store(elapsed as u64, Ordering::Relaxed);
     PENDING[6].store(cpu_peak as u64, Ordering::Relaxed);
+    PENDING[7].store(cost_mean, Ordering::Relaxed);
     PENDING_OPEN.store(open, Ordering::Relaxed);
     let _ = mean;
     HAS_PENDING.store(true, Ordering::Release);
