@@ -214,9 +214,11 @@ fn run() {
     // The frame clock, and the only place this mod touches the graphics path: a pass-through
     // timer on Present. Everything downstream - the series, the report, the bisect phases - reads
     // frames from here when it is available.
-    match present::install() {
-        Ok(()) => log("clock: Present hook installed (frames timed where the game presents them)"),
-        Err(e) => log(&format!("clock: no Present clock, falling back to the pad or the pump: {e}")),
+    if cfg.present_clock {
+        match present::install() {
+            Ok(()) => log("clock: Present hook installed (frames timed where the game presents them)"),
+            Err(e) => log(&format!("clock: no Present clock, using the pad or the pump: {e}")),
+        }
     }
     match pump::install() {
         Ok(()) => log("pump: PeekMessageW hook installed (frame heartbeat)"),

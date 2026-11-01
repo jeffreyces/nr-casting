@@ -169,9 +169,16 @@ pub fn start_writer() {
     });
 }
 
+/// A lifetime tick count for the per-phase tick rates.
+///
+/// `POLLS` is the ten-second window's counter and is swapped to zero every time a line is written,
+/// which is exactly wrong for measuring a phase: a phase that spans a window boundary saw its
+/// count reset and reported `0 ticks, 0/s`, while the phase's own samples were perfectly good.
+static TICKS_TOTAL: AtomicU64 = AtomicU64::new(0);
+
 /// How many ticks the recorder has seen, for per-phase tick rates.
 pub fn poll_count() -> u64 {
-    POLLS.load(Ordering::Relaxed) as u64
+    TICKS_TOTAL.load(Ordering::Relaxed)
 }
 
 /// Whether presents are being seen: the preferred clock, because presenting is what a frame is.
@@ -449,6 +456,7 @@ fn record(now: u64, cost: u32) {
             SECOND_MAX_US.store(0, Ordering::Relaxed);
         }
         POLLS.fetch_add(1, Ordering::Relaxed);
+        TICKS_TOTAL.fetch_add(1, Ordering::Relaxed);
         GAP_SUM_US.fetch_add(gap as u64, Ordering::Relaxed);
         GAP_MAX_US.fetch_max(gap, Ordering::Relaxed);
         if gap > 32_000 {

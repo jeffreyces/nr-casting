@@ -54,6 +54,12 @@ pub struct Config {
     /// Install the cursor detours (panel cursor behaviour). These come out again whenever the
     /// panel is closed; this decides whether they exist at all.
     pub pointer_hook: bool,
+    /// Install the pass-through `Present` timer, the frame clock that is once per frame.
+    ///
+    /// Off by default: creating a throwaway device and swap chain to read the vtable address
+    /// crashes inside `dxgi.dll` under Proton/vkd3d (the address is fine on Windows, where the
+    /// clock is wanted). Until that is understood, the pad poll and the pump remain the clocks.
+    pub present_clock: bool,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
     /// Log a ten-second line of pad-poll timing: frame gaps as the game sees them, and the cost of
@@ -129,6 +135,7 @@ impl Default for Config {
             hooks: true,
             raw_hook: true,
             pointer_hook: true,
+            present_clock: false,
             debug_log: false,
             // Matches the shipped ini: quiet (one line per five minutes, or when a frame is lost),
             // and the only way a stutter is recorded at the time it happens.
@@ -565,6 +572,7 @@ perf_log = off
                     "hooks" => config.hooks = truthy(value),
                     "raw_hook" => config.raw_hook = truthy(value),
                     "pointer_hook" => config.pointer_hook = truthy(value),
+                    "present_clock" => config.present_clock = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     "perf_log" => config.perf_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),

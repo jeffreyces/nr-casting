@@ -364,13 +364,14 @@ fn state() -> String {
     let cfg = crate::config::load();
     let _ = writeln!(
         out,
-        "config: overlay={} hooks={} pad_hook={} raw_hook={} pointer_hook={} debug_log={} \
+        "config: overlay={} hooks={} pad_hook={} raw_hook={} pointer_hook={} present_clock={} debug_log={} \
          perf_log={} ui_scale={} bind_modifier={} chord_stage={}",
         cfg.overlay,
         cfg.hooks,
         cfg.pad_hook,
         cfg.raw_hook,
         cfg.pointer_hook,
+        cfg.present_clock,
         cfg.debug_log,
         cfg.perf_log,
         cfg.ui_scale_name,

@@ -83,6 +83,9 @@ recluse_chr_ids = 8131
 hooks = on
 raw_hook = on
 pointer_hook = on
+; Frame clock from IDXGISwapChain::Present (once per frame, more accurate than the pad poll).
+; Off by default: the address discovery crashes inside dxgi.dll under Proton/vkd3d.
+present_clock = off
 ; Log every cast, not just captures and errors
 debug_log = off
 ; Perf log: one line when a window lost a frame and otherwise every 5 minutes, with the pad-poll
