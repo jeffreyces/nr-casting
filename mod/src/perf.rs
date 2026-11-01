@@ -241,6 +241,7 @@ pub fn cpu_report() -> String {
     }
     let head = SERIES_HEAD.load(Ordering::Relaxed) as usize % SERIES_LEN;
     let mut per_second = Vec::with_capacity(filled);
+    let mut per_frame = Vec::with_capacity(filled);
     let mut slow = 0usize;
     let mut working = 0usize;
     let mut waiting = 0usize;
@@ -249,28 +250,42 @@ pub fn cpu_report() -> String {
         let gap = SERIES[index].load(Ordering::Relaxed) as u64;
         let cpu = SERIES_CPU[index].load(Ordering::Relaxed) as u64;
         per_second.push(cpu);
+        // One tick per frame (the pump clock is the game's own loop), so a second holds
+        // 1e6/gap frames and the CPU spent on each is cpu/frames. Comparing a whole second's CPU
+        // with one frame's gap - the obvious mistake - makes every second look CPU-bound.
+        if gap == 0 {
+            continue;
+        }
+        let frames = 1_000_000.0 / gap as f64;
+        let cpu_frame = cpu as f64 / frames;
+        per_frame.push(cpu_frame);
         if gap > 32_000 {
             slow += 1;
-            // The gap is the spacing between ticks, so a second has several frames in it; compare
-            // against the per-frame budget rather than the whole second.
-            if cpu * 10 >= gap * 9 {
+            if cpu_frame >= 0.85 * gap as f64 {
                 working += 1;
-            } else if cpu * 2 <= gap {
+            } else if cpu_frame <= 0.5 * gap as f64 {
                 waiting += 1;
             }
         }
     }
-    let mut sorted = per_second.clone();
-    sorted.sort_unstable();
+    let mut sorted = per_frame.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let at = |p: f64| -> f64 {
+        if sorted.is_empty() {
+            return 0.0;
+        }
         let index = ((sorted.len() - 1) as f64 * p) as usize;
-        sorted[index] as f64 / 1000.0
+        sorted[index] / 1000.0
     };
-    let max = *sorted.last().unwrap_or(&0) as f64 / 1000.0;
+    let core = per_second.iter().map(|us| *us as f64 / 10_000.0).sum::<f64>()
+        / per_second.len().max(1) as f64;
     let mut out = format!(
-        "frame thread CPU per second: p50 {:.1} ms, p90 {:.1} ms, max {max:.1} ms",
+        "frame thread CPU: {:.0}% of one core on average; per frame p50 {:.2} ms, p90 {:.2} ms, \
+         max {:.2} ms (a tick is assumed to be a frame - the tick rate is printed above)",
+        core,
         at(0.5),
-        at(0.9)
+        at(0.9),
+        at(1.0)
     );
     if slow == 0 {
         out.push_str("; no slow seconds to attribute");
@@ -282,12 +297,12 @@ pub fn cpu_report() -> String {
         ));
     }
     out.push('\n');
-    out.push_str("frame thread CPU (ms per second, oldest first):\n");
+    out.push_str("frame thread CPU (percent of one core, oldest first):\n");
     for (i, cpu) in per_second.iter().enumerate() {
         if i > 0 {
             out.push(' ');
         }
-        out.push_str(&format!("{:.1}", *cpu as f32 / 1000.0));
+        out.push_str(&format!("{:.0}", *cpu as f32 / 10_000.0));
     }
     out
 }
