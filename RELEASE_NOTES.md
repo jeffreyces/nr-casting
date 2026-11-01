@@ -1,3 +1,44 @@
+# v0.2.12 — one instrument, and a way to remove it
+
+A reporter's bundle said phase 4 was the only clean phase. It wasn't — but reading it showed the
+run was not measuring all six phases with the same clock, which makes any phase-by-phase comparison
+worthless. That is fixed, and the experiment his report could not run is now a setting.
+
+**Upgrade is the DLL.** Nothing else changes.
+
+## Fixed
+
+- **A run could change its own clock halfway through.** Phase 4 switches the pad hooks off, so the
+  pad stops being polled through us, `pad_live()` goes stale within two seconds, and the message
+  pump takes over — about one tick a frame where the pad gives about two. Phases 1, 2, 3 and 5 were
+  recorded on the pad and phases 4 and 6 on the pump, while the report's own header claimed "the
+  same clock in every phase". The pump is now pinned for the whole run, so switching the pad hooks
+  off cannot move the instrument, and the pad detour stops feeding gaps while pinned.
+- **Every phase now prints its tick count and rate** (`1800 ticks, 450/s`), so a phase that was
+  recorded at a different cadence is visible as that instead of being read as a difference in
+  smoothness.
+
+## Added
+
+- **`hooks = on|off`** under `[logging]`. `off` installs no input detours at all: pad, raw input,
+  pointer, all of it. Casting stops — that is the point. It is the one comparison a loaded mod
+  cannot make any other way, because the guided run always leaves the hooks in the path: with
+  `hooks = off` the DLL is present and doing nothing, so a stutter that survives it is not the
+  detours and a stutter that disappears is.
+- The `PeekMessageW` heartbeat is still installed in that mode, because it is the frame clock rather
+  than an input detour — so a `hooks = off` session is still a measured bundle. Play for five
+  minutes with a character loaded and press **`diagnostics & report`**.
+- When `hooks = off`, the guided run's button is replaced by a line saying it needs the hooks: six
+  phases with nothing to switch would produce a report that looks like a comparison but isn't.
+  `bisect::start` refuses for the same reason.
+
+## Verified
+
+62 unit tests green. Built and launched with the new config read order (the ini is now parsed before
+any hook is installed, which is what makes `hooks = off` possible) — the mod loads, registers its
+hotkey and starts its panel as before, and `state:` in the bundle now reports `hooks=` and
+`pad_hook=` so a report says which mode produced it.
+
 # v0.2.11 — stop fighting for the hook
 
 A player's game crashed the moment he plugged a controller in. Not a memory bug: the mod had
