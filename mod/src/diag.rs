@@ -424,6 +424,19 @@ fn state() -> String {
         }
     );
     let _ = writeln!(out, "raw: {}", crate::stats::raw_report());
+    // The one line that turns "the write path is checked on the first cast" into an observation.
+    let (ok, refused) = crate::game::steer_counts();
+    let _ = writeln!(
+        out,
+        "steering: {} of {} magic-entry writes read back as written{}",
+        ok,
+        ok + refused,
+        if refused == 0 {
+            String::new()
+        } else {
+            format!(" - {refused} did NOT take, so those casts used the wheel's spell")
+        }
+    );
     let _ = writeln!(
         out,
         "chords: {} | panel {} | cursor hooks {} | player cursor {} | frame clock {}",

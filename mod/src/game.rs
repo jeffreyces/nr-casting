@@ -203,6 +203,22 @@ pub(crate) fn selected_spell() -> Option<i32> {
     (id > 0).then_some(id)
 }
 
+/// How many writes to the magic entry read back correctly, and how many did not.
+///
+/// The report used to say "the write path is checked on the first cast" and then never say what
+/// the check found: a claim with no observation behind it. The counters make the claim auditable
+/// from the report alone - a session with casts and zero refusals *is* the write verification.
+static STEER_OK: AtomicU32 = AtomicU32::new(0);
+static STEER_REFUSED: AtomicU32 = AtomicU32::new(0);
+
+/// Writes that read back as written, and writes that did not. Zero handles means no cast yet.
+pub(crate) fn steer_counts() -> (u32, u32) {
+    (
+        STEER_OK.load(Ordering::Relaxed),
+        STEER_REFUSED.load(Ordering::Relaxed),
+    )
+}
+
 pub(crate) fn select_spell(spell: i32) -> bool {
     let Some(magic) = magic_data_verified() else {
         return false;
@@ -225,6 +241,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
     let took = magic.entries.get(idx).map(|e| e.param_id) == Some(spell)
         && magic.selected_slot == idx as i32;
     if !took {
+        STEER_REFUSED.fetch_add(1, Ordering::Relaxed);
         static WARNED: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);
         if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -235,6 +252,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
         }
         return false;
     }
+    STEER_OK.fetch_add(1, Ordering::Relaxed);
     remember_steered(spell);
     // The menu's `selected_magic_item` is deliberately left alone: the cast reads
     // `EquipMagicData`, that field is a display cache (it sat at the "no item" sentinel while

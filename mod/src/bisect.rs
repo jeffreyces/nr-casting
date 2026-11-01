@@ -45,6 +45,9 @@ const SLOTS: usize = 90;
 
 static DISABLED: AtomicU32 = AtomicU32::new(0);
 static RUNNING: AtomicBool = AtomicBool::new(false);
+/// Whether a run was ever started in this session, so an empty phase table can say "no run" instead
+/// of blaming a frame clock the player never stopped feeding.
+static EVER_RAN: AtomicBool = AtomicBool::new(false);
 static CLOCK: Mutex<PhaseClock> = Mutex::new(PhaseClock::new(PLAN.len(), PHASE_SECONDS));
 /// Which hook measured the frames for this run. Every phase has to use the same one, or the phases
 /// are not comparable - the first run proved it by switching mid-phase and moving its own p50.
@@ -123,6 +126,7 @@ pub fn start() -> bool {
     }
     apply_bits(PLAN[0].1);
     RUNNING.store(true, Ordering::Relaxed);
+    EVER_RAN.store(true, Ordering::Relaxed);
     crate::log(&format!("bisect: frame clock is the {kind}"));
     log_phase(0);
     true
@@ -237,11 +241,22 @@ pub fn section() -> String {
          # work: pad and raw-input detours short-circuit, the cursor detours are removed outright.\n"
     ));
     if (0..PLAN.len()).all(|index| samples(index).iter().all(|us| *us == 0)) {
-        out.push_str(
-            "# every phase is empty: nothing was feeding the frame clock - not the pad, not the\n\
-             # message pump. Load a character and run this again; the state section says which\n\
-             # clock is live.\n",
-        );
+        // Two different silences used to print the same paragraph: a run whose clock never ticked,
+        // and a session where the button was simply never pressed. The second one is the common
+        // case (a plain report) and the old text blamed the player for not having a character
+        // loaded, which was wrong and sent them looking for a bug in their game.
+        if !EVER_RAN.load(Ordering::Relaxed) {
+            out.push_str(
+                "# no bundle run in this session: this is a plain report, and the six phases only\n\
+                 # exist once the bundle button has been pressed. Nothing here is missing.\n",
+            );
+        } else {
+            out.push_str(
+                "# every phase is empty although a run was started: nothing was feeding the frame\n\
+                 # clock - not the pad, not the message pump. Load a character and run this again;\n\
+                 # the state section says which clock is live.\n",
+            );
+        }
     }
     for (index, (label, bits)) in PLAN.iter().enumerate() {
         let values = samples(index);
