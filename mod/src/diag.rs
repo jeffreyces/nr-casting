@@ -388,13 +388,29 @@ fn state() -> String {
         "spell selected in the game: {}",
         crate::PLAYER_SPELL.load(std::sync::atomic::Ordering::Relaxed)
     );
+    // One counter, one meaning. This used to claim "N with no controller, 0 unplugged" from a
+    // single value plus a hardcoded zero, so a wireless pad that dropped nine times in a session
+    // looked like a probe that had never seen a controller — and the real "unplugged" figure was
+    // the literal 0 beside it. A failed read is a failed read: with no pad connected the game still
+    // probes occasionally, and with a wireless pad it drops.
     let _ = writeln!(
         out,
-        "input: {} polls, {} full passes, {} with no controller, {} unplugged",
+        "input: {} polls, {} full passes, {} reads refused by the driver (no pad, or a wireless drop)",
         crate::stats::pad_polls(),
         crate::stats::passes(),
-        crate::stats::pad_unplugged_count(),
-        0
+        crate::stats::pad_unplugged_count()
+    );
+    // What the pad is: wireless or wired, and the battery. Absent from every earlier report, which
+    // is why "their controller stutters and mine does not" could not be answered from the bundle.
+    let pad = crate::input::describe_pad();
+    let _ = writeln!(
+        out,
+        "pad: {}",
+        if pad.is_empty() {
+            "no successful read this session (nothing to describe)"
+        } else {
+            pad
+        }
     );
     let _ = writeln!(out, "raw: {}", crate::stats::raw_report());
     let _ = writeln!(

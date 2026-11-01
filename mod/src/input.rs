@@ -55,6 +55,130 @@ struct XInputState {
     gamepad: XInputGamepad,
 }
 
+/// `XINPUT_CAPABILITIES`: what kind of device this is, and whether it is on a wire.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct XInputCapabilities {
+    kind: u8,
+    sub_type: u8,
+    flags: u16,
+    gamepad: XInputGamepad,
+    vibration: [u16; 2],
+}
+
+/// `XINPUT_BATTERY_INFORMATION`. Only meaningful for a wireless device.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct XInputBattery {
+    battery_type: u8,
+    battery_level: u8,
+}
+
+/// `XINPUT_CAPS_WIRELESS`: the one flag that separates a wireless pad from a wired one.
+const XINPUT_CAPS_WIRELESS: u16 = 0x0002;
+
+/// What the pad is, read once and kept for the report.
+///
+/// A stutter that only appears with a controller has one question above all others: is this device
+/// wireless, and is its battery healthy? A wireless pad's reads go through a link that stalls and
+/// re-enumerates, a wired one's do not, and a nearly-empty battery makes the driver erratic — all
+/// three change what a frame-time series means without changing a single number in it.
+///
+/// XInput exposes those two facts and nothing else. It does not expose the model, the vendor or
+/// whether the link is Bluetooth or the Xbox Wireless Adapter, so this reports what it can prove
+/// and says nothing about the rest.
+static PAD_DESC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The pad, as described on its first successful read, or `""` if none was ever read.
+pub(crate) fn describe_pad() -> &'static str {
+    PAD_DESC.get().map(String::as_str).unwrap_or("")
+}
+
+/// Fill the description once. Called on the first poll that returns a state.
+fn note_pad_seen() {
+    let _ = PAD_DESC.set(read_pad_description());
+}
+
+fn read_pad_description() -> String {
+    type CapabilitiesFn = unsafe extern "system" fn(u32, u32, *mut XInputCapabilities) -> u32;
+    type BatteryFn = unsafe extern "system" fn(u32, u8, *mut XInputBattery) -> u32;
+
+    unsafe {
+        let module = {
+            let handle = GetModuleHandleA(c"xinput1_4.dll".as_ptr() as *const u8);
+            if handle.is_null() {
+                GetModuleHandleA(c"xinput1_3.dll".as_ptr() as *const u8)
+            } else {
+                handle
+            }
+        };
+        if module.is_null() {
+            return "not readable (no xinput module handle)".to_string();
+        }
+        // Neither of these is hooked, so calling them cannot re-enter our own detour.
+        let caps_addr = GetProcAddress(module, c"XInputGetCapabilities".as_ptr() as *const u8);
+        if caps_addr.is_null() {
+            return "not readable (this xinput has no XInputGetCapabilities)".to_string();
+        }
+        let capabilities: CapabilitiesFn = std::mem::transmute(caps_addr);
+        let mut caps = XInputCapabilities::default();
+        if capabilities(0, 0, &mut caps) != 0 {
+            return "not readable (XInputGetCapabilities refused)".to_string();
+        }
+
+        let kind = match caps.sub_type {
+            1 => "gamepad",
+            2 => "wheel",
+            3 => "arcade stick",
+            4 => "flight stick",
+            5 => "dance pad",
+            6 => "guitar",
+            8 => "drum kit",
+            11 => "arcade pad",
+            _ => "other subtype",
+        };
+        let transport = if caps.flags & XINPUT_CAPS_WIRELESS != 0 {
+            "wireless"
+        } else {
+            "wired"
+        };
+
+        // Battery is only reported for a wireless device; a wired one says "wired" and the level
+        // is meaningless, so it is left out rather than printed as a fake "full".
+        let battery = {
+            let battery_addr =
+                GetProcAddress(module, c"XInputGetBatteryInformation".as_ptr() as *const u8);
+            if battery_addr.is_null() {
+                String::new()
+            } else {
+                let information: BatteryFn = std::mem::transmute(battery_addr);
+                let mut info = XInputBattery::default();
+                if information(0, 0, &mut info) != 0 {
+                    String::new()
+                } else {
+                    let kind = match info.battery_type {
+                        0 => "disconnected",
+                        1 => "wired",
+                        2 => "alkaline",
+                        3 => "NiMH",
+                        _ => "unknown type",
+                    };
+                    let level = match info.battery_level {
+                        0 => "empty",
+                        1 => "low",
+                        2 => "medium",
+                        3 => "full",
+                        _ => "unknown level",
+                    };
+                    format!(", battery {kind}/{level}")
+                }
+            }
+        };
+        format!("{transport}, {kind}, flags {:#06x}{battery}", caps.flags)
+    }
+}
+
+
 extern "system" {
     fn LoadLibraryA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
@@ -762,6 +886,12 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
         if ret == 0 {
             crate::rawinput::note_pad_ok();
             let n = crate::stats::pad_ok();
+            if n == 1 {
+                // The first read is the only one that can describe the device, and the description
+                // is what a stutter report is missing: wireless or wired, and how the battery is.
+                note_pad_seen();
+                log(&format!("pad: {}", describe_pad()));
+            }
             if n == 1 || n.is_multiple_of(600) {
                 debug!(
                     "detour: poll #{n} (user {user}, buttons={:#06x})",
