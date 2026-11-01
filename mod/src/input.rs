@@ -315,6 +315,10 @@ static LAST_RUN_MS: AtomicU32 = AtomicU32::new(0);
 /// Floor between full passes. 8 ms is faster than any pad or mouse report the game consumes, and
 /// it caps the per-poll work at ~125 Hz however often the game polls.
 const POLL_INTERVAL_MS: u32 = 8;
+/// How many times the export's prologue may be re-patched with a chained trampoline before we stop
+/// trying. Each chain adds a stack frame to every pad poll; a fight with an integrity checker can
+/// produce dozens in half a minute, which overflows the input thread's stack.
+const MAX_CHAINED_REINSTALLS: u32 = 1;
 static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 /// How many "Y released" reports the current chord has had. Cleared when the chord ends.
 ///
@@ -608,6 +612,9 @@ pub(crate) fn watch_hook() {
     let mut tried_import_slot = false;
     let mut last_polls = crate::stats::pad_polls();
     let mut idle_ticks = 0u32;
+    // Re-installs that chain the previous hook. Never reset: `attempts` is a churn budget that a
+    // resumed poll stream refills, and that refill is what let one session chain 26 detours.
+    let mut chained = 0u32;
 
     loop {
         // Half a second per tick: recovery is gated on a validated character (the telemetry loop
@@ -739,6 +746,23 @@ pub(crate) fn watch_hook() {
                 Err(e) => log(&format!("XInputGetState: import slot unusable ({e})")),
             }
         }
+
+        // Capturing whatever is there now keeps a third-party hook in the chain - and every
+        // capture adds a frame to every poll. 26 of them, one every 500 ms, is what crashed a
+        // player's game with 0xc00000fd (stack overflow) the moment he plugged a controller in:
+        // the game polls from a fresh thread whose stack is not that deep. The churn budget above
+        // is refilled by any poll that succeeds, so it cannot bound this; only a counter that
+        // never resets can.
+        if chained >= MAX_CHAINED_REINSTALLS {
+            log(
+                "XInputGetState: the export's prologue keeps being restored by something else \
+                 (an integrity check, or a hook that re-applies itself) — leaving it alone. Pad \
+                 casting will not work on this install; mouse casting is unaffected.",
+            );
+            attempts = 8; // stop the watcher; nothing else here is safe to retry
+            continue;
+        }
+        chained += 1;
 
         // Capturing whatever is there now keeps a third-party hook in the chain.
         match hook_target(target) {

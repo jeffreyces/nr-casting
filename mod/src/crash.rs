@@ -112,13 +112,20 @@ unsafe extern "system" fn exception_handler(info: *mut ExceptionPointers) -> i32
     // conversion machinery that could itself fault.
     let mut ascii = [0u8; 96];
     let mut ascii_len = 0usize;
-    for unit in &module[..module_len.min(module.len())] {
+    // Keep the END of the path, not the start. me3 installs profiles under
+    // `%LOCALAPPDATA%\garyttierney\me3\config\profiles\eldenring-mods\<mod>\`, and 96 bytes of
+    // that is the directory - a reporter's crash line named the folder and cut off the DLL name,
+    // which is the one word that identifies the faulting module. The file name survives this way.
+    let units = &module[..module_len.min(module.len())];
+    let units = &units[units.len().saturating_sub(ascii.len())..];
+    for unit in units {
         if *unit < 128 && ascii_len < ascii.len() {
             ascii[ascii_len] = *unit as u8;
             ascii_len += 1;
         }
     }
-    let name = std::str::from_utf8(&ascii[..ascii_len]).unwrap_or("");
+    let path = std::str::from_utf8(&ascii[..ascii_len]).unwrap_or("");
+    let name = path.rsplit(['\\', '/']).next().unwrap_or(path);
 
     let ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

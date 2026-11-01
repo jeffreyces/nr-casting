@@ -1,3 +1,30 @@
+# v0.2.11 — stop fighting for the hook
+
+A player's game crashed the moment he plugged a controller in. Not a memory bug: the mod had
+re-patched `XInputGetState`'s prologue **26 times in half a minute**, and every re-install chained
+the previous one — one poll then walked 26 stack frames, and the thread the game polls from when a
+pad appears could not hold them. `0xc00000fd` is a stack overflow, and it was ours.
+
+**Upgrade is the DLL.** Nothing else changes.
+
+## Fixed
+
+- **Chained re-hooks are capped.** Something on that machine restores the prologue faster than we
+  can patch it (Arxan is enabled on this game, and an integrity check that rewrites a function is
+  exactly that). The watcher's churn budget could not stop it, because a poll that succeeds refills
+  the budget — so the fight ran forever. One chained re-install is now allowed; after that the mod
+  logs which function is being restored, stops touching it, and stops the watcher. Pad casting is
+  lost on such an install; mouse casting and everything else still work, and nothing crashes.
+- **Crash lines name the module.** The fault line kept the first 96 characters of the module's full
+  path, which in me3's profile layout is the *directory* — a reporter's crash named the folder and
+  cut off the DLL name, the one word that identifies what faulted. It now keeps the end of the path
+  and prints the file name.
+
+## Not changed
+
+`v0.2.10`'s import-slot routing is untouched. It is why most installs should never reach this code
+path at all: with the pointer store there is no prologue patch for an integrity check to fight.
+
 # v0.2.10 — the hook that never was, and a quieter binary
 
 Two fixes that turned out to be one story. The pad hook has been patching the *export's prologue*
