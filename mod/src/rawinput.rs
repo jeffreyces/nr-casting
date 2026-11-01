@@ -290,7 +290,12 @@ fn neutralise_mouse(record: &mut [u8]) {
     if kind != RIM_TYPE_MOUSE {
         return;
     }
-    for byte in record[HEADER_BYTES..].iter_mut() {
+    // Clamp to the record's own declared size *and* to what the caller's buffer actually holds:
+    // `out` is the number of bytes this call wrote, and a record larger than that would mean
+    // writing past the caller's buffer, which is somebody else's memory.
+    let declared = u32::from_ne_bytes([record[4], record[5], record[6], record[7]]) as usize;
+    let end = declared.clamp(HEADER_BYTES, record.len());
+    for byte in record[HEADER_BYTES..end].iter_mut() {
         *byte = 0;
     }
 }
