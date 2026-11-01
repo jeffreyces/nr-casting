@@ -47,6 +47,8 @@ static FORCE_LINE: AtomicBool = AtomicBool::new(true);
 
 /// When the series last advanced, so the poll path can stand in if the timer never armed.
 static TICKED_AT: AtomicU64 = AtomicU64::new(0);
+/// When the pad was last polled, so the keyboard path knows to stand down.
+static PAD_AT: AtomicU64 = AtomicU64::new(0);
 
 /// Advance the one-second series by one sample.
 ///
@@ -84,6 +86,13 @@ pub fn tick_if_due(poll_ticks: u64) {
 /// clock at all - a run with no controller connected records six empty minutes, so the UI refuses to
 /// start one and the report says why rather than printing zeros.
 pub fn pad_live() -> bool {
+    let last = PAD_AT.load(Ordering::Relaxed);
+    last != 0 && micros(ticks().saturating_sub(last)) <= 2_000_000
+}
+
+/// Whether *any* of our per-frame hooks is being called: the pad if a controller is in use, the
+/// keyboard and mouse otherwise. Either is a frame clock, which is what a run needs.
+pub fn frame_clock_live() -> bool {
     let last = LAST.load(Ordering::Relaxed);
     last != 0 && micros(ticks().saturating_sub(last)) <= 2_000_000
 }
@@ -187,6 +196,28 @@ pub fn report(started: u64) {
         return;
     }
     let cost = micros(now.saturating_sub(started));
+    PAD_AT.store(now, Ordering::Relaxed);
+    record(now, cost);
+}
+
+/// The same, from a keyboard or mouse hook, when the pad is not the one being polled.
+///
+/// ER polls `GetAsyncKeyState` every frame whether or not a controller is attached, so it is a
+/// frame clock on its own. Both sources feed one series, and the keyboard one stands down while the
+/// pad is live: two hooks per frame would otherwise halve every gap and make the p50 meaningless.
+pub fn report_keys(started: u64) {
+    let now = ticks();
+    if now == 0 || started == 0 {
+        return;
+    }
+    if pad_live() {
+        return;
+    }
+    let cost = micros(now.saturating_sub(started));
+    record(now, cost);
+}
+
+fn record(now: u64, cost: u32) {
     let previous = LAST.swap(now, Ordering::Relaxed);
     let window_start = WINDOW.load(Ordering::Relaxed);
     if window_start == 0 {
@@ -247,7 +278,7 @@ pub fn report(started: u64) {
     }
     QUIET_WINDOWS.store(0, Ordering::Relaxed);
     crate::log(&format!(
-        "perf: {polls} polls in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), our detour max {}us, panel {}",
+        "perf: {polls} input ticks in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), our detour max {}us, panel {}",
         elapsed as f64 / 1_000_000.0,
         mean as f64 / 1000.0,
         peak as f64 / 1000.0,

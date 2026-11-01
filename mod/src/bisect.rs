@@ -158,9 +158,9 @@ pub fn section() -> String {
     );
     if (0..PLAN.len()).all(|index| samples(index).iter().all(|us| *us == 0)) {
         out.push_str(
-            "# every phase is empty: the game never polled XInput, so there is no frame clock.\n\
-             # connect a controller (the game only polls the pad when one is present at launch),\n\
-             # start the character, and run this again.\n",
+            "# every phase is empty: the game never polled the pad or the keyboard, so there is no\n\
+             # frame clock. Load a character and wait until it is polling - with a controller, ER\n\
+             # only polls the pad when one is attached at launch - then run this again.\n",
         );
     }
     for (index, (label, bits)) in PLAN.iter().enumerate() {

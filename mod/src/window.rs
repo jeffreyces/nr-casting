@@ -953,13 +953,13 @@ impl App {
                         ),
                     );
                     vspace(ui, 6.0);
-                    let pad_live = crate::perf::pad_live();
+                    let pad_live = crate::perf::frame_clock_live();
                     if !pad_live {
                         help_line(
                             ui,
-                            "No pad polls right now: connect the controller, wait until a character \
-                             is loaded and the game is polling (the log says so), then start. Six \
-                             empty minutes is all this run would record.",
+                            "No input polls right now: load a character and wait until the game \
+                             is polling (the pad if you use one, otherwise the keyboard - either \
+                             is the frame clock). Starting now would record six empty minutes.",
                         );
                         vspace(ui, 4.0);
                     }

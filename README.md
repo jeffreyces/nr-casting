@@ -277,7 +277,9 @@ CPU, and a per-second record of the frame gaps over the last five minutes.
   load a character, stand somewhere quiet and still, and start. The mod records six one-minute
   phases — everything on, then the pointer detours off, the raw-input hooks off, the pad hooks off
   (casting stops for that minute, which is expected), the housekeeping thread off, and finally all of
-  them off — and writes a report whose first section puts the six phases side by side. That is the
+  them off — and writes a report whose first section puts the six phases side by side. It needs a
+  frame clock, which is whichever input the game is polling: the pad if a controller is attached,
+  otherwise the keyboard and mouse, since the game reads those every frame either way. That is the
   difference between "it stutters" and "it stutters with our hooks loaded", which is usually the
   question worth answering. The panel closes itself when the run starts, because an open panel owns
   the input and the GPU it is meant to be measuring.
