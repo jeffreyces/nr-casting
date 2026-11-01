@@ -218,6 +218,23 @@ pub(crate) fn select_spell(spell: i32) -> bool {
         entry.charges = -1;
     }
     magic.selected_slot = idx as i32;
+    // Read back what was just written. This is the whole of the write verification now: the write
+    // is one the cast needs anyway, so checking it costs two loads and adds no memory shape of its
+    // own — no snapshot, no restore, no synthetic sentinel. A wrong offset or a read-only page
+    // shows up on the first cast instead of on a probe nobody asked for.
+    let took = magic.entries.get(idx).map(|e| e.param_id) == Some(spell)
+        && magic.selected_slot == idx as i32;
+    if !took {
+        static WARNED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            crate::log(
+                "steering: the write did not take (offset or page is not what we think) — \
+                 casts will use the wheel's spell; reported once",
+            );
+        }
+        return false;
+    }
     remember_steered(spell);
     // The menu's `selected_magic_item` is deliberately left alone: the cast reads
     // `EquipMagicData`, that field is a display cache (it sat at the "no item" sentinel while
@@ -469,86 +486,6 @@ pub(crate) fn inventory_goods_ids() -> Vec<i32> {
         .filter(|entry| entry.item_id.category() == eldenring::cs::ItemCategory::Goods)
         .map(|entry| entry.item_id.param_id() as i32)
         .collect()
-}
-
-/// Prove the one field we write behaves like a field.
-///
-/// The structural probe checks what we *read*, which cannot tell a wrong offset that happens to
-/// point at an `int` from the right one - and the selected slot is the field a cast depends on. So:
-/// check the object's header really is a game-object header (its vftable sits inside the loaded
-/// image), check all fourteen entry ids are plausible, then write a different slot index, read it
-/// back, restore it, and confirm not one other byte in the struct moved.
-///
-/// The write is live for the time it takes to read four bytes back - hundreds of nanoseconds - and
-/// happens once, on the housekeeping thread, right after a character loads and before anything can
-/// be cast. A failure disables steering rather than trusting a guess.
-pub(crate) fn verify_selected_slot_write() -> Result<String, String> {
-    let magic = magic_data_verified()
-        .ok_or_else(|| "write probe: magic data unreadable".to_string())?;
-    let base = magic as *mut eldenring::cs::EquipMagicData as *mut u8;
-    let size = std::mem::size_of::<eldenring::cs::EquipMagicData>();
-    let slot_off = std::mem::offset_of!(eldenring::cs::EquipMagicData, selected_slot);
-    let entries_off = std::mem::offset_of!(eldenring::cs::EquipMagicData, entries);
-
-    // A game object's first word is its vftable, which lives in the executable's image. A number
-    // that is not in range is the cheapest possible sign that the offsets are not what we think.
-    let Some((image_base, image_size)) = crate::probe::image_range() else {
-        return Err("write probe: no image range".to_string());
-    };
-    let vftable = unsafe { std::ptr::read_unaligned(base as *const usize) };
-    if !(image_base..image_base + image_size).contains(&vftable) {
-        return Err(format!(
-            "write probe: object header is not a game object (vftable {vftable:#x} is outside the exe)"
-        ));
-    }
-
-    for index in 0..14 {
-        let id = unsafe {
-            std::ptr::read_unaligned(base.add(entries_off + index * 8) as *const i32)
-        };
-        if !(-1..=0x0FFF_FFFF).contains(&id) {
-            return Err(format!("write probe: entry {index} holds {id}, which is not a spell id"));
-        }
-    }
-
-    let slot = unsafe { base.add(slot_off) as *mut i32 };
-    let original = unsafe { std::ptr::read_volatile(slot) };
-    if !(0..14).contains(&original) {
-        return Err(format!("write probe: selected slot {original} is out of range"));
-    }
-    let sentinel = (original + 1) % 14;
-    let before = unsafe { std::slice::from_raw_parts(base, size).to_vec() };
-
-    unsafe { std::ptr::write_volatile(slot, sentinel) };
-    let readback = unsafe { std::ptr::read_volatile(slot) };
-    unsafe { std::ptr::write_volatile(slot, original) };
-    let restored = unsafe { std::ptr::read_volatile(slot) };
-    let after = unsafe { std::slice::from_raw_parts(base, size).to_vec() };
-
-    if readback != sentinel {
-        return Err(format!(
-            "write probe: wrote {sentinel} and read back {readback} — the field is not the selection"
-        ));
-    }
-    if restored != original {
-        return Err(format!(
-            "write probe: {original} did not come back (read {restored}) — steering left the game altered"
-        ));
-    }
-    for offset in 0..size {
-        if (slot_off..slot_off + 4).contains(&offset) {
-            continue;
-        }
-        if before[offset] != after[offset] {
-            return Err(format!(
-                "write probe: byte {offset} changed — the write reached something else"
-            ));
-        }
-    }
-    Ok(format!(
-        "write probe = ok (slot {original} -> {sentinel} -> {original}, {} bytes intact)",
-        size - 4
-    ))
 }
 
 /// Slot count and current selection, for the structural probe.

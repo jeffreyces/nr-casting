@@ -189,6 +189,7 @@ pub(crate) fn exe_version() -> String {
 }
 
 /// The loaded executable's `[base, base + size)`, for deciding whether a pointer is code.
+#[allow(dead_code)] // kept: the next thing that needs an image-range check should not re-derive it
 pub(crate) fn image_range() -> Option<(usize, usize)> {
     // SAFETY: GetModuleHandleA(NULL) is the main module.
     let base = unsafe { crate::win32::GetModuleHandleA(std::ptr::null()) } as usize;
@@ -270,35 +271,24 @@ pub fn validate_player() {
         }
     }
 
-    // Reading the right fields is half of it: we also *write* the selected slot. Prove, once, that
-    // the field takes a value and gives it back, and that the bytes around it do not move.
-    //
-    // Once per *process*, not once per attempt: validation retries every 250 ms until it passes,
-    // so a build whose write path fails would otherwise be written to four times a second forever,
-    // each write briefly changing the player's selection. The verdict is kept and reused.
-    if failure.is_none() {
-        static WRITE: std::sync::Mutex<Option<Result<String, String>>> =
-            std::sync::Mutex::new(None);
-        let mut slot = WRITE.lock().unwrap_or_else(|e| e.into_inner());
-        if slot.is_none() {
-            *slot = Some(crate::game::verify_selected_slot_write());
-        }
-        match slot.as_ref() {
-            Some(Ok(line)) => results.push(line.clone()),
-            Some(Err(reason)) => failure = Some(reason.clone()),
-            None => {}
-        }
-    }
+    // The write path is no longer probed here. 0.2.9 wrote a sentinel into the selected slot,
+    // restored it and byte-compared the whole struct; that was the one memory shape this mod had
+    // that reads as a loader's rather than a mod's, and the check now happens on the first real
+    // cast instead (`select_spell` reads back the two fields it writes). What is verified here is
+    // everything that can be verified by reading, which is the part that decides whether the
+    // offsets are the ones we think they are.
 
     match failure {
         None => {
             STATE.store(VALIDATED, Ordering::Relaxed);
             results.push(if !version_recognised() {
-                "probe = PASSED on an unrecognised build (fallback table), read and write \
-                 verified — steering enabled"
+                "probe = PASSED on an unrecognised build (fallback table), read verified — \
+                 steering enabled; the write path is checked on the first cast"
                     .to_string()
             } else {
-                "probe = PASSED, read and write verified — steering enabled".to_string()
+                "probe = PASSED, read verified — steering enabled; the write path is checked on \
+                 the first cast"
+                    .to_string()
             });
             crate::log("probe: structure validation passed");
             write_map(&results);
