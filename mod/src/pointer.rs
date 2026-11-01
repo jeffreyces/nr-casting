@@ -26,8 +26,6 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 static CLIP_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static POS_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static CAPTURE_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
-static RAW_DATA_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
-static RAW_BUFFER_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static SETCURSOR_TRAMP: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 /// The panel's own window. Captures it takes must pass through: the sizing loop that
 /// `DefWindowProcW` runs on a frame drag depends on having the capture, and swallowing it left the
@@ -225,7 +223,7 @@ fn is_open() -> bool {
 ///
 /// Every thread, deliberately: the panel reads its cursor from window messages, not raw input,
 /// so nothing in this process needs the mouse raw while it is open.
-fn starving() -> bool {
+pub(crate) fn starving() -> bool {
     is_open()
 }
 
@@ -268,66 +266,10 @@ unsafe extern "system" fn capture_detour(hwnd: *mut u8) -> *mut u8 {
     original(hwnd)
 }
 
-/// `RID_INPUT` is the only command whose payload starts with a `RAWINPUT` header, and mouse is
-/// type 0. Starvation exists to stop mouse-look, so keyboard is never dropped: a stuck panel
-/// flag must not be able to take the keyboard away from the game.
-const RID_INPUT: u32 = 0x1000_0003;
-const RIM_TYPE_MOUSE: u32 = 0;
 
-unsafe fn mouse_payload(data: *const u8) -> bool {
-    unsafe { *(data as *const u32) == RIM_TYPE_MOUSE }
-}
-
-/// Is `size` (a byte count the caller passed in) at least `needed` bytes?
 ///
-/// These detours run inside another module's call, so the buffer behind the pointer is only as
-/// trustworthy as the caller. Reading the header of a zero-length or null buffer is an access
-/// violation in someone else's process — a crash with our name on it.
-unsafe fn buffer_at_least(size: *const u32, needed: u32) -> bool {
-    !size.is_null() && unsafe { *size } >= needed
-}
 
-unsafe extern "system" fn raw_data_detour(
-    device: *mut u8,
-    command: u32,
-    data: *mut u8,
-    size: *mut u32,
-    header_size: u32,
-) -> u32 {
-    if starving()
-        && !data.is_null()
-        && command == RID_INPUT
-        && buffer_at_least(size, 4)
-        && mouse_payload(data)
-    {
-        return 0;
-    }
-    let tramp = RAW_DATA_TRAMP.load(Ordering::Acquire);
-    if tramp.is_null() {
-        return 0;
-    }
-    let original: unsafe extern "system" fn(*mut u8, u32, *mut u8, *mut u32, u32) -> u32 =
-        std::mem::transmute(tramp);
-    original(device, command, data, size, header_size)
-}
 
-unsafe extern "system" fn raw_buffer_detour(data: *mut u8, size: *mut u32, header: u32) -> u32 {
-    // Each entry in the buffer is a `u32` byte count followed by the `RAWINPUT`, so the first
-    // header's `dwType` sits four bytes in — but only if there is an entry at all.
-    if starving()
-        && !data.is_null()
-        && buffer_at_least(size, 8)
-        && unsafe { *((data as *const u32).add(1)) } == RIM_TYPE_MOUSE
-    {
-        return 0;
-    }
-    let tramp = RAW_BUFFER_TRAMP.load(Ordering::Acquire);
-    if tramp.is_null() {
-        return 0;
-    }
-    let original: unsafe extern "system" fn(*mut u8, *mut u32, u32) -> u32 = std::mem::transmute(tramp);
-    original(data, size, header)
-}
 
 pub(crate) fn hook(
     name: &std::ffi::CStr,
@@ -431,17 +373,11 @@ pub fn install() -> Result<(), String> {
             .and_then(|_| {
                 hook_switchable(c"SetCapture", user32, capture_detour as *const (), &CAPTURE_TRAMP)
             })
-            .and_then(|_| {
-                hook(c"GetRawInputData", user32, raw_data_detour as *const (), &RAW_DATA_TRAMP)
-            })
-            .and_then(|_| {
-                hook(
-                    c"GetRawInputBuffer",
-                    user32,
-                    raw_buffer_detour as *const (),
-                    &RAW_BUFFER_TRAMP,
-                )
-            })
+        // `GetRawInputData` and `GetRawInputBuffer` are deliberately *not* hooked here:
+        // `rawinput.rs` owns them, and hooking one address twice chained two trampolines into
+        // every raw input call - two jumps, two detours, and a patch that neither module could
+        // safely undo. The "starving" suppression that used to live in those detours is applied
+        // from `rawinput`'s single detour now.
     }
 }
 

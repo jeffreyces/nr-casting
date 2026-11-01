@@ -165,7 +165,7 @@ fn run() {
     // at all - a stutter experiment that has to run before the first hook exists to mean anything.
     config::migrate_from_game_dir();
     let cfg = config::load();
-    if cfg.hooks {
+    if cfg.hooks && cfg.raw_hook {
         // Read-only instrumentation: counts the game's own GetAsyncKeyState calls so the log can say
         // whether a keyboard/mouse cast can be presented there when no controller is connected.
         rawinput::install();

@@ -284,6 +284,18 @@ unsafe extern "system" fn raw_data_detour(
     if crate::bisect::disabled(crate::bisect::bit::RAW) {
         return original(hraw, command, data, size, header_size);
     }
+    // While a chord is staging, the mouse is not allowed to reach the game: the press belongs to
+    // our cast, not to the game's own attack. This check lived in a second detour on this same
+    // function until the duplicate was removed.
+    if command == RID_INPUT
+        && !crate::bisect::disabled(crate::bisect::bit::RAW)
+        && crate::pointer::starving()
+        && !data.is_null()
+        && unsafe { *size } >= 4
+    {
+        // Leave the buffer as the game found it and report "no input".
+        return 0;
+    }
     let out = original(hraw, command, data, size, header_size);
     if command == RID_INPUT && !data.is_null() && out > 0 {
         stats::raw_call();

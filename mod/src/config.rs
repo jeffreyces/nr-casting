@@ -49,6 +49,11 @@ pub struct Config {
     /// with the DLL loaded and doing nothing - the one comparison a loaded-but-inert mod cannot
     /// otherwise make.
     pub hooks: bool,
+    /// Install the mouse/keyboard raw-input hooks (mouse casting, Shift hiding).
+    pub raw_hook: bool,
+    /// Install the cursor detours (panel cursor behaviour). These come out again whenever the
+    /// panel is closed; this decides whether they exist at all.
+    pub pointer_hook: bool,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
     /// Log a ten-second line of pad-poll timing: frame gaps as the game sees them, and the cost of
@@ -122,6 +127,8 @@ impl Default for Config {
             panel_size: None,
             panel_pos: None,
             hooks: true,
+            raw_hook: true,
+            pointer_hook: true,
             debug_log: false,
             // Matches the shipped ini: quiet (one line per five minutes, or when a frame is lost),
             // and the only way a stutter is recorded at the time it happens.
@@ -556,6 +563,8 @@ perf_log = off
                         }
                     }
                     "hooks" => config.hooks = truthy(value),
+                    "raw_hook" => config.raw_hook = truthy(value),
+                    "pointer_hook" => config.pointer_hook = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     "perf_log" => config.perf_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),
