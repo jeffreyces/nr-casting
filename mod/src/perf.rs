@@ -87,6 +87,30 @@ pub fn tick_if_due(poll_ticks: u64) {
 /// How recent a tick must be for its clock to count as live.
 const LIVE_WINDOW_US: u32 = 2_000_000;
 
+/// Whether the message pump is the only clock allowed to record.
+///
+/// A guided run switches the pad hooks off in phase 4, which stops `pad_live()` from being true -
+/// and the pump then takes over, recording punts at a different cadence (once a frame instead of
+/// about twice a frame). The two clocks are not comparable, so a phase measured on one cannot be
+/// set beside a phase measured on the other. Pinning the pump for the whole run means every phase
+/// is the same measurement, and switching the pad hooks off cannot change the instrument.
+static PUMP_ONLY: AtomicBool = AtomicBool::new(false);
+
+/// Pin the message pump as the only frame clock, or release it. Returns the previous state.
+pub fn pin_pump(on: bool) -> bool {
+    PUMP_ONLY.swap(on, Ordering::Relaxed)
+}
+
+/// Whether the pump is currently the only clock.
+pub fn pump_pinned() -> bool {
+    PUMP_ONLY.load(Ordering::Relaxed)
+}
+
+/// How many ticks the recorder has seen, for per-phase tick rates.
+pub fn poll_count() -> u64 {
+    POLLS.load(Ordering::Relaxed) as u64
+}
+
 /// Whether the game has polled the pad within the last couple of seconds.
 ///
 /// The whole frame measurement hangs off the pad poll: it is the only per-frame call the game makes
@@ -216,6 +240,11 @@ pub fn report(started: u64) {
     }
     let cost = micros(now.saturating_sub(started));
     PAD_AT.store(now, Ordering::Relaxed);
+    if pump_pinned() {
+        // The pad still tells us a controller is there (so the panel does not claim otherwise), but
+        // it must not feed the gaps: a run is measuring the pump.
+        return;
+    }
     record(now, cost);
 }
 
@@ -232,7 +261,7 @@ pub fn report_pump(started: u64) {
     if now == 0 || started == 0 {
         return;
     }
-    if pad_live() {
+    if pad_live() && !pump_pinned() {
         return;
     }
     let cost = micros(now.saturating_sub(started));

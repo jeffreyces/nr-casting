@@ -1706,7 +1706,8 @@ pub fn start() {
     std::thread::spawn(|| {
         // This thread pumps its own messages; its `PeekMessageW` calls are not the game's frames.
         crate::pump::ignore_current_thread();
-        match crate::pointer::install() {
+        let install = crate::config::load().hooks.then(|| crate::pointer::install());
+        match install.unwrap_or_else(|| Ok(())) {
             Ok(()) => crate::log("pointer: detours installed"),
             Err(e) => crate::log(&format!("pointer: FAILED to install detours: {e}")),
         }

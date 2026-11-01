@@ -115,6 +115,7 @@ y_bumper = auto
 recluse_chr_ids = 8131
 
 [logging]
+hooks = on
 debug_log = off
 perf_log = on[/code]
 
@@ -141,6 +142,11 @@ size it from the screen again.
 [code]perf_log[/code]
 writes one timing line every 10 seconds — the pad-poll gaps and what our own hook costs — which is what
 a performance report needs.
+[code]hooks = off[/code]
+is a stutter experiment rather than a setting: no input detours are installed at all, so casting
+stops, but the diagnostics bundle then shows the game's frame timing with the DLL loaded and doing
+nothing. Run one session with it off and one with it on and compare; the guided six-phase run does
+the same comparison from inside a single session, which is usually the easier way.
 
 [code]y_bumper[/code]
 decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]:

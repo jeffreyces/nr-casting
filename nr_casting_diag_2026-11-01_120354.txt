@@ -1,0 +1,1314 @@
+==== report ====
+mod: nr_casting 0.2.11
+exe: 2.7.1.0
+reason: bundle run
+uptime: 460038 ms
+
+==== system ====
+os: 10.0 build 26200
+cpu: AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD
+arch: AMD64
+cores: 24
+ram: 49076 MiB total, 21861 MiB available
+process: 5918 MiB working set, 17797 MiB private
+
+==== gpu ====
+adapter 0: NVIDIA GeForce RTX 3080 (vendor 0x10de device 0x2216), 10053 MiB dedicated, 32692 MiB shared
+adapter 1: Microsoft Basic Render Driver (vendor 0x1414 device 0x008c), 0 MiB dedicated, 32692 MiB shared
+
+==== display ====
+screen: 1920x1080
+
+==== environment ====
+SteamAppId=1245620
+SteamGameId=1245620
+
+==== modules ====
+EOSSDK-Win64-Shipping.dll
+MpOav.dll
+amd_ags_x64.dll
+bink2w64.dll
+dxgi.dll
+eldenring.exe
+ermerchant.dll
+ersc.dll
+gameoverlayrenderer64.dll
+me3_mod_host.dll
+oo2core_6_win64.dll
+steam_api64.dll
+steamclient64.dll
+tier0_s64.dll
+vstdlib_s64.dll
+
+==== game folder dlls ====
+EOSSDK-Win64-Shipping.dll: 19063 KiB, built 2026-04-06
+amd_ags_x64.dll: 105 KiB, built 2016-12-08
+bink2w64.dll: 405 KiB, built 2021-06-07
+dxgi.dll: 5132 KiB, built 2026-08-02, contains: ReShade, Vulkan
+eldenring.exe: 85002 KiB, built 2026-09-01
+oo2core_6_win64.dll: 1060 KiB, built 2018-02-27
+steam_api64.dll: 259 KiB, built 2020-12-20
+# these are the files this process loaded from the game's folder - mods, overlays and any
+# wrapper sitting under a system name. 'contains' names strong markers only: an absence is
+# not proof. To test one, rename it (dxgi.dll -> dxgi.dll.off), run the bundle again and
+# compare phase 1 - same clock, same standstill, so the two runs are the same measurement.
+
+==== state ====
+config: overlay=true debug_log=false perf_log=true ui_scale=auto bind_modifier=L3 chord_stage=2
+weapons in hand: left=34070004 right=23070004
+stats: INT 22 FAI 60 ARC 16
+spell selected in the game: 6800
+input: 51234 polls, 37157 full passes, 6 reads refused by the driver (no pad, or a wireless drop)
+pad: wired, gamepad, flags 0x0000, battery wired/full
+raw: 140 key polls (LMB 138, RMB 1); raw input: 4388 calls, 0 buffer, 4386 mouse records, 93 with buttons; 0 casts steered, 0 handed to Recluse, 0 bound by super + click, 0 shift presses hidden
+chords: ours | panel closed | player cursor shown | frame clock pad
+
+==== performance ====
+300 s sampled (2 with no pad poll): worst-gap per second p50 27.912ms p90 40.499ms max 69.895ms; 114 seconds over 32ms
+worst gap per second (ms, oldest first):
+34.8 28.9 0.0 26.4 25.0 33.2 24.9 30.4 0.0 33.3 35.4 51.1 35.1 0.0 33.3 31.7 26.4 25.8 42.6 32.7 17.6 29.0 34.4 29.9 28.3 24.2 26.1 27.7 31.2 21.7 28.2 32.2 25.4 22.8 33.5 0.0 33.0 23.1 25.5 22.4 42.5 50.3 43.7 25.7 22.9 43.5 26.5 30.5 29.3 20.2 34.9 35.4 25.3 26.2 36.1 23.8 25.3 0.0 24.3 28.1 24.2 25.2 34.9 0.0 25.7 24.7 43.1 0.0 43.3 43.2 52.6 35.5 26.8 27.0 26.7 0.0 20.8 29.9 33.0 0.0 32.5 54.8 22.7 28.8 35.3 25.2 23.7 26.4 30.6 26.1 31.7 27.6 21.0 29.2 27.9 26.6 27.3 28.0 35.9 0.0 37.5 37.5 45.4 24.4 36.8 33.5 36.0 28.9 44.1 42.8 38.2 33.7 39.1 30.6 30.5 31.0 31.3 32.0 35.9 39.2 34.2 41.2 17.0 17.0 16.9 16.8 17.8 18.9 0.0 28.9 0.0 17.2 0.0 17.3 17.0 17.4 19.1 18.2 16.7 0.0 17.2 16.8 26.7 17.9 0.0 30.3 30.3 17.1 17.3 17.2 0.0 17.2 17.1 17.1 16.9 17.0 17.2 16.9 17.0 35.0 40.9 35.8 16.8 61.2 0.0 33.0 30.0 26.6 22.2 23.6 41.2 69.9 29.0 25.5 44.2 23.0 22.8 21.6 22.8 24.9 20.0 26.1 30.9 22.4 23.4 25.2 23.7 35.1 40.2 22.9 23.8 23.7 23.9 33.4 17.9 23.8 22.8 23.7 23.8 31.4 17.0 23.0 22.9 28.3 24.2 26.0 26.9 25.9 0.0 22.5 31.3 0.0 52.3 40.2 39.4 42.5 27.2 0.0 32.9 31.5 44.7 42.0 22.8 24.1 24.1 23.8 24.1 22.0 22.7 26.1 34.2 36.9 33.4 0.0 38.6 38.3 31.9 38.3 32.4 0.0 37.3 33.6 34.7 33.3 39.8 33.6 0.0 35.5 35.9 35.2 34.4 36.2 0.0 19.0 38.8 38.6 43.9 37.2 39.1 35.6 36.3 40.3 0.0 42.3 37.0 41.0 35.4 32.8 35.9 33.7 32.7 34.0 0.0 49.0 41.9 30.0 33.5 33.9 0.0 33.6 34.8 35.4 33.5 42.0 34.7 32.8 33.8 0.0 40.5 33.5 35.9 22.9 20.5 19.7 18.6 17.1 20.6 19.8 0.0 17.5
+
+==== config ====
+; nr-casting — four spells per catalyst (bumper, trigger, Y + trigger, Y + bumper)
+[ui]
+; Open the assignment panel on the hotkey. Set off for casting only (no window at all).
+overlay = on
+; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
+hotkey = F8
+; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
+show_all = off
+; Panel font size: auto follows the screen, or a fixed 100 / 125 / 150 / 175 / 200% (15-30 px).
+; Saved when you change it in the panel. The window size no longer changes the font.
+ui_scale = auto
+; Panel window size: auto sizes it from the screen. Saved when you resize the panel.
+panel_size = 900x498
+; Panel window position: auto opens at the default spot. Saved when you drag the panel.
+panel_pos = 428,114
+; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off by default:
+; on, it rewrites the selection ~30x a second and fights your D-pad scrolling.
+hud_mirror = off
+
+[input]
+; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
+; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. On mouse and keyboard the same gesture is
+; Super (Windows key) + click.
+bind_modifier = L3
+; Hold this and click to bind on mouse and keyboard. Super, Menu, F9, F10, F11, F12 or none.
+; Super is grabbed by KDE/GNOME on Linux, so Menu or a function key is the safe choice there.
+bind_modifier_kb = Super
+; How many reports a Y chord spends with Y released before the shoulder press that casts. Higher is
+; more forgiving of the game's own weapon-swap latch, lower is faster to cast. 2 is the default.
+chord_stage = 2
+
+[recluse]
+; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
+; auto = ours unless the Recluse mod is loaded and this character is a Recluse,
+;        in which case the chords pass through to the class port (its 4 / 5 keys)
+; on   = always ours (even on a Recluse character)
+; off  = never ours
+y_bumper = auto
+; Character ids that count as a Recluse: the port's character model is c8131.
+recluse_chr_ids = 8131
+
+[logging]
+; Log every cast, not just captures and errors
+debug_log = off
+; Perf log: one line when a window lost a frame and otherwise every 5 minutes, with the pad-poll
+; interval (the game's frame time, as our hook sees it) and the longest time our own code spent
+; inside it. Leave it on: it is the only setting that records stutter as it happens.
+perf_log = on
+
+==== slots ====
+34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+
+==== offsets ====
+# nr-casting resolved map
+# Regenerated automatically when the executable changes.
+exe_version = 2.7.1.0
+rva_table = Ww2720
+version_recognised = false (no table for this exact build: the newest one is used and the probe decides)
+module_base = 0x7ff766780000
+exe_hash = 0x008b8bf275a0b79f
+exe_size = 87042128
+global_hinstance = 0x3d8c728 (va 0x7ff76a50c728)
+game_man = 0x3d709a8 (va 0x7ff76a4f09a8)
+field_area_ptr = 0x3d70268 (va 0x7ff76a4f0268)
+probe.weapon_ids = ok (23070004, 23070004)
+probe.stats = ok (12, 50, 6)
+probe.magic = ok (14 slots, selected 1)
+probe = PASSED on an unrecognised build (fallback table), read verified — steering enabled; the write path is checked on the first cast
+
+==== bundle run ====
+# six phases of 60 s, switched by the mod, nothing for the player to change
+# worst gap per second is what one second's slowest frame cost; 32 ms is two frames at 60 Hz
+# measured with the pad poll; the same clock in every phase, so the phases compare
+phase 1/6 everything on (off: nothing): 60 s sampled (0 with no pad poll): worst-gap per second p50 30.399ms p90 42.924ms max 50.256ms; 26 seconds over 32ms
+    30 hitches over 32ms in 26 of 60 seconds; worst 50.256ms at second 31
+phase 2/6 pointer detours off (off: pointer detours): 60 s sampled (1 with no pad poll): worst-gap per second p50 28.273ms p90 44.745ms max 55.702ms; 21 seconds over 32ms
+    22 hitches over 32ms in 21 of 60 seconds; worst 55.702ms at second 30
+phase 3/6 raw input hooks off (off: raw input hooks): 60 s sampled (0 with no pad poll): worst-gap per second p50 26.496ms p90 43.207ms max 54.797ms; 15 seconds over 32ms
+    18 hitches over 32ms in 15 of 60 seconds; worst 54.797ms at second 44
+phase 4/6 pad casting off (the hook still times) (off: pad hooks): 60 s sampled (0 with no pad poll): worst-gap per second p50 18.199ms p90 39.13ms max 45.441ms; 19 seconds over 32ms
+    20 hitches over 32ms in 19 of 60 seconds; worst 45.441ms at second 4
+phase 5/6 housekeeping thread off (off: housekeeping thread): 60 s sampled (1 with no pad poll): worst-gap per second p50 24.074ms p90 41.152ms max 69.895ms; 13 seconds over 32ms
+    28 hitches over 32ms in 13 of 60 seconds; worst 69.895ms at second 6
+phase 6/6 all of our work off (off: pad hooks, raw input hooks, pointer detours, housekeeping thread): 60 s sampled (0 with no pad poll): worst-gap per second p50 34.433ms p90 40.499ms max 48.979ms; 41 seconds over 32ms
+    41 hitches over 32ms in 41 of 60 seconds; worst 48.979ms at second 37
+
+phase 1 everything on:
+  36.1 41.8 32.1 45.5 0.0 33.6 29.1 29.8 34.3 33.7 0.0 28.4 0.0 38.2 25.5 0.0 38.1 27.3 46.2 26.5 30.6 25.8 39.0 24.7 33.7 29.4 26.1 33.6 31.9 0.0 50.3 31.4 34.8 34.2 24.4 26.2 28.7 30.8 44.9 28.2 32.3 27.9 24.0 24.5 44.6 42.9 40.9 45.9 25.7 27.6 33.0 32.8 0.0 30.4 32.1 27.4 37.5 0.0 28.7 29.4
+phase 2 pointer detours off:
+  36.1 35.5 36.7 25.1 26.0 0.0 23.6 26.0 24.1 22.1 28.9 0.0 23.4 30.3 45.3 22.9 43.6 32.6 44.7 22.8 0.0 47.9 36.0 45.0 46.1 29.0 26.8 24.7 28.8 55.7 0.0 23.6 34.8 0.0 26.4 25.0 33.2 24.9 0.0 33.3 35.4 51.1 0.0 33.3 31.7 26.4 25.8 42.6 17.6 29.0 34.4 29.9 28.3 24.2 26.1 27.7 31.2 21.7 28.2 32.2
+phase 3 raw input hooks off:
+  25.4 22.8 0.0 33.0 23.1 25.5 22.4 42.5 50.3 43.7 25.7 22.9 43.5 26.5 30.5 29.3 20.2 34.9 35.4 25.3 26.2 36.1 23.8 0.0 24.3 28.1 24.2 25.2 0.0 25.7 24.7 0.0 43.3 43.2 52.6 35.5 26.8 27.0 0.0 20.8 29.9 0.0 32.5 54.8 22.7 28.8 35.3 25.2 23.7 26.4 30.6 26.1 31.7 27.6 21.0 29.2 27.9 26.6 27.3 28.0
+phase 4 pad casting off (the hook still times):
+  0.0 37.5 37.5 45.4 24.4 36.8 33.5 36.0 28.9 44.1 42.8 38.2 33.7 39.1 30.6 30.5 31.0 31.3 32.0 35.9 39.2 34.2 41.2 17.0 17.0 16.9 16.8 17.8 0.0 0.0 0.0 17.3 17.0 17.4 19.1 18.2 0.0 17.2 16.8 26.7 0.0 30.3 30.3 17.1 17.3 0.0 17.2 17.1 17.1 16.9 17.0 17.2 16.9 17.0 35.0 40.9 35.8 16.8 0.0 33.0
+phase 5 housekeeping thread off:
+  30.0 26.6 22.2 23.6 41.2 69.9 29.0 25.5 44.2 23.0 22.8 21.6 22.8 24.9 20.0 26.1 30.9 22.4 23.4 25.2 23.7 35.1 40.2 22.9 23.8 23.7 23.9 17.9 23.8 22.8 23.7 23.8 17.0 23.0 22.9 28.3 24.2 26.0 26.9 0.0 22.5 0.0 52.3 40.2 39.4 42.5 0.0 32.9 31.5 44.7 42.0 22.8 24.1 24.1 23.8 24.1 22.0 22.7 26.1 34.2
+phase 6 all of our work off:
+  36.9 0.0 38.6 38.3 31.9 38.3 0.0 37.3 33.6 34.7 33.3 39.8 0.0 35.5 35.9 35.2 34.4 0.0 19.0 38.8 38.6 43.9 37.2 39.1 35.6 36.3 0.0 42.3 37.0 41.0 35.4 32.8 35.9 33.7 32.7 0.0 49.0 41.9 30.0 33.5 0.0 33.6 34.8 35.4 33.5 42.0 34.7 32.8 0.0 40.5 33.5 35.9 22.9 20.5 19.7 18.6 17.1 20.6 0.0 17.5
+
+==== catalogue ====
+# nr_casting_catalogue v3
+# exe=008b8bf275a0b79f:87042128 reg=2045728:1789852970
+# generated from the running game's Magic param
+# spell_id = Name | school | int | fai | arc | fp
+4000 = Glintstone Pebble | Sorcery | 10 | 0 | 0 | 7
+4001 = Great Glintstone Shard | Sorcery | 16 | 0 | 0 | 12
+4010 = Swift Glintstone Shard | Sorcery | 12 | 0 | 0 | 5
+4020 = Glintstone Cometshard | Sorcery | 36 | 0 | 0 | 17
+4021 = Comet | Sorcery | 52 | 0 | 0 | 24
+4030 = Shard Spiral | Sorcery | 27 | 0 | 0 | 14
+4040 = Glintstone Stars | Sorcery | 12 | 0 | 0 | 12
+4050 = Star Shower | Sorcery | 24 | 0 | 0 | 23
+4060 = Crystal Barrage | Sorcery | 23 | 0 | 0 | 14
+4070 = Glintstone Arc | Sorcery | 13 | 0 | 0 | 9
+4080 = Cannon of Haima | Sorcery | 25 | 0 | 0 | 38
+4090 = Crystal Burst | Sorcery | 18 | 0 | 0 | 14
+4100 = Shatter Earth | Sorcery | 15 | 0 | 0 | 10
+4110 = Rock Blaster | Sorcery | 21 | 0 | 0 | 22
+4120 = Gavel of Haima | Sorcery | 25 | 0 | 0 | 22
+4130 = Terra Magicus | Sorcery | 20 | 0 | 0 | 20
+4140 = Starlight | Sorcery | 15 | 0 | 0 | 9
+4200 = Comet Azur | Sorcery | 60 | 0 | 0 | 40
+4210 = Founding Rain of Stars | Sorcery | 52 | 0 | 0 | 27
+4220 = Stars of Ruin | Sorcery | 43 | 0 | 0 | 32
+4300 = Glintblade Phalanx | Sorcery | 22 | 0 | 0 | 18
+4301 = Carian Phalanx | Sorcery | 34 | 0 | 0 | 24
+4302 = Greatblade Phalanx | Sorcery | 29 | 0 | 0 | 30
+4360 = Rennala's Full Moon | Sorcery | 70 | 0 | 0 | 47
+4361 = Ranni's Dark Moon | Sorcery | 68 | 0 | 0 | 57
+4370 = Magic Downpour | Sorcery | 15 | 0 | 0 | 18
+4380 = Loretta's Greatbow | Sorcery | 26 | 0 | 0 | 24
+4381 = Loretta's Mastery | Sorcery | 46 | 0 | 0 | 39
+4390 = Magic Glintblade | Sorcery | 14 | 0 | 0 | 12
+4400 = Glintstone Icecrag | Sorcery | 15 | 0 | 0 | 12
+4410 = Zamor Ice Storm | Sorcery | 36 | 0 | 0 | 17
+4420 = Freezing Mist | Sorcery | 21 | 0 | 0 | 20
+4430 = Carian Greatsword | Sorcery | 24 | 0 | 0 | 12
+4431 = Adula's Moonblade | Sorcery | 32 | 0 | 0 | 22
+4440 = Carian Slicer | Sorcery | 14 | 0 | 0 | 4
+4450 = Carian Piercer | Sorcery | 27 | 0 | 0 | 17
+4460 = Scholar's Armament | Sorcery | 12 | 0 | 0 | 25
+4470 = Scholar's Shield | Sorcery | 12 | 0 | 0 | 30
+4480 = Lucidity | Sorcery | 17 | 0 | 0 | 10
+4490 = Frozen Armament | Sorcery | 15 | 0 | 0 | 20
+4500 = Shattering Crystal | Sorcery | 38 | 0 | 0 | 21
+4510 = Crystal Release | Sorcery | 41 | 0 | 0 | 34
+4520 = Crystal Torrent | Sorcery | 47 | 0 | 0 | 20
+4600 = Ambush Shard | Sorcery | 23 | 0 | 0 | 13
+4610 = Night Shard | Sorcery | 18 | 0 | 0 | 7
+4620 = Night Comet | Sorcery | 38 | 0 | 0 | 21
+4630 = Thops's Barrier | Sorcery | 18 | 0 | 0 | 7
+4640 = Carian Retaliation | Sorcery | 17 | 0 | 0 | 8
+4641 = Carian Retaliation (Unused 1) | Sorcery | 17 | 0 | 0 | 8
+4642 = Carian Retaliation (Unused 2) | Sorcery | 17 | 0 | 0 | 8
+4650 = Eternal Darkness | Sorcery | 35 | 0 | 0 | 25
+4660 = Unseen Blade | Sorcery | 12 | 0 | 0 | 13
+4670 = Unseen Form | Sorcery | 16 | 0 | 0 | 20
+4700 = Meteorite | Sorcery | 30 | 0 | 0 | 30
+4701 = Meteorite of Astel | Sorcery | 55 | 0 | 0 | 60
+4710 = Rock Sling | Sorcery | 18 | 0 | 0 | 18
+4720 = Gravity Well | Sorcery | 17 | 0 | 0 | 12
+4721 = Collapsing Stars | Sorcery | 36 | 0 | 0 | 18
+4800 = Magma Shot | Sorcery | 19 | 10 | 0 | 16
+4810 = Gelmir's Fury | Sorcery | 28 | 15 | 0 | 16
+4820 = Roiling Magma | Sorcery | 21 | 12 | 0 | 28
+4830 = Rykard's Rancor | Sorcery | 40 | 18 | 0 | 23
+4900 = Briars of Sin | Sorcery | 0 | 24 | 0 | 6
+4910 = Briars of Punishment | Sorcery | 0 | 21 | 0 | 9
+5000 = Rancorcall | Sorcery | 16 | 14 | 0 | 12
+5001 = Ancient Death Rancor | Sorcery | 34 | 24 | 0 | 21
+5010 = Explosive Ghostflame | Sorcery | 42 | 30 | 0 | 29
+5020 = Fia's Mist | Sorcery | 23 | 18 | 0 | 25
+5030 = Tibia's Summons | Sorcery | 28 | 20 | 0 | 17
+5040 = Death Lightning | Sorcery | 0 | 47 | 0 | 28
+5100 = Oracle Bubbles | Sorcery | 19 | 0 | 15 | 12
+5110 = Great Oracular Bubble | Sorcery | 25 | 0 | 18 | 16
+6000 = Catch Flame | Incantation | 0 | 8 | 0 | 10
+6001 = O, Flame! | Incantation | 0 | 16 | 0 | 16
+6010 = Flame Sling | Incantation | 0 | 10 | 0 | 11
+6020 = Flame Fall Upon Them | Incantation | 0 | 28 | 0 | 16
+6030 = Whirl, O Flame | Incantation | 0 | 13 | 0 | 19
+6040 = Flame Cleanse Me | Incantation | 0 | 12 | 0 | 14
+6050 = Flame Grant Me Strength | Incantation | 0 | 15 | 0 | 28
+6060 = Flame Protect Me | Incantation | 0 | 24 | 0 | 30
+6100 = Giantsflame Take Thee | Incantation | 0 | 30 | 0 | 30
+6110 = Flame of The Fell God | Incantation | 0 | 41 | 0 | 34
+6120 = Burn, O Flame! | Incantation | 0 | 27 | 0 | 26
+6210 = Black Flame | Incantation | 0 | 20 | 0 | 18
+6220 = Surge, O Flame | Incantation | 0 | 9 | 0 | 1
+6230 = Scouring Black Flame | Incantation | 0 | 28 | 0 | 21
+6240 = Black Flame Ritual | Incantation | 0 | 42 | 0 | 30
+6250 = Black Flame Blade | Incantation | 0 | 17 | 0 | 15
+6260 = Black Flame's Protection | Incantation | 0 | 30 | 0 | 30
+6270 = Noble Presence | Incantation | 0 | 26 | 0 | 20
+6300 = Bloodflame Talons | Incantation | 0 | 13 | 15 | 12
+6310 = Bloodboon | Incantation | 0 | 14 | 17 | 13
+6320 = Bloodflame Blade | Incantation | 0 | 12 | 10 | 20
+6330 = Barrier of Gold | Incantation | 0 | 24 | 0 | 30
+6340 = Protection of The Erdtree | Incantation | 0 | 35 | 0 | 30
+6400 = Rejection | Incantation | 0 | 12 | 0 | 9
+6410 = Wrath of Gold | Incantation | 0 | 32 | 0 | 40
+6420 = Urgent Heal | Incantation | 0 | 8 | 0 | 16
+6421 = Heal | Incantation | 0 | 12 | 0 | 32
+6422 = Great Heal | Incantation | 0 | 15 | 0 | 45
+6423 = Lord's Heal | Incantation | 0 | 20 | 0 | 55
+6424 = Erdtree Heal | Incantation | 0 | 42 | 0 | 65
+6430 = Blessing's Boon | Incantation | 0 | 24 | 0 | 30
+6431 = Blessing of The Erdtree | Incantation | 0 | 38 | 0 | 60
+6440 = Cure Poison | Incantation | 0 | 10 | 0 | 7
+6441 = Lord's Aid | Incantation | 0 | 12 | 0 | 12
+6450 = Flame Fortification | Incantation | 0 | 10 | 0 | 20
+6460 = Magic Fortification | Incantation | 0 | 10 | 0 | 20
+6470 = Lightning Fortification | Incantation | 0 | 10 | 0 | 20
+6480 = Divine Fortification | Incantation | 0 | 10 | 0 | 20
+6490 = Lord's Divine Fortification | Incantation | 0 | 27 | 0 | 30
+6500 = Night Maiden's Mist | Incantation | 14 | 0 | 0 | 20
+6510 = Assassin's Approach | Incantation | 0 | 10 | 0 | 15
+6520 = Shadow Bait | Incantation | 0 | 13 | 0 | 15
+6530 = Darkness | Incantation | 0 | 18 | 0 | 24
+6600 = Golden Vow | Incantation | 0 | 25 | 0 | 47
+6700 = Discus of Light | Incantation | 13 | 13 | 0 | 3
+6701 = Triple Rings of Light | Incantation | 23 | 23 | 0 | 23
+6710 = Radagon's Rings of Light | Incantation | 31 | 31 | 0 | 21
+6720 = Elden Stars | Incantation | 0 | 50 | 0 | 41
+6730 = Law of Regression | Incantation | 37 | 0 | 0 | 55
+6740 = Immutable Shield | Incantation | 19 | 19 | 0 | 15
+6750 = Litany of Proper Death | Incantation | 17 | 17 | 0 | 17
+6760 = Law of Causality | Incantation | 29 | 0 | 0 | 22
+6770 = Order's Blade | Incantation | 13 | 13 | 0 | 22
+6780 = Order Healing | Incantation | 11 | 11 | 0 | 15
+6800 = Bestial Sling | Incantation | 0 | 10 | 0 | 7
+6810 = Stone of Gurranq | Incantation | 0 | 13 | 0 | 15
+6820 = Beast Claw | Incantation | 0 | 8 | 0 | 10
+6830 = Gurranq's Beast Claw | Incantation | 0 | 15 | 0 | 21
+6840 = Bestial Vitality | Incantation | 0 | 12 | 0 | 18
+6850 = Bestial Constitution | Incantation | 0 | 9 | 0 | 10
+6900 = Lightning Spear | Incantation | 0 | 17 | 0 | 18
+6910 = Ancient Dragons' Light Strike | Incantation | 0 | 26 | 0 | 36
+6920 = Lightning Strike | Incantation | 0 | 28 | 0 | 19
+6921 = Frozen Lightning Spear | Incantation | 0 | 34 | 0 | 29
+6930 = Honed Bolt | Incantation | 0 | 24 | 0 | 12
+6940 = Ancient Dragons' Light Spear | Incantation | 0 | 32 | 0 | 25
+6941 = Fortissax's Light Spear | Incantation | 0 | 46 | 0 | 35
+6950 = Lansseax's Glaive | Incantation | 0 | 40 | 0 | 22
+6960 = Electrify Armament | Incantation | 0 | 15 | 0 | 27
+6970 = Vyke's Dragonbolt | Incantation | 0 | 23 | 0 | 35
+6971 = Dragonbolt Blessing | Incantation | 0 | 21 | 0 | 20
+7000 = Dragonfire | Incantation | 0 | 15 | 12 | 28
+7001 = Agheel's Flame | Incantation | 0 | 23 | 15 | 36
+7010 = Magma Breath | Incantation | 0 | 14 | 10 | 30
+7011 = Theodorix's Magma | Incantation | 0 | 21 | 14 | 45
+7020 = Dragonice | Incantation | 0 | 15 | 12 | 36
+7021 = Borealis's Mist | Incantation | 0 | 23 | 15 | 48
+7030 = Rotten Breath | Incantation | 0 | 15 | 12 | 36
+7031 = Ekzykes's Decay | Incantation | 0 | 23 | 15 | 48
+7040 = Glintstone Breath | Incantation | 0 | 15 | 12 | 28
+7041 = Smarag's Glint Breath | Incantation | 0 | 23 | 15 | 36
+7050 = Placidusax's Ruin | Incantation | 0 | 36 | 0 | 62
+7060 = Dragonclaw | Incantation | 0 | 17 | 13 | 24
+7080 = Dragonmaw | Incantation | 0 | 24 | 16 | 34
+7090 = Greyoll's Roar | Incantation | 0 | 28 | 17 | 50
+7200 = Pest Threads | Incantation | 0 | 11 | 0 | 19
+7210 = Swarm of Flies | Incantation | 0 | 11 | 16 | 14
+7220 = Poison Mist | Incantation | 0 | 12 | 0 | 18
+7230 = Poison Armament | Incantation | 0 | 10 | 0 | 15
+7240 = Scarlet Aeonia | Incantation | 0 | 35 | 0 | 48
+7300 = Inescapable Frenzy | Incantation | 0 | 21 | 0 | 22
+7310 = The Flame of Frenzy | Incantation | 0 | 16 | 0 | 16
+7311 = Unendurable Frenzy | Incantation | 0 | 31 | 0 | 22
+7320 = Frenzied Burst | Incantation | 0 | 22 | 0 | 24
+7330 = Howl of Shabriri | Incantation | 0 | 33 | 0 | 21
+7500 = Aspects of the Crucible: Tail | Incantation | 0 | 27 | 0 | 20
+7510 = Aspects of the Crucible: Horns | Incantation | 0 | 27 | 0 | 18
+7520 = Aspects of the Crucible: Breath | Incantation | 0 | 27 | 0 | 28
+7530 = Black Blade | Incantation | 0 | 46 | 0 | 26
+7900 = Fire's Deadly Sin | Incantation | 0 | 19 | 0 | 26
+7903 = Golden Light Fortification | Incantation | 0 | 24 | 0 | 30
+8000 = Briars of Sin | Incantation | 24 | 0 | 0 | 9
+8001 = Briars of Punishment | Incantation | 21 | 0 | 0 | 9
+53010 = Catch Flame | NPC: Incantation | 0 | 0 | 0 | 1
+53011 = Bloodflame Blade | NPC: Incantation | 0 | 0 | 0 | 1
+53012 = Swarm of Flies 1 | NPC: Incantation | 0 | 0 | 0 | 1
+53040 = Lightning Strike | NPC: Incantation | 0 | 0 | 0 | 1
+53041 = Fortissax's Lightning Spear | NPC: Incantation | 0 | 0 | 0 | 1
+53042 = Vyke's Dragonbolt | NPC: Incantation | 0 | 0 | 0 | 1
+53043 = The Flame of Frenzy | NPC: Incantation | 0 | 0 | 0 | 1
+53044 = Frenzied Burst | NPC: Incantation | 0 | 0 | 0 | 1
+53045 = Howl of Shabriri (Variant) | NPC: Incantation | 0 | 0 | 0 | 1
+53110 = Wrath of Gold 1 | NPC: Incantation | 0 | 0 | 0 | 1
+53111 = Golden Vow 1 | NPC: Incantation | 0 | 0 | 0 | 1
+53120 = Magic Glintblade 1 | NPC: Sorcery | 0 | 0 | 0 | 1
+53160 = Glintstone Cometshard | NPC: Sorcery | 0 | 0 | 0 | 1
+53161 = Founding Rain of Stars | NPC: Sorcery | 0 | 0 | 0 | 1
+53162 = Shattering Crystal | NPC: Sorcery | 0 | 0 | 0 | 1
+53163 = Crystal Release | NPC: Sorcery | 0 | 0 | 0 | 1
+53180 = Inescapable Frenzy (Variant) | NPC: Incantation | 0 | 0 | 0 | 1
+53181 = Unendurable Frenzy (Variant) | NPC: Incantation | 0 | 0 | 0 | 1
+53182 = Unendurable Frenzy (Variant) | NPC: Incantation | 0 | 0 | 0 | 1
+53183 = Howl of Shabriri (Variant) | NPC: Incantation | 0 | 0 | 0 | 1
+53190 = Litany of Proper Death | NPC: Incantation | 0 | 0 | 0 | 1
+53191 = Beast Claw 1 | NPC: Incantation | 0 | 0 | 0 | 1
+53192 = Discus of Light | NPC: Incantation | 0 | 0 | 0 | 1
+53210 = Wrath of Gold 2 | NPC: Incantation | 0 | 0 | 0 | 1
+53240 = Comet | NPC: Sorcery | 0 | 0 | 0 | 1
+53241 = Comet Azur | NPC: Sorcery | 0 | 0 | 0 | 1
+53242 = Carian Phalanx | NPC: Sorcery | 0 | 0 | 0 | 1
+53243 = Black Flame Ritual | NPC: Incantation | 0 | 0 | 0 | 1
+53244 = Triple Rings of Light 1 | NPC: Incantation | 0 | 0 | 0 | 1
+53245 = Law of Causality | NPC: Incantation | 0 | 0 | 0 | 1
+53246 = Rykard's Rancor | NPC: Sorcery | 0 | 0 | 0 | 1
+53247 = Bloodboon | NPC: Incantation | 0 | 0 | 0 | 1
+53248 = Scarlet Aeonia | NPC: Incantation | 0 | 0 | 0 | 1
+53250 = Glintstone Pebble | NPC: Sorcery | 0 | 0 | 0 | 1
+53251 = Magic Downpour 1 | NPC: Sorcery | 0 | 0 | 0 | 1
+53252 = Scholar's Armament | NPC: Sorcery | 0 | 0 | 0 | 1
+53260 = Protection of The Erdtree | NPC: Incantation | 0 | 0 | 0 | 1
+53261 = Golden Vow 2 | NPC: Incantation | 0 | 0 | 0 | 1
+53270 = Agheel's Flame | NPC: Incantation | 0 | 0 | 0 | 1
+53271 = Greyoll's Roar | NPC: Incantation | 0 | 0 | 0 | 1
+53290 = Rancorcall | NPC: Sorcery | 0 | 0 | 0 | 1
+53291 = Fia's Mist | NPC: Sorcery | 0 | 0 | 0 | 1
+53330 = Great Glintstone Shard | NPC: Sorcery | 0 | 0 | 0 | 1
+53350 = Triple Rings of Light 2 | NPC: Incantation | 0 | 0 | 0 | 1
+53390 = Collapsing Stars | NPC: Sorcery | 0 | 0 | 0 | 1
+53510 = Heal | NPC: Incantation | 0 | 0 | 0 | 1
+53520 = Loretta's Greatbow 1 | NPC: Sorcery | 0 | 0 | 0 | 1
+53521 = Loretta's Greatbow 2 | NPC: Sorcery | 0 | 0 | 0 | 1
+53522 = Greatblade Phalanx | NPC: Sorcery | 0 | 0 | 0 | 1
+53523 = Magic Downpour 2 | NPC: Sorcery | 0 | 0 | 0 | 1
+53524 = Carian Slicer 1 | NPC: Sorcery | 0 | 0 | 0 | 1
+53560 = O, Flame! | NPC: Incantation | 0 | 0 | 0 | 1
+53561 = Flame of The Fell God | NPC: Incantation | 0 | 0 | 0 | 1
+53590 = Carian Piercer | NPC: Sorcery | 0 | 0 | 0 | 1
+53610 = Carian Slicer 2 | NPC: Sorcery | 0 | 0 | 0 | 1
+53630 = Great Heal | NPC: Incantation | 0 | 0 | 0 | 1
+53720 = Poison Mist | NPC: Incantation | 0 | 0 | 0 | 1
+53750 = Carian Phalanx | NPC: Sorcery | 0 | 0 | 0 | 1
+53751 = Magic Glintblade 2 | NPC: Sorcery | 0 | 0 | 0 | 1
+53760 = Tibia's Summons | NPC: Incantation | 0 | 0 | 0 | 1
+53770 = Great Glintstone Shard | NPC: Sorcery | 0 | 0 | 0 | 1
+53800 = Crystal Burst | NPC: Sorcery | 0 | 0 | 0 | 1
+53801 = Stars of Ruin | NPC: Sorcery | 0 | 0 | 0 | 1
+53802 = Ambush Shard 1 | NPC: Sorcery | 0 | 0 | 0 | 1
+53803 = Night Comet 1 | NPC: Sorcery | 0 | 0 | 0 | 1
+53804 = Ambush Shard 2 | NPC: Sorcery | 0 | 0 | 0 | 1
+53805 = Night Comet 2 | NPC: Sorcery | 0 | 0 | 0 | 1
+53820 = Catch Flame | NPC: Incantation | 0 | 0 | 0 | 1
+53821 = Burn, O Flame! | NPC: Incantation | 0 | 0 | 0 | 1
+53822 = Surge, O Flame! | NPC: Incantation | 0 | 0 | 0 | 1
+53830 = Whirl, O Flame! | NPC: Incantation | 0 | 0 | 0 | 1
+53850 = Glintstone Icecrag | NPC: Sorcery | 0 | 0 | 0 | 1
+53851 = Freezing Mist | NPC: Sorcery | 0 | 0 | 0 | 1
+53852 = Briars of Sin | NPC: Sorcery | 0 | 0 | 0 | 1
+53860 = Bloodflame Talons | NPC: Sorcery | 0 | 0 | 0 | 1
+53861 = Swarm of Flies 2 | NPC: Sorcery | 0 | 0 | 0 | 1
+53900 = Pest Threads | NPC: Sorcery | 0 | 0 | 0 | 1
+53910 = Bestial Sling | NPC: Incantation | 0 | 0 | 0 | 1
+53911 = Beast Claw 2 | NPC: Incantation | 0 | 0 | 0 | 1
+53912 = Gurranq's Beast Claw | NPC: Incantation | 0 | 0 | 0 | 1
+2004300 = Miriam's Vanishing | Sorcery | 26 | 0 | 0 | 9
+2004310 = Glintblade Trio | Sorcery | 28 | 0 | 0 | 19
+2004320 = Rellana's Twin Moons | Sorcery | 72 | 0 | 0 | 47
+2004500 = Glintstone Nail | Sorcery | 18 | 0 | 0 | 10
+2004510 = Glintstone Nails | Sorcery | 32 | 0 | 0 | 23
+2004700 = Blades of Stone | Sorcery | 48 | 0 | 0 | 18
+2004710 = Gravitational Missile | Sorcery | 36 | 0 | 0 | 18
+2004900 = Mantle of Thorns | Sorcery | 0 | 20 | 0 | 9
+2004910 = Impenetrable Thorns | Sorcery | 0 | 24 | 0 | 15
+2005000 = Rings of Spectral Light | Sorcery | 24 | 18 | 0 | 14
+2006200 = Vortex of Putrescence | Sorcery | 32 | 26 | 0 | 29
+2006210 = Mass of Putrescence | Sorcery | 28 | 22 | 0 | 41
+2006300 = Furious Blade of Ansbach | Incantation | 0 | 19 | 27 | 18
+2006400 = Heal from Afar | Incantation | 0 | 18 | 0 | 45
+2006650 = Aspects of the Crucible: Thorns | Incantation | 0 | 27 | 0 | 14
+2006660 = Aspects of the Crucible: Bloom | Incantation | 0 | 27 | 0 | 23
+2006670 = Minor Erdtree | Incantation | 0 | 70 | 0 | 30
+2006680 = Land of Shadow | Incantation | 0 | 58 | 0 | 40
+2006690 = Wrath from Afar | Incantation | 0 | 34 | 0 | 18
+2006700 = Light of Miquella | Incantation | 0 | 72 | 0 | 48
+2006710 = Multilayered Ring of Light | Incantation | 0 | 36 | 0 | 23
+2006800 = Roar of Rugalea | Incantation | 0 | 14 | 0 | 17
+2006900 = Knight's Lightning Spear | Incantation | 0 | 36 | 0 | 29
+2006910 = Dragonbolt of Florissax | Incantation | 0 | 52 | 0 | 35
+2006920 = Electrocharge | Incantation | 0 | 30 | 0 | 26
+2007000 = Bayle's Tyranny | Incantation | 0 | 0 | 49 | 46
+2007010 = Bayle's Flame Lightning | Incantation | 0 | 0 | 53 | 43
+2007020 = Ghostflame Breath | Incantation | 0 | 23 | 15 | 36
+2007200 = Rotten Butterflies | Incantation | 0 | 33 | 0 | 48
+2007210 = Pest-Thread Spears | Incantation | 0 | 26 | 0 | 28
+2007300 = Midra's Flame of Frenzy | Incantation | 0 | 41 | 0 | 22
+2007410 = Fleeting Microcosm | Sorcery | 42 | 0 | 0 | 26
+2007420 = Cherishing Fingers | Sorcery | 36 | 0 | 0 | 20
+2007600 = Watchful Spirit | Sorcery | 0 | 26 | 0 | 12
+2007700 = Golden Arcs | Sorcery | 0 | 22 | 0 | 12
+2007710 = Giant Golden Arc | Sorcery | 0 | 34 | 0 | 24
+2007720 = Spira | Sorcery | 0 | 48 | 0 | 10
+2007730 = Divine Beast Tornado | Incantation | 0 | 28 | 0 | 24
+2007740 = Divine Bird Feathers | Incantation | 0 | 24 | 0 | 3
+2007800 = Fire Serpent | Incantation | 0 | 16 | 0 | 11
+2007810 = Rain of Fire | Incantation | 0 | 52 | 0 | 27
+2007820 = Messmer's Orb | Incantation | 0 | 60 | 0 | 31
+2050000 = Dragonclaw | NPC: Incantation | 0 | 0 | 0 | 1
+2050001 = Greyoll's Roar | NPC: Incantation | 0 | 0 | 0 | 1
+2050010 = Spell 2050010 | NPC: Incantation | 0 | 0 | 0 | 1
+2050011 = Dragonbolt of Florissax | NPC: Incantation | 0 | 0 | 0 | 1
+2050020 = Magma Breath | NPC: Incantation | 0 | 0 | 0 | 1
+2050021 = Dragonmaw | NPC: Incantation | 0 | 0 | 0 | 1
+2050030 = Fire Serpent | NPC: Incantation | 0 | 0 | 0 | 1
+2050040 = Multilayered Ring of Light | NPC: Incantation | 0 | 0 | 0 | 1
+2050050 = Furious Blade of Ansbach | NPC: Incantation | 0 | 0 | 0 | 1
+2050060 = Miriam's Vanishing | NPC: Sorcery | 0 | 0 | 0 | 1
+2050061 = Glintstone Nails | NPC: Sorcery | 0 | 0 | 0 | 1
+2050062 = Cherishing Fingers | NPC: Sorcery | 0 | 0 | 0 | 1
+2050063 = Fleeting Microcosm | NPC: Sorcery | 0 | 0 | 0 | 0
+2050064 = Fleeting Microcosm | NPC: Sorcery | 0 | 0 | 0 | 0
+2050070 = Roar of Rugalea | NPC: Incantation | 0 | 0 | 0 | 1
+2050080 = Lord's Heal | NPC: Incantation | 0 | 0 | 0 | 1
+2050081 = Golden Vow | NPC: Incantation | 0 | 0 | 0 | 1
+2050082 = Discus of Light | NPC: Incantation | 0 | 0 | 0 | 1
+2050090 = The Flame of Frenzy | NPC: Incantation | 0 | 0 | 0 | 1
+
+==== log tail ====
+[1793488567220] input: GetAsyncKeyState hooked (keyboard/mouse path)
+[1793488567220] input: GetRawInputData hooked (keyboard/mouse path)
+[1793488567220] input: GetRawInputBuffer hooked (keyboard/mouse path)
+[1793488567236] === nr_casting loaded (F8 opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)
+[1793488567236] crash: exception observer installed (faults are logged with module and offset)
+[1793488567236] config: debug_log=false y_bumper=auto bind_modifier=L3 bind_modifier_kb=Super files in <path>
+[1793488567236] system init OK (Ww2720 table resolved)
+[1793488567236] rva: exe 2.7.1.0 (Unsupported game version 2.7.1.0) is NOT in the table — falling back to Ww2720; validating before use
+[1793488567236] rva: map written to nr_casting_offsets.txt
+[1793488567236] pointer: detours installed
+[1793488567236] XInputGetState: import slot unusable (PE header unusable (e_lfanew 0x45d33ac0, expected 0x168) — packed image) — patching the export instead
+[1793488567236] XInputGetStateEx (ordinal 100): hooked at 0x7ffde3ee9bd0 — this is the pad read the game acts on
+[1793488567236] XInputGetState hooked at 0x7ffde3ee9a60
+[1793488567236] modules: amd_ags_x64.dll@0x7ffe3c320000, bink2w64.dll@0x7ffdf7b60000, dxgi.dll@0x7ffdafa30000, eldenring.exe@0x7ff73fbe0000, ermerchant.dll@0x7ffdf3dd0000, ersc.dll@0x180000000, gameoverlayrenderer64.dll@0x7ffdbecc0000, me3_mod_host.dll@0x7ffdaea50000, oo2core_6_win64.dll@0x7ffded9c0000, steam_api64.dll@0x7ffe022e0000, steamclient64.dll@0x7ffde5890000, tier0_s64.dll@0x7ffe09c10000, vstdlib_s64.dll@0x7ffe1f150000
+[1793488567236] files in: <path>
+[1793488567236] slots file: <path>
+[1793488567236] loaded slots: 
+[1793488567236] table: 316 spells from the embedded copy
+[1793488567236] table: 3448 weapons from the embedded copy
+[1793488567236] panel: ready (hotkey registered; the thread idles on its message queue)
+[1793488567736] slots: character name unreadable; keeping the current file
+[1793488574486] XInputGetState: caller stack includes <path>
+[1793488577877] msg: text tables proven (512 slots); mod-added names will be read from the game
+[1793488580377] names: 2909 weapon and 214 spell names read from the game's own text (2504 ms)
+[1793488584299] probe: structure validation passed
+[1793488584345] slots: character <character> (id 0) -> <path>
+[1793488584377] perf: frame series restarted for <character> (save id 0)
+[1793488584377] world: character present
+[1793488584377] slots reloaded: 34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6971, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+[1793488594392] perf: 521 polls in 10.0s, gap mean 19.198ms max 129.564ms (29 over 32ms), our detour max 213us, panel closed
+[1793488597642] weapons L1=17020004 R1=17020004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6971, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5833MiB pf=17513MiB
+[1793488604392] perf: 562 polls in 10.0s, gap mean 17.811ms max 80.41ms (20 over 32ms), our detour max 59us, panel closed
+[1793488614408] perf: 544 polls in 10.0s, gap mean 18.411ms max 72.074ms (22 over 32ms), our detour max 64us, panel closed
+[1793488624424] perf: 557 polls in 10.0s, gap mean 17.964ms max 77.018ms (18 over 32ms), our detour max 64us, panel closed
+[1793488627705] weapons L1=34070004 R1=17020004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6971, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5853MiB pf=17521MiB
+[1793488629674] panel: D3D11 device + ImGui renderer created at 100% (886x484)
+[1793488629674] pointer: pointer clipped to the panel
+[1793488629674] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793488629674] table: 58/316 spell names read from the game's own text (0 ms)
+[1793488629689] table: 80/188 weapon names read from the game's own text (0 ms)
+[1793488629689] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488629689] pointer: game window class cursor set to the arrow
+[1793488629689] pointer: game window adopted — its client gets the arrow while the panel is open
+[1793488629720] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488629720] panel: open
+[1793488629720] pointer: cursor visible after 0 pushes from the game's thread
+[1793488629720] panel: first frame presented
+[1793488630689] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488631689] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488632705] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488633720] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488633939] panel: slot 2 on 34070004 = spell 6720 (Elden Stars)
+[1793488634439] perf: 546 polls in 10.0s, gap mean 18.335ms max 81.442ms (22 over 32ms), our detour max 279us, panel open
+[1793488634720] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488634736] pointer: panel closed, game has the pointer again
+[1793488634736] panel: closed
+[1793488635002] slots reloaded: 34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+[1793488644455] perf: 509 polls in 10.0s, gap mean 19.677ms max 96.872ms (20 over 32ms), our detour max 120us, panel closed
+[1793488654470] perf: 531 polls in 10.0s, gap mean 18.862ms max 96.391ms (17 over 32ms), our detour max 72us, panel closed
+[1793488657845] weapons L1=17020004 R1=17020004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5909MiB pf=17698MiB
+[1793488664486] perf: 545 polls in 10.0s, gap mean 18.371ms max 80.735ms (23 over 32ms), our detour max 82us, panel closed
+[1793488674517] perf: 553 polls in 10.0s, gap mean 18.143ms max 88.482ms (19 over 32ms), our detour max 170us, panel closed
+[1793488684517] perf: 547 polls in 10.0s, gap mean 18.3ms max 82.093ms (17 over 32ms), our detour max 131us, panel closed
+[1793488688627] weapons L1=17020004 R1=17020004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5874MiB pf=18012MiB
+[1793488694533] perf: 553 polls in 10.0s, gap mean 18.095ms max 75.13ms (20 over 32ms), our detour max 129us, panel closed
+[1793488704533] perf: 545 polls in 10.0s, gap mean 18.354ms max 71.723ms (19 over 32ms), our detour max 76us, panel closed
+[1793488714533] perf: 554 polls in 10.0s, gap mean 18.055ms max 69.835ms (20 over 32ms), our detour max 91us, panel closed
+[1793488718674] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5900MiB pf=17997MiB
+[1793488724533] perf: 553 polls in 10.0s, gap mean 18.084ms max 112.181ms (18 over 32ms), our detour max 75us, panel closed
+[1793488728377] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793488728377] pointer: arrow supplied for the game's window while the panel is open
+[1793488728392] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488728408] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488728408] panel: open
+[1793488728408] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488728424] pointer: cursor visible after 0 pushes from the game's thread
+[1793488729158] pointer: panel closed, game has the pointer again
+[1793488729174] panel: closed
+[1793488734564] perf: 560 polls in 10.0s, gap mean 17.892ms max 71.361ms (19 over 32ms), our detour max 81us, panel closed
+[1793488744580] perf: 562 polls in 10.0s, gap mean 17.822ms max 76.266ms (19 over 32ms), our detour max 131us, panel closed
+[1793488749095] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5926MiB pf=17994MiB
+[1793488754580] perf: 553 polls in 10.0s, gap mean 18.094ms max 74.708ms (20 over 32ms), our detour max 57us, panel closed
+[1793488764595] perf: 559 polls in 10.0s, gap mean 17.913ms max 74.853ms (19 over 32ms), our detour max 65us, panel closed
+[1793488774611] perf: 557 polls in 10.0s, gap mean 17.976ms max 73.234ms (20 over 32ms), our detour max 47us, panel closed
+[1793488779533] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6021MiB pf=18015MiB
+[1793488784611] perf: 555 polls in 10.0s, gap mean 18.027ms max 64.085ms (20 over 32ms), our detour max 248us, panel closed
+[1793488794627] perf: 514 polls in 10.0s, gap mean 19.49ms max 97.257ms (16 over 32ms), our detour max 63us, panel closed
+[1793488804642] perf: 538 polls in 10.0s, gap mean 18.602ms max 82.595ms (19 over 32ms), our detour max 37us, panel closed
+[1793488810424] weapons L1=20030004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6019MiB pf=18023MiB
+[1793488814642] perf: 560 polls in 10.0s, gap mean 17.865ms max 98.811ms (19 over 32ms), our detour max 213us, panel closed
+[1793488819627] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793488819627] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488819658] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488819658] panel: open
+[1793488819658] panel: 886x484 client, 886x484 buffer, scale 1.00, content 465px, view ok, present ok
+[1793488819814] pointer: cursor visible after 0 pushes from the game's thread
+[1793488820674] panel: 886x484 client, 886x484 buffer, scale 1.00, content 465px, view ok, present ok
+[1793488820689] pointer: panel closed, game has the pointer again
+[1793488820689] panel: closed
+[1793488824642] perf: 559 polls in 10.0s, gap mean 17.898ms max 79.795ms (16 over 32ms), our detour max 263us, panel closed
+[1793488834658] perf: 543 polls in 10.0s, gap mean 18.444ms max 88.551ms (19 over 32ms), our detour max 63us, panel closed
+[1793488840595] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6022MiB pf=18003MiB
+[1793488844674] perf: 526 polls in 10.0s, gap mean 19.037ms max 75.213ms (21 over 32ms), our detour max 52us, panel closed
+[1793488854689] perf: 505 polls in 10.0s, gap mean 19.815ms max 116.298ms (20 over 32ms), our detour max 110us, panel closed
+[1793488864705] perf: 556 polls in 10.0s, gap mean 18.008ms max 81.067ms (20 over 32ms), our detour max 45us, panel closed
+[1793488871377] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6033MiB pf=18009MiB
+[1793488874705] perf: 564 polls in 10.0s, gap mean 17.736ms max 66.162ms (18 over 32ms), our detour max 103us, panel closed
+[1793488884705] perf: 546 polls in 10.0s, gap mean 18.316ms max 106.76ms (16 over 32ms), our detour max 66us, panel closed
+[1793488894720] perf: 561 polls in 10.0s, gap mean 17.845ms max 64.222ms (20 over 32ms), our detour max 52us, panel closed
+[1793488901845] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6023MiB pf=17998MiB
+[1793488904720] perf: 562 polls in 10.0s, gap mean 17.815ms max 73.065ms (18 over 32ms), our detour max 37us, panel closed
+[1793488908439] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=true shape_set=true — the game's thread raises the counter)
+[1793488908455] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488908486] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793488908486] panel: open
+[1793488908486] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488908549] pointer: cursor visible after 0 pushes from the game's thread
+[1793488909502] panel: 886x484 client, 886x484 buffer, scale 1.00, content 484px, view ok, present ok
+[1793488910064] diag: wrote <path>
+[1793488910533] panel: 886x484 client, 886x484 buffer, scale 1.00, content 522px, view ok, present ok
+[1793488910549] pointer: panel closed, game has the pointer again
+[1793488910549] panel: closed
+[1793488914736] perf: 507 polls in 10.0s, gap mean 19.739ms max 254.95ms (20 over 32ms), our detour max 62us, panel closed
+[1793488924783] perf: 556 polls in 10.1s, gap mean 18.077ms max 77.144ms (19 over 32ms), our detour max 62us, panel closed
+[1793488932064] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6035MiB pf=17999MiB
+[1793488934799] perf: 557 polls in 10.0s, gap mean 17.976ms max 72.962ms (19 over 32ms), our detour max 310us, panel closed
+[1793488944814] perf: 553 polls in 10.0s, gap mean 18.112ms max 73.854ms (20 over 32ms), our detour max 113us, panel closed
+[1793488954814] perf: 560 polls in 10.0s, gap mean 17.864ms max 85.042ms (18 over 32ms), our detour max 47us, panel closed
+[1793488962174] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6035MiB pf=17999MiB
+[1793488964830] perf: 520 polls in 10.0s, gap mean 19.239ms max 110.687ms (21 over 32ms), our detour max 227us, panel closed
+[1793488973580] world: character gone (reload or quit to menu)
+[1793488974830] perf: 410 polls in 10.0s, gap mean 24.398ms max 493.714ms (75 over 32ms), our detour max 173us, panel closed
+[1793488976095] input: hooked, but the game is not polling XInputGetState — is a controller connected? Casting via the triggers cannot work without one.
+[1793500320569] input: GetAsyncKeyState hooked (keyboard/mouse path)
+[1793500320569] input: GetRawInputData hooked (keyboard/mouse path)
+[1793500320569] input: GetRawInputBuffer hooked (keyboard/mouse path)
+[1793500320585] === nr_casting loaded (F8 opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)
+[1793500320585] crash: exception observer installed (faults are logged with module and offset)
+[1793500320585] pump: PeekMessageW hook installed (frame heartbeat)
+[1793500320585] config: debug_log=false y_bumper=auto bind_modifier=L3 bind_modifier_kb=Super files in <path>
+[1793500320585] system init OK (Ww2720 table resolved)
+[1793500320585] rva: no table for exe 2.7.1.0 — using the Ww2720 table and validating it before use (the probe decides whether steering is safe on this build)
+[1793500320585] rva: map written to nr_casting_offsets.txt
+[1793500320585] pointer: detours installed
+[1793500320585] XInputGetState: import slot unusable (PE header unusable (e_lfanew 0x45d33ac0, expected 0x168) — packed image) — patching the export instead
+[1793500320585] XInputGetStateEx (ordinal 100): hooked at 0x7ffde3ee9bd0 — this is the pad read the game acts on
+[1793500320585] XInputGetState hooked at 0x7ffde3ee9a60
+[1793500320585] modules: amd_ags_x64.dll@0x7ffe419f0000, bink2w64.dll@0x7ffe1d6d0000, dxgi.dll@0x7ffdaf220000, eldenring.exe@0x7ff73fbe0000, ermerchant.dll@0x7ffe18ac0000, ersc.dll@0x180000000, gameoverlayrenderer64.dll@0x7ffdbecc0000, me3_mod_host.dll@0x7ffdaea50000, oo2core_6_win64.dll@0x7ffdf11b0000, steam_api64.dll@0x7ffe1fbd0000, steamclient64.dll@0x7ffde5890000, tier0_s64.dll@0x7ffe09c10000, vstdlib_s64.dll@0x7ffe1f150000
+[1793500320585] files in: <path>
+[1793500320585] slots file: <path>
+[1793500320585] loaded slots: 
+[1793500320585] table: 316 spells from the embedded copy
+[1793500320601] table: 3448 weapons from the embedded copy
+[1793500320601] panel: ready (hotkey registered; the thread idles on its message queue)
+[1793500321085] slots: character name unreadable; keeping the current file
+[1793500331147] perf: 463 input ticks in 10.5s, gap mean 22.632ms max 2173.004ms (20 over 32ms), our detour max 373us, panel closed
+[1793500331319] msg: text tables proven (512 slots); mod-added names will be read from the game
+[1793500333866] names: 2909 weapon and 214 spell names read from the game's own text (2538 ms)
+[1793500340710] probe: structure validation passed
+[1793500340741] slots: character <character> (id 0) -> <path>
+[1793500340866] perf: frame series restarted for <character> (save id 0)
+[1793500340866] world: character present
+[1793500340866] slots reloaded: 34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+[1793500341241] input: hooked, but the game is not polling XInputGetState — is a controller connected? Casting via the triggers cannot work without one.
+[1793500350897] perf: 6342 input ticks in 10.0s, gap mean 1.576ms max 71.78ms (7 over 32ms), our detour max 3873us, panel closed
+[1793500351147] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5852MiB pf=17516MiB
+[1793500370944] perf: 4112 input ticks in 10.0s, gap mean 2.437ms max 39.626ms (1 over 32ms), our detour max 7560us, panel closed
+[1793500380944] perf: 3424 input ticks in 10.0s, gap mean 2.92ms max 75.508ms (6 over 32ms), our detour max 1182us, panel closed
+[1793500382116] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5856MiB pf=17490MiB
+[1793500390944] perf: 9942 input ticks in 10.0s, gap mean 1.005ms max 44.271ms (2 over 32ms), our detour max 8544us, panel closed
+[1793500399444] panel: D3D11 device + ImGui renderer created at 100% (886x484)
+[1793500399444] pointer: pointer clipped to the panel
+[1793500399444] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793500399444] table: 58/316 spell names read from the game's own text (0 ms)
+[1793500399444] table: 80/188 weapon names read from the game's own text (0 ms)
+[1793500399444] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793500399444] pointer: game window class cursor set to the arrow
+[1793500399444] pointer: game window adopted — its client gets the arrow while the panel is open
+[1793500399476] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793500399476] panel: open
+[1793500399491] panel: first frame presented
+[1793500400460] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793500400944] perf: 5628 input ticks in 10.0s, gap mean 1.776ms max 46.548ms (5 over 32ms), our detour max 1274us, panel open
+[1793500401476] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793500402491] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793500403491] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500404522] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500405538] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500406554] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500407569] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500408585] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500409616] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500410632] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500410960] perf: 1480 input ticks in 10.0s, gap mean 6.764ms max 66.764ms (5 over 32ms), our detour max 400us, panel open
+[1793500411647] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500412382] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5913MiB pf=17930MiB
+[1793500412647] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793500413163] bisect: frame clock is the message pump
+[1793500413163] bisect: phase 1/6 (everything on) - 60 s
+[1793500413179] pointer: panel closed, game has the pointer again
+[1793500413179] panel: closed
+[1793500420960] perf: 4530 input ticks in 10.0s, gap mean 2.208ms max 23.855ms (0 over 32ms), our detour max 4193us, panel closed
+[1793500440976] perf: 1041 input ticks in 10.0s, gap mean 9.615ms max 49.92ms (3 over 32ms), our detour max 365us, panel closed
+[1793500442663] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5823MiB pf=17926MiB
+[1793500470991] perf: 1839 input ticks in 10.0s, gap mean 5.438ms max 59.413ms (5 over 32ms), our detour max 2477us, panel closed
+[1793500472632] bisect: phase 2/6 (pointer detours off) - 60 s
+[1793500472788] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5823MiB pf=17926MiB
+[1793500481007] perf: 779 input ticks in 10.0s, gap mean 12.846ms max 54.183ms (8 over 32ms), our detour max 12507us, panel closed
+[1793500491007] perf: 1562 input ticks in 10.0s, gap mean 6.408ms max 40.575ms (1 over 32ms), our detour max 5438us, panel closed
+[1793500501022] perf: 1041 input ticks in 10.0s, gap mean 9.61ms max 25.765ms (0 over 32ms), our detour max 8476us, panel closed
+[1793500503460] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5824MiB pf=17926MiB
+[1793500511022] perf: 1183 input ticks in 10.0s, gap mean 8.461ms max 61.174ms (7 over 32ms), our detour max 14073us, panel closed
+[1793500521038] perf: 777 input ticks in 10.0s, gap mean 12.876ms max 65.369ms (9 over 32ms), our detour max 469us, panel closed
+[1793500531038] perf: 767 input ticks in 10.0s, gap mean 13.053ms max 69.177ms (10 over 32ms), our detour max 523us, panel closed
+[1793500532632] bisect: phase 3/6 (raw input hooks off) - 60 s
+[1793500534444] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5813MiB pf=17926MiB
+[1793500541038] perf: 782 input ticks in 10.0s, gap mean 12.787ms max 50.113ms (5 over 32ms), our detour max 302us, panel closed
+[1793500564976] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5813MiB pf=17926MiB
+[1793500571054] perf: 779 input ticks in 10.0s, gap mean 12.839ms max 55.44ms (7 over 32ms), our detour max 923us, panel closed
+[1793500581054] perf: 1055 input ticks in 10.0s, gap mean 9.487ms max 77.385ms (10 over 32ms), our detour max 654us, panel closed
+[1793500592632] bisect: phase 4/6 (pad casting off (the hook still times)) - 60 s
+[1793500595429] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5813MiB pf=17925MiB
+[1793500611085] perf: 830 input ticks in 10.0s, gap mean 12.056ms max 57.145ms (2 over 32ms), our detour max 2501us, panel closed
+[1793500621085] perf: 791 input ticks in 10.0s, gap mean 12.642ms max 35.251ms (1 over 32ms), our detour max 8115us, panel closed
+[1793500625616] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5813MiB pf=17926MiB
+[1793500641101] perf: 782 input ticks in 10.0s, gap mean 12.799ms max 55.586ms (4 over 32ms), our detour max 515us, panel closed
+[1793500651116] perf: 771 input ticks in 10.0s, gap mean 12.972ms max 63.803ms (10 over 32ms), our detour max 474us, panel closed
+[1793500652632] bisect: phase 5/6 (housekeeping thread off) - 60 s
+[1793500661132] perf: 789 input ticks in 10.0s, gap mean 12.692ms max 48.565ms (4 over 32ms), our detour max 448us, panel closed
+[1793500691147] perf: 1047 input ticks in 10.0s, gap mean 9.55ms max 40.881ms (3 over 32ms), our detour max 413us, panel closed
+[1793500701147] perf: 817 input ticks in 10.0s, gap mean 12.244ms max 30.737ms (0 over 32ms), our detour max 373us, panel closed
+[1793500711147] perf: 1251 input ticks in 10.0s, gap mean 7.993ms max 27.588ms (0 over 32ms), our detour max 13947us, panel closed
+[1793500712632] bisect: phase 6/6 (all of our work off) - 60 s
+[1793500721163] perf: 1234 input ticks in 10.0s, gap mean 8.112ms max 38.881ms (1 over 32ms), our detour max 485us, panel closed
+[1793500741179] perf: 785 input ticks in 10.0s, gap mean 12.739ms max 42.264ms (4 over 32ms), our detour max 557us, panel closed
+[1793500761194] perf: 767 input ticks in 10.0s, gap mean 13.046ms max 343.709ms (1 over 32ms), our detour max 338us, panel closed
+[1793500771210] perf: 996 input ticks in 10.0s, gap mean 10.046ms max 44.981ms (1 over 32ms), our detour max 16360us, panel closed
+[1793500772647] bisect: finished; every subsystem switched back on
+[1793500772772] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5851MiB pf=17951MiB
+[1793500773210] diag: wrote <path>
+[1793500781226] perf: 1838 input ticks in 10.0s, gap mean 5.446ms max 242.135ms (9 over 32ms), our detour max 19701us, panel closed
+[1793500801226] perf: 1163 input ticks in 10.0s, gap mean 8.604ms max 43.001ms (2 over 32ms), our detour max 265us, panel closed
+[1793500803288] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5846MiB pf=17928MiB
+[1793500821241] perf: 1197 input ticks in 10.0s, gap mean 8.36ms max 43.233ms (2 over 32ms), our detour max 5955us, panel closed
+[1793500831257] perf: 780 input ticks in 10.0s, gap mean 12.839ms max 52.575ms (9 over 32ms), our detour max 312us, panel closed
+[1793500833601] weapons L1=34070004 R1=20030004 | player spell -1 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5846MiB pf=17928MiB
+[1793500841319] perf: 772 input ticks in 10.1s, gap mean 13.042ms max 186.153ms (15 over 32ms), our detour max 12929us, panel closed
+[1793500841476] XInputGetState: caller stack includes <path>
+[1793500851366] perf: 515 input ticks in 10.0s, gap mean 19.498ms max 326.051ms (28 over 32ms), our detour max 6889us, panel closed
+[1793500861366] perf: 553 input ticks in 10.0s, gap mean 18.096ms max 83.178ms (19 over 32ms), our detour max 1997us, panel closed
+[1793500864538] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6509MiB pf=18035MiB
+[1793500871382] perf: 561 input ticks in 10.0s, gap mean 17.838ms max 55.794ms (20 over 32ms), our detour max 54us, panel closed
+[1793500881397] perf: 562 input ticks in 10.0s, gap mean 17.829ms max 56.907ms (19 over 32ms), our detour max 69us, panel closed
+[1793500891397] perf: 557 input ticks in 10.0s, gap mean 17.965ms max 69.954ms (22 over 32ms), our detour max 79us, panel closed
+[1793500894866] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6512MiB pf=17950MiB
+[1793500901413] perf: 550 input ticks in 10.0s, gap mean 18.183ms max 73.685ms (23 over 32ms), our detour max 79us, panel closed
+[1793500911413] perf: 560 input ticks in 10.0s, gap mean 17.861ms max 68.862ms (19 over 32ms), our detour max 86us, panel closed
+[1793500921413] perf: 2454 input ticks in 10.0s, gap mean 4.078ms max 2002.218ms (16 over 32ms), our detour max 1225us, panel closed
+[1793500924476] mouse: RMB -> slot 0
+[1793500925022] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6521MiB pf=17952MiB
+[1793500931429] perf: 4683 input ticks in 10.0s, gap mean 2.136ms max 63.025ms (9 over 32ms), our detour max 61846us, panel closed
+[1793500941429] perf: 9639 input ticks in 10.0s, gap mean 1.037ms max 30.139ms (0 over 32ms), our detour max 4955us, panel closed
+[1793500955272] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6528MiB pf=17952MiB
+[1793500961022] mouse: shift + RMB -> slot 1
+[1793500961444] perf: 8214 input ticks in 10.0s, gap mean 1.218ms max 63.811ms (2 over 32ms), our detour max 63776us, panel closed
+[1793500971444] perf: 3200 input ticks in 10.0s, gap mean 3.127ms max 73.278ms (4 over 32ms), our detour max 1157us, panel closed
+[1793500973351] mouse: RMB -> slot 0
+[1793500975897] mouse: shift + RMB -> slot 1
+[1793500981226] mouse: RMB -> slot 0
+[1793500981460] perf: 2718 input ticks in 10.0s, gap mean 3.68ms max 66.593ms (6 over 32ms), our detour max 62417us, panel closed
+[1793500985569] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6526MiB pf=17952MiB
+[1793501001476] perf: 5684 input ticks in 10.0s, gap mean 1.758ms max 64.258ms (6 over 32ms), our detour max 1760us, panel closed
+[1793501011476] perf: 2650 input ticks in 10.0s, gap mean 3.775ms max 181.193ms (16 over 32ms), our detour max 24111us, panel closed
+[1793501015851] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=6534MiB pf=17960MiB
+[1793501022897] perf: 445 input ticks in 11.4s, gap mean 25.673ms max 2404.111ms (21 over 32ms), our detour max 142us, panel closed
+[1793501024116] world: character gone (reload or quit to menu)
+[1793501034022] perf: 654 input ticks in 11.1s, gap mean 17.009ms max 2007.967ms (17 over 32ms), our detour max 528us, panel closed
+[1793503026205] input: GetAsyncKeyState hooked (keyboard/mouse path)
+[1793503026205] input: GetRawInputData hooked (keyboard/mouse path)
+[1793503026205] input: GetRawInputBuffer hooked (keyboard/mouse path)
+[1793503026220] === nr_casting loaded (F8 opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)
+[1793503026220] crash: exception observer installed (faults are logged with module and offset)
+[1793503026220] pump: PeekMessageW hook installed (frame heartbeat)
+[1793503026220] config: debug_log=false y_bumper=auto bind_modifier=L3 bind_modifier_kb=Super files in <path>
+[1793503026220] system init OK (Ww2720 table resolved)
+[1793503026220] rva: no table for exe 2.7.1.0 — using the Ww2720 table and validating it before use (the probe decides whether steering is safe on this build)
+[1793503026236] rva: map written to nr_casting_offsets.txt
+[1793503026236] pointer: detours installed
+[1793503026236] XInputGetState: import slot unusable (PE header unusable (e_lfanew 0x45d33ac0, expected 0x168) — packed image) — patching the export instead
+[1793503026236] XInputGetStateEx (ordinal 100): hooked at 0x7ffde3ee9bd0 — this is the pad read the game acts on
+[1793503026236] XInputGetState hooked at 0x7ffde3ee9a60
+[1793503026236] modules: amd_ags_x64.dll@0x7ffe3c110000, bink2w64.dll@0x7ffdf1390000, dxgi.dll@0x7ffdab500000, eldenring.exe@0x7ff73fbe0000, ermerchant.dll@0x7ffdf1310000, ersc.dll@0x180000000, gameoverlayrenderer64.dll@0x7ffdbecc0000, me3_mod_host.dll@0x7ffda8e00000, oo2core_6_win64.dll@0x7ffdec8a0000, steam_api64.dll@0x7ffe022e0000, steamclient64.dll@0x7ffde5890000, tier0_s64.dll@0x7ffe09c10000, vstdlib_s64.dll@0x7ffe1f150000
+[1793503026236] files in: <path>
+[1793503026236] slots file: <path>
+[1793503026236] loaded slots: 
+[1793503026236] table: 316 spells from the embedded copy
+[1793503026236] table: 3448 weapons from the embedded copy
+[1793503026236] panel: ready (hotkey registered; the thread idles on its message queue)
+[1793503026736] slots: character name unreadable; keeping the current file
+[1793503033595] XInputGetState: caller stack includes <path>
+[1793503036314] perf: 744 input ticks in 10.0s, gap mean 13.446ms max 1594.512ms (24 over 32ms), our detour max 636us, panel closed
+[1793503036892] msg: text tables proven (512 slots); mod-added names will be read from the game
+[1793503039361] names: 2909 weapon and 214 spell names read from the game's own text (2465 ms)
+[1793503042392] perf: frame series restarted for <character> (save id 0)
+[1793503042392] world: character present
+[1793503042439] slots: character <character> (id 0) -> <path>
+[1793503042439] slots reloaded: 34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+[1793503042783] probe: structure validation passed
+[1793503050767] panel: D3D11 device + ImGui renderer created at 100% (886x484)
+[1793503050767] pointer: pointer clipped to the panel
+[1793503050767] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793503050767] table: 58/316 spell names read from the game's own text (0 ms)
+[1793503050783] table: 80/188 weapon names read from the game's own text (0 ms)
+[1793503050783] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503050783] pointer: game window class cursor set to the arrow
+[1793503050783] pointer: game window adopted — its client gets the arrow while the panel is open
+[1793503050814] pointer: cursor visible after 0 pushes from the game's thread
+[1793503050814] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503050814] panel: open
+[1793503050830] panel: first frame presented
+[1793503051783] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793503052408] perf: 518 input ticks in 10.0s, gap mean 19.329ms max 80.714ms (33 over 32ms), our detour max 595us, panel open
+[1793503052799] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793503052955] bisect: frame clock is the pad poll
+[1793503052955] bisect: phase 1/6 (everything on) - 60 s
+[1793503052970] pointer: panel closed, game has the pointer again
+[1793503052970] panel: closed
+[1793503056892] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5890MiB pf=17751MiB
+[1793503062408] perf: 559 input ticks in 10.0s, gap mean 17.903ms max 72.308ms (20 over 32ms), our detour max 53us, panel closed
+[1793503072424] perf: 564 input ticks in 10.0s, gap mean 17.742ms max 72.982ms (18 over 32ms), our detour max 131us, panel closed
+[1793503080611] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793503080627] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503080642] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503080642] panel: open
+[1793503080642] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503080689] pointer: cursor visible after 0 pushes from the game's thread
+[1793503081674] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503082424] perf: 557 input ticks in 10.0s, gap mean 17.962ms max 74.489ms (20 over 32ms), our detour max 58us, panel open
+[1793503082689] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503082877] pointer: panel closed, game has the pointer again
+[1793503082877] panel: closed
+[1793503087517] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5839MiB pf=17691MiB
+[1793503092439] perf: 561 input ticks in 10.0s, gap mean 17.853ms max 61.159ms (20 over 32ms), our detour max 53us, panel closed
+[1793503102455] perf: 565 input ticks in 10.0s, gap mean 17.728ms max 60.194ms (18 over 32ms), our detour max 55us, panel closed
+[1793503112236] bisect: phase 2/6 (pointer detours off) - 60 s
+[1793503112470] perf: 560 input ticks in 10.0s, gap mean 17.873ms max 65.37ms (20 over 32ms), our detour max 60us, panel closed
+[1793503118080] weapons L1=34070004 R1=20030004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5775MiB pf=17675MiB
+[1793503122486] perf: 558 input ticks in 10.0s, gap mean 17.946ms max 66.377ms (21 over 32ms), our detour max 56us, panel closed
+[1793503132486] perf: 560 input ticks in 10.0s, gap mean 17.864ms max 68.796ms (18 over 32ms), our detour max 139us, panel closed
+[1793503142502] perf: 557 input ticks in 10.0s, gap mean 17.978ms max 66.023ms (20 over 32ms), our detour max 118us, panel closed
+[1793503148220] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5781MiB pf=17699MiB
+[1793503152502] perf: 554 input ticks in 10.0s, gap mean 18.053ms max 66.761ms (22 over 32ms), our detour max 52us, panel closed
+[1793503162517] perf: 560 input ticks in 10.0s, gap mean 17.877ms max 70.462ms (18 over 32ms), our detour max 55us, panel closed
+[1793503172236] bisect: phase 3/6 (raw input hooks off) - 60 s
+[1793503172517] perf: 553 input ticks in 10.0s, gap mean 18.091ms max 71.877ms (20 over 32ms), our detour max 111us, panel closed
+[1793503178439] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5783MiB pf=17695MiB
+[1793503182517] perf: 563 input ticks in 10.0s, gap mean 17.764ms max 93.646ms (17 over 32ms), our detour max 318us, panel closed
+[1793503192533] perf: 559 input ticks in 10.0s, gap mean 17.909ms max 84.232ms (17 over 32ms), our detour max 119us, panel closed
+[1793503198877] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793503198877] pointer: arrow supplied for the game's window while the panel is open
+[1793503198892] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503198908] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503198908] panel: open
+[1793503198908] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503198970] pointer: cursor visible after 0 pushes from the game's thread
+[1793503199924] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503200939] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503201955] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503202205] pointer: panel closed, game has the pointer again
+[1793503202205] panel: closed
+[1793503202549] perf: 561 input ticks in 10.0s, gap mean 17.839ms max 76.526ms (19 over 32ms), our detour max 96us, panel closed
+[1793503208674] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5794MiB pf=17702MiB
+[1793503212564] perf: 556 input ticks in 10.0s, gap mean 18.013ms max 72.745ms (18 over 32ms), our detour max 90us, panel closed
+[1793503222564] perf: 558 input ticks in 10.0s, gap mean 17.943ms max 98.396ms (18 over 32ms), our detour max 45us, panel closed
+[1793503232236] bisect: phase 4/6 (pad casting off (the hook still times)) - 60 s
+[1793503232580] perf: 549 input ticks in 10.0s, gap mean 18.233ms max 76.045ms (17 over 32ms), our detour max 59us, panel closed
+[1793503239033] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5812MiB pf=17702MiB
+[1793503242580] perf: 586 input ticks in 10.0s, gap mean 17.064ms max 56.659ms (6 over 32ms), our detour max 137us, panel closed
+[1793503252595] perf: 580 input ticks in 10.0s, gap mean 17.26ms max 58.093ms (10 over 32ms), our detour max 38us, panel closed
+[1793503259345] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793503259345] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503259377] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503259377] panel: open
+[1793503259377] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503260392] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503261408] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503261689] pointer: panel closed, game has the pointer again
+[1793503261689] panel: closed
+[1793503262611] perf: 580 input ticks in 10.0s, gap mean 17.267ms max 60.646ms (9 over 32ms), our detour max 74us, panel closed
+[1793503269283] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5815MiB pf=17704MiB
+[1793503272611] perf: 581 input ticks in 10.0s, gap mean 17.221ms max 59.051ms (8 over 32ms), our detour max 155us, panel closed
+[1793503292236] bisect: phase 5/6 (housekeeping thread off) - 60 s
+[1793503292642] perf: 592 input ticks in 10.0s, gap mean 16.906ms max 76.842ms (2 over 32ms), our detour max 174us, panel closed
+[1793503302642] perf: 561 input ticks in 10.0s, gap mean 17.831ms max 62.981ms (18 over 32ms), our detour max 89us, panel closed
+[1793503312642] perf: 553 input ticks in 10.0s, gap mean 18.088ms max 77.497ms (19 over 32ms), our detour max 66us, panel closed
+[1793503322642] perf: 562 input ticks in 10.0s, gap mean 17.8ms max 75.151ms (19 over 32ms), our detour max 222us, panel closed
+[1793503332658] perf: 564 input ticks in 10.0s, gap mean 17.745ms max 62.243ms (18 over 32ms), our detour max 171us, panel closed
+[1793503342658] perf: 558 input ticks in 10.0s, gap mean 17.927ms max 78.715ms (20 over 32ms), our detour max 78us, panel closed
+[1793503352236] bisect: phase 6/6 (all of our work off) - 60 s
+[1793503352658] perf: 562 input ticks in 10.0s, gap mean 17.794ms max 64.254ms (19 over 32ms), our detour max 56us, panel closed
+[1793503352924] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793503352939] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503352955] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503352955] panel: open
+[1793503352955] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503353970] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503354986] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503356002] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503356814] pointer: panel closed, game has the pointer again
+[1793503356814] panel: closed
+[1793503362674] perf: 582 input ticks in 10.0s, gap mean 17.205ms max 72.013ms (9 over 32ms), our detour max 205us, panel closed
+[1793503372689] perf: 581 input ticks in 10.0s, gap mean 17.224ms max 61.793ms (10 over 32ms), our detour max 43us, panel closed
+[1793503382720] perf: 584 input ticks in 10.0s, gap mean 17.175ms max 53.061ms (10 over 32ms), our detour max 61us, panel closed
+[1793503392720] perf: 584 input ticks in 10.0s, gap mean 17.134ms max 49.977ms (9 over 32ms), our detour max 197us, panel closed
+[1793503400142] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793503400142] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503400174] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793503400174] panel: open
+[1793503400174] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503401189] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793503401564] pointer: panel closed, game has the pointer again
+[1793503401564] panel: closed
+[1793503402736] perf: 594 input ticks in 10.0s, gap mean 16.853ms max 48.411ms (2 over 32ms), our detour max 162us, panel closed
+[1793503412236] bisect: finished; every subsystem switched back on
+[1793503412517] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5838MiB pf=17715MiB
+[1793503412736] perf: 598 input ticks in 10.0s, gap mean 16.735ms max 44.175ms (1 over 32ms), our detour max 61us, panel closed
+[1793503412767] diag: wrote <path>
+[1793503422752] perf: 531 input ticks in 10.0s, gap mean 18.847ms max 88.755ms (21 over 32ms), our detour max 313us, panel closed
+[1793503429564] world: character gone (reload or quit to menu)
+[1793503432033] input: hooked, but the game is not polling XInputGetState — is a controller connected? Casting via the triggers cannot work without one.
+[1793503432861] perf: 322 input ticks in 10.1s, gap mean 31.412ms max 2041.4ms (75 over 32ms), our detour max 117us, panel closed
+[1793503443783] perf: 77 input ticks in 10.9s, gap mean 141.882ms max 2009.734ms (7 over 32ms), our detour max 143us, panel closed
+[1793506539722] input: GetAsyncKeyState hooked (keyboard/mouse path)
+[1793506539723] input: GetRawInputData hooked (keyboard/mouse path)
+[1793506539723] input: GetRawInputBuffer hooked (keyboard/mouse path)
+[1793506539730] === nr_casting loaded (F8 opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)
+[1793506539730] crash: exception observer installed (faults are logged with module and offset)
+[1793506539730] config: debug_log=false y_bumper=auto bind_modifier=L3 bind_modifier_kb=Super files in <path>
+[1793506539730] system init OK (Ww2720 table resolved)
+[1793506539730] rva: exe 2.7.1.0 (Unsupported game version 2.7.1.0) is NOT in the table — falling back to Ww2720; validating before use
+[1793506539731] rva: map written to nr_casting_offsets.txt
+[1793506539731] pointer: detours installed
+[1793506539733] XInputGetState: import slot unusable (PE header unusable (e_lfanew 0x45d33ac0, expected 0x168) — packed image) — patching the export instead
+[1793506539734] XInputGetStateEx (ordinal 100): hooked at 0x7ffde3ee9bd0 — this is the pad read the game acts on
+[1793506539734] XInputGetState hooked at 0x7ffde3ee9a60
+[1793506539735] modules: amd_ags_x64.dll@0x7ffe419f0000, bink2w64.dll@0x7ffde5360000, dxgi.dll@0x7ffdadbb0000, eldenring.exe@0x7ff73fbe0000, ermerchant.dll@0x7ffde1d30000, ersc.dll@0x180000000, gameoverlayrenderer64.dll@0x7ffdbecc0000, me3_mod_host.dll@0x7ffdad550000, oo2core_6_win64.dll@0x7ffde0870000, steam_api64.dll@0x7ffe00530000, steamclient64.dll@0x7ffde5890000, tier0_s64.dll@0x7ffe09c10000, vstdlib_s64.dll@0x7ffe1f150000
+[1793506539735] files in: <path>
+[1793506539735] slots file: <path>
+[1793506539735] loaded slots: 
+[1793506539744] table: 316 spells from the embedded copy
+[1793506539745] table: 3448 weapons from the embedded copy
+[1793506539745] panel: ready (F8 opens it; no GPU device until then)
+[1793506540231] slots: character name unreadable; keeping the current file
+[1793506547465] XInputGetState: caller stack includes <path>
+[1793506555741] probe: structure validation passed
+[1793506555774] slots: character <character> (id 0) -> <path>
+[1793506569746] world: character present
+[1793506570583] msg: text tables proven (512 slots); mod-added names will be read from the game
+[1793506574221] names: 2909 weapon and 214 spell names read from the game's own text (3638 ms)
+[1793506574221] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5760MiB pf=17510MiB
+[1793506574222] slots reloaded: 34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+[1793506604222] world: character gone (reload or quit to menu)
+[1793506604963] input: hooked, but the game is not polling XInputGetState — is a controller connected? Casting via the triggers cannot work without one.
+[1793506697847] input: GetAsyncKeyState hooked (keyboard/mouse path)
+[1793506697848] input: GetRawInputData hooked (keyboard/mouse path)
+[1793506697848] input: GetRawInputBuffer hooked (keyboard/mouse path)
+[1793506697855] === nr_casting loaded (F8 opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)
+[1793506697855] crash: exception observer installed (faults are logged with module and offset)
+[1793506697855] config: debug_log=false y_bumper=auto bind_modifier=L3 bind_modifier_kb=Super files in <path>
+[1793506697855] system init OK (Ww2720 table resolved)
+[1793506697855] rva: exe 2.7.1.0 (Unsupported game version 2.7.1.0) is NOT in the table — falling back to Ww2720; validating before use
+[1793506697856] rva: map written to nr_casting_offsets.txt
+[1793506697856] pointer: detours installed
+[1793506697857] XInputGetState: import slot unusable (PE header unusable (e_lfanew 0x45d33ac0, expected 0x168) — packed image) — patching the export instead
+[1793506697859] XInputGetStateEx (ordinal 100): hooked at 0x7ffde3ee9bd0 — this is the pad read the game acts on
+[1793506697859] XInputGetState hooked at 0x7ffde3ee9a60
+[1793506697859] modules: amd_ags_x64.dll@0x7ffe419f0000, bink2w64.dll@0x7ffde5360000, dxgi.dll@0x7ffdb2f30000, eldenring.exe@0x7ff73fbe0000, ermerchant.dll@0x7ffde1d50000, ersc.dll@0x180000000, gameoverlayrenderer64.dll@0x7ffdbecc0000, me3_mod_host.dll@0x7ffdada90000, oo2core_6_win64.dll@0x7ffde1dd0000, steam_api64.dll@0x7ffe00530000, steamclient64.dll@0x7ffde5890000, tier0_s64.dll@0x7ffe09c10000, vstdlib_s64.dll@0x7ffe1f150000
+[1793506697859] files in: <path>
+[1793506697859] slots file: <path>
+[1793506697859] loaded slots: 
+[1793506697868] table: 316 spells from the embedded copy
+[1793506697868] table: 3448 weapons from the embedded copy
+[1793506697868] panel: ready (F8 opens it; no GPU device until then)
+[1793506698357] slots: character name unreadable; keeping the current file
+[1793506704996] XInputGetState: caller stack includes <path>
+[1793506712865] probe: structure validation passed
+[1793506712899] slots: character <character> (id 0) -> <path>
+[1793506727871] world: character present
+[1793506728751] msg: text tables proven (512 slots); mod-added names will be read from the game
+[1793506732155] names: 2909 weapon and 214 spell names read from the game's own text (3403 ms)
+[1793506732155] weapons L1=34070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5729MiB pf=17488MiB
+[1793506732155] slots reloaded: 34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+[1793506762155] weapons L1=34070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5756MiB pf=17487MiB
+[1793506777260] input: hooked, but the game is not polling XInputGetState — is a controller connected? Casting via the triggers cannot work without one.
+[1793552174032] input: GetAsyncKeyState hooked (keyboard/mouse path)
+[1793552174032] input: GetRawInputData hooked (keyboard/mouse path)
+[1793552174032] input: GetRawInputBuffer hooked (keyboard/mouse path)
+[1793552174048] === nr_casting loaded (F8 opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)
+[1793552174048] crash: exception observer installed (faults are logged with module and offset)
+[1793552174048] pump: PeekMessageW hook installed (frame heartbeat)
+[1793552174048] config: debug_log=false y_bumper=auto bind_modifier=L3 bind_modifier_kb=Super files in <path>
+[1793552174048] system init OK (Ww2720 table resolved)
+[1793552174048] rva: no table for exe 2.7.1.0 — using the Ww2720 table and validating it before use (the probe decides whether steering is safe on this build)
+[1793552174048] rva: map written to nr_casting_offsets.txt
+[1793552174048] pointer: detours installed
+[1793552174048] XInputGetState: routed the game's import slot to our detour at 0x7ffde3ee9a60 (no code patched)
+[1793552174048] import walk: XINPUT1_4.dll: [ordinal 3, ordinal 2]
+[1793552174048] XInputGetState hooked at 0x7ffde3ee9a60
+[1793552174063] modules: amd_ags_x64.dll@0x7ffe4cf00000, bink2w64.dll@0x7ffdf0160000, dxgi.dll@0x7ffdb15d0000, eldenring.exe@0x7ff766780000, ermerchant.dll@0x7ffdee940000, ersc.dll@0x180000000, gameoverlayrenderer64.dll@0x7ffdbecc0000, me3_mod_host.dll@0x7ffdad6b0000, oo2core_6_win64.dll@0x7ffde2fd0000, steam_api64.dll@0x7ffe00530000, steamclient64.dll@0x7ffde5890000, tier0_s64.dll@0x7ffe09c10000, vstdlib_s64.dll@0x7ffe1f150000
+[1793552174063] files in: <path>
+[1793552174063] slots file: <path>
+[1793552174063] loaded slots: 
+[1793552174063] table: 316 spells from the embedded copy
+[1793552174063] table: 3448 weapons from the embedded copy
+[1793552174063] panel: ready (hotkey registered; the thread idles on its message queue)
+[1793552174548] slots: character name unreadable; keeping the current file
+[1793552182532] pad: wired, gamepad, flags 0x0000, battery wired/full
+[1793552182532] XInputGetState: caller stack includes <path>
+[1793552184392] perf: 1088 input ticks in 10.2s, gap mean 9.374ms max 1730.942ms (32 over 32ms), our detour max 4576us, panel closed
+[1793552184579] msg: text tables proven (512 slots); mod-added names will be read from the game
+[1793552186376] names: 2909 weapon and 214 spell names read from the game's own text (1801 ms)
+[1793552190610] slots: character <character> (id 0) -> <path>
+[1793552191110] probe: structure validation passed
+[1793552191376] perf: frame series restarted for <character> (save id 0)
+[1793552191376] world: character present
+[1793552191376] slots reloaded: 34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]
+[1793552201407] perf: 1096 input ticks in 10.0s, gap mean 9.127ms max 75.068ms (11 over 32ms), our detour max 80us, panel closed
+[1793552204392] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5820MiB pf=17529MiB
+[1793552211407] perf: 1154 input ticks in 10.0s, gap mean 8.666ms max 43.942ms (1 over 32ms), our detour max 65us, panel closed
+[1793552221423] perf: 1146 input ticks in 10.0s, gap mean 8.729ms max 36.562ms (9 over 32ms), our detour max 149us, panel closed
+[1793552231438] perf: 1134 input ticks in 10.0s, gap mean 8.831ms max 39.284ms (7 over 32ms), our detour max 119us, panel closed
+[1793552234407] weapons L1=34070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5832MiB pf=17524MiB
+[1793552241454] perf: 1022 input ticks in 10.0s, gap mean 9.802ms max 44.666ms (5 over 32ms), our detour max 106us, panel closed
+[1793552251470] perf: 1070 input ticks in 10.0s, gap mean 9.36ms max 46.73ms (6 over 32ms), our detour max 453us, panel closed
+[1793552261485] perf: 1140 input ticks in 10.0s, gap mean 8.784ms max 44.255ms (2 over 32ms), our detour max 89us, panel closed
+[1793552265204] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5742MiB pf=17509MiB
+[1793552267626] panel: D3D11 device + ImGui renderer created at 100% (886x484)
+[1793552267626] pointer: pointer clipped to the panel
+[1793552267626] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552267642] table: 58/316 spell names read from the game's own text (0 ms)
+[1793552267642] table: 80/188 weapon names read from the game's own text (0 ms)
+[1793552267642] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552267642] pointer: game window class cursor set to the arrow
+[1793552267642] pointer: game window adopted — its client gets the arrow while the panel is open
+[1793552267673] pointer: cursor visible after 0 pushes from the game's thread
+[1793552267673] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552267673] panel: open
+[1793552267688] panel: first frame presented
+[1793552268657] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793552269657] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793552270673] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793552271485] perf: 1106 input ticks in 10.0s, gap mean 9.046ms max 46.823ms (10 over 32ms), our detour max 2358us, panel open
+[1793552271673] panel: 886x484 client, 886x484 buffer, scale 1.00, content 536px, view ok, present ok
+[1793552272688] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793552273688] panel: 886x484 client, 886x484 buffer, scale 1.00, content 637px, view ok, present ok
+[1793552274173] bisect: frame clock is the pad poll
+[1793552274173] bisect: phase 1/6 (everything on) - 60 s
+[1793552274188] pointer: panel closed, game has the pointer again
+[1793552274188] panel: closed
+[1793552275782] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552275798] pointer: arrow supplied for the game's window while the panel is open
+[1793552275798] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552275813] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552275813] panel: open
+[1793552275813] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552275845] pointer: cursor visible after 0 pushes from the game's thread
+[1793552276829] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552277845] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552278860] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552279876] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552280892] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552281485] perf: 1130 input ticks in 10.0s, gap mean 8.851ms max 45.45ms (8 over 32ms), our detour max 2986us, panel open
+[1793552281907] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552282923] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552283923] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552284423] panel: drag starts at pointer 881,132 from window 428,114
+[1793552284923] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552285938] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552286954] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552287954] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552288970] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552289985] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552291001] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552291485] perf: 1122 input ticks in 10.0s, gap mean 8.914ms max 38.249ms (7 over 32ms), our detour max 960us, panel open
+[1793552291845] pointer: panel closed, game has the pointer again
+[1793552291845] panel: closed
+[1793552296017] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5835MiB pf=17734MiB
+[1793552301501] perf: 1130 input ticks in 10.0s, gap mean 8.86ms max 46.188ms (5 over 32ms), our detour max 80us, panel closed
+[1793552304048] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552304063] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552304079] pointer: cursor visible after 0 pushes from the game's thread
+[1793552304079] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552304079] panel: open
+[1793552304079] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552305079] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552306079] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552307095] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552308110] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552309126] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552310173] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552311188] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552311517] perf: 1139 input ticks in 10.0s, gap mean 8.788ms max 50.256ms (4 over 32ms), our detour max 78us, panel open
+[1793552312220] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552313235] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552314251] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552315267] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552316282] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552317282] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552318298] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552319298] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552320329] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552321329] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552321517] perf: 1145 input ticks in 10.0s, gap mean 8.736ms max 44.92ms (5 over 32ms), our detour max 69us, panel open
+[1793552322345] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552323376] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552324392] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552325407] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552326423] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552326876] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5842MiB pf=17737MiB
+[1793552327454] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552328454] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552329454] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552330470] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552331485] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552331517] perf: 1136 input ticks in 10.0s, gap mean 8.802ms max 45.875ms (5 over 32ms), our detour max 65us, panel open
+[1793552332501] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552333532] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552334110] bisect: phase 2/6 (pointer detours off) - 60 s
+[1793552334532] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552334954] pointer: panel closed, game has the pointer again
+[1793552334954] panel: closed
+[1793552341532] perf: 1140 input ticks in 10.0s, gap mean 8.778ms max 48.86ms (4 over 32ms), our detour max 81us, panel closed
+[1793552351532] perf: 1144 input ticks in 10.0s, gap mean 8.75ms max 45.346ms (4 over 32ms), our detour max 102us, panel closed
+[1793552354267] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552354267] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552354298] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552354298] panel: open
+[1793552354298] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552354345] pointer: cursor visible after 2 pushes from the game's thread
+[1793552355298] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552356313] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552357313] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552357673] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5852MiB pf=17741MiB
+[1793552358313] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552359329] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552360345] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552361376] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552361548] perf: 1148 input ticks in 10.0s, gap mean 8.723ms max 47.86ms (6 over 32ms), our detour max 651us, panel open
+[1793552362392] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552363392] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552364407] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552365423] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552366438] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552367438] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552368454] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552369454] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552370470] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552371470] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552371563] perf: 1136 input ticks in 10.0s, gap mean 8.816ms max 55.702ms (3 over 32ms), our detour max 112us, panel open
+[1793552372485] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552373485] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552374485] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552375501] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552376517] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552377532] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552378532] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552379548] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552380563] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552381579] perf: 1138 input ticks in 10.0s, gap mean 8.789ms max 51.14ms (6 over 32ms), our detour max 186us, panel open
+[1793552381579] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552382610] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552383610] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552384642] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552385657] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552386657] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552387673] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552388485] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5848MiB pf=17737MiB
+[1793552388688] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552389704] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552390720] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552391579] perf: 1137 input ticks in 10.0s, gap mean 8.796ms max 34.398ms (2 over 32ms), our detour max 75us, panel open
+[1793552391735] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552392735] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552393751] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552394063] bisect: phase 3/6 (raw input hooks off) - 60 s
+[1793552394767] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552394798] pointer: panel closed, game has the pointer again
+[1793552394813] panel: closed
+[1793552401579] perf: 1147 input ticks in 10.0s, gap mean 8.719ms max 33.496ms (3 over 32ms), our detour max 74us, panel closed
+[1793552411579] perf: 1146 input ticks in 10.0s, gap mean 8.729ms max 50.299ms (6 over 32ms), our detour max 65us, panel closed
+[1793552419298] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5850MiB pf=17738MiB
+[1793552421595] perf: 1148 input ticks in 10.0s, gap mean 8.719ms max 36.073ms (2 over 32ms), our detour max 124us, panel closed
+[1793552423017] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552423032] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552423048] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552423048] panel: open
+[1793552423048] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552423095] pointer: cursor visible after 2 pushes from the game's thread
+[1793552424048] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552425048] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552426063] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552427079] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552428079] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552429110] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552430110] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552431126] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552431595] perf: 1139 input ticks in 10.0s, gap mean 8.781ms max 52.626ms (7 over 32ms), our detour max 192us, panel open
+[1793552432157] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552433157] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552434173] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552435188] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552436204] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552437220] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552438220] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552439235] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552440251] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552441251] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552441610] perf: 1137 input ticks in 10.0s, gap mean 8.802ms max 54.797ms (5 over 32ms), our detour max 77us, panel open
+[1793552442267] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552443267] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552444267] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552445282] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552446282] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552447298] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552448313] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552449329] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552450048] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5851MiB pf=17738MiB
+[1793552450345] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552451376] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552451626] perf: 1142 input ticks in 10.0s, gap mean 8.77ms max 31.668ms (0 over 32ms), our detour max 66us, panel open
+[1793552452407] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552453407] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552454063] bisect: phase 4/6 (pad casting off (the hook still times)) - 60 s
+[1793552454423] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552455438] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552456438] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552457470] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552457548] pointer: panel closed, game has the pointer again
+[1793552457563] panel: closed
+[1793552461642] perf: 1168 input ticks in 10.0s, gap mean 8.574ms max 45.441ms (7 over 32ms), our detour max 106us, panel closed
+[1793552471642] perf: 1172 input ticks in 10.0s, gap mean 8.535ms max 44.059ms (6 over 32ms), our detour max 46us, panel closed
+[1793552480954] weapons L1=23070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5861MiB pf=17743MiB
+[1793552481657] perf: 1190 input ticks in 10.0s, gap mean 8.415ms max 41.224ms (4 over 32ms), our detour max 56us, panel closed
+[1793552482954] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552483001] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552483017] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552483017] panel: open
+[1793552483017] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552484032] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552485079] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552486126] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552487157] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552488188] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552488204] pointer: panel closed, game has the pointer again
+[1793552488204] panel: closed
+[1793552491657] perf: 1198 input ticks in 10.0s, gap mean 8.352ms max 28.901ms (0 over 32ms), our detour max 146us, panel closed
+[1793552495860] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552495860] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552495876] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552495876] panel: open
+[1793552495876] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552496907] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552497923] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552498938] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552499954] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552500970] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552501673] perf: 1194 input ticks in 10.0s, gap mean 8.382ms max 30.273ms (0 over 32ms), our detour max 108us, panel open
+[1793552501985] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552503017] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552504017] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552505032] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552506048] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552507048] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552508063] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552509063] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552510095] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552511048] weapons L1=34070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5861MiB pf=17746MiB
+[1793552511110] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552511673] perf: 1192 input ticks in 10.0s, gap mean 8.39ms max 40.868ms (3 over 32ms), our detour max 69us, panel open
+[1793552512126] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552513142] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552514079] bisect: phase 5/6 (housekeeping thread off) - 60 s
+[1793552514142] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552514220] pointer: cursor visible after 0 pushes from the game's thread
+[1793552515142] pointer: panel closed, game has the pointer again
+[1793552515142] panel: closed
+[1793552521688] perf: 1094 input ticks in 10.0s, gap mean 9.149ms max 69.895ms (18 over 32ms), our detour max 530us, panel closed
+[1793552531704] perf: 1154 input ticks in 10.0s, gap mean 8.674ms max 44.214ms (1 over 32ms), our detour max 52us, panel closed
+[1793552541517] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=false shape_set=true — the game's thread raises the counter)
+[1793552541517] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552541532] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552541532] panel: open
+[1793552541532] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552541548] pointer: cursor visible after 0 pushes from the game's thread
+[1793552541720] perf: 1158 input ticks in 10.0s, gap mean 8.648ms max 40.174ms (2 over 32ms), our detour max 85us, panel open
+[1793552542548] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552543563] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552544579] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552544751] pointer: panel closed, game has the pointer again
+[1793552544751] panel: closed
+[1793552546470] pointer: panel open (the game's clip is off; the frame loop clips to the panel, system reports visible=true shape_set=true — the game's thread raises the counter)
+[1793552546470] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552546485] panel: 475 goods entries, 48 of them spells, stats Some((22, 60, 16))
+[1793552546485] panel: open
+[1793552546485] panel: 886x484 client, 886x484 buffer, scale 1.00, content 561px, view ok, present ok
+[1793552546517] pointer: cursor visible after 0 pushes from the game's thread
+[1793552547267] pointer: panel closed, game has the pointer again
+[1793552547282] panel: closed
+[1793552551720] perf: 1142 input ticks in 10.0s, gap mean 8.761ms max 33.36ms (1 over 32ms), our detour max 178us, panel closed
+[1793552561735] perf: 1054 input ticks in 10.0s, gap mean 9.497ms max 52.284ms (6 over 32ms), our detour max 376us, panel closed
+[1793552571735] perf: 1142 input ticks in 10.0s, gap mean 8.756ms max 44.748ms (2 over 32ms), our detour max 102us, panel closed
+[1793552574079] bisect: phase 6/6 (all of our work off) - 60 s
+[1793552581751] perf: 1164 input ticks in 10.0s, gap mean 8.601ms max 38.631ms (7 over 32ms), our detour max 95us, panel closed
+[1793552591751] perf: 1166 input ticks in 10.0s, gap mean 8.583ms max 39.758ms (10 over 32ms), our detour max 302us, panel closed
+[1793552601767] perf: 1164 input ticks in 10.0s, gap mean 8.598ms max 43.879ms (10 over 32ms), our detour max 125us, panel closed
+[1793552611767] perf: 1156 input ticks in 10.0s, gap mean 8.659ms max 48.979ms (10 over 32ms), our detour max 276us, panel closed
+[1793552621782] perf: 1154 input ticks in 10.0s, gap mean 8.675ms max 41.95ms (8 over 32ms), our detour max 229us, panel closed
+[1793552631798] perf: 1156 input ticks in 10.0s, gap mean 8.654ms max 40.499ms (5 over 32ms), our detour max 487us, panel closed
+[1793552634079] bisect: finished; every subsystem switched back on
+[1793552634110] weapons L1=34070004 R1=23070004 | player spell 6800 | slots [34000000=[7510, 7500, 6960, 6040] 34010000=[6210, 6250, 6270, 6230] 34020000=[6001, 6010, 6040, 6110] 34030000=[6900, 6930, 6950, 6921] 34040000=[6800, 6810, 6840, 6820] 34060000=[-1, 6410, -1, 6422] 34070000=[6210, 7310, 6720, 6941] 34080000=[-1, -1, -1, -1] 34090000=[7310, 7320, -1, 7330]] | mem ws=5934MiB pf=17821MiB
+

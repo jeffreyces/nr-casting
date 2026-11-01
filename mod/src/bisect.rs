@@ -49,6 +49,11 @@ static CLOCK: Mutex<PhaseClock> = Mutex::new(PhaseClock::new(PLAN.len(), PHASE_S
 /// Which hook measured the frames for this run. Every phase has to use the same one, or the phases
 /// are not comparable - the first run proved it by switching mid-phase and moving its own p50.
 static CLOCK_KIND: Mutex<&'static str> = Mutex::new("none");
+/// Ticks recorded during each phase, so a phase measured at a different tick rate is visible as
+/// such instead of being read as a difference in smoothness.
+static TICKS: [AtomicU32; PLAN.len()] = [const { AtomicU32::new(0) }; PLAN.len()];
+/// The recorder's tick count when the current phase began.
+static PHASE_POLLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static FILLED: [AtomicU32; PLAN.len()] = [const { AtomicU32::new(0) }; PLAN.len()];
 static SERIES: [AtomicU32; PLAN.len() * SLOTS] =
     [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
@@ -92,7 +97,14 @@ pub fn start() -> bool {
     if let Ok(mut clock) = CLOCK.lock() {
         clock.restart();
     }
-    let kind = if crate::perf::pad_live() { "pad poll" } else { "message pump" };
+    // One clock for the whole run. The pump runs once a frame whatever the input device, so it
+    // keeps measuring even in the phase that switches the pad hooks off - which is exactly the
+    // phase a pad clock cannot measure. Leaving both clocks free meant phase 4 and phase 6 were
+    // recorded about once a frame while phases 1, 2, 3 and 5 were recorded about twice a frame,
+    // and the report claimed they were the same measurement.
+    crate::perf::pin_pump(true);
+    PHASE_POLLS.store(crate::perf::poll_count(), Ordering::Relaxed);
+    let kind = "message pump (pinned for the run)";
     if let Ok(mut clock) = CLOCK_KIND.lock() {
         *clock = kind;
     }
@@ -106,6 +118,7 @@ pub fn start() -> bool {
 pub fn cancel() {
     if RUNNING.swap(false, Ordering::Relaxed) {
         DISABLED.store(0, Ordering::Relaxed);
+        crate::perf::pin_pump(false);
         crate::log("bisect: cancelled; every subsystem back on");
     }
 }
@@ -145,19 +158,33 @@ pub fn on_second(second: crate::perf::Second) -> bool {
     match clock.tick() {
         PhaseTick::Second => false,
         PhaseTick::NextPhase => {
+            let ticks = close_phase(phase);
             let next = clock.phase();
             DISABLED.store(PLAN[next].1, Ordering::Relaxed);
             log_phase(next);
+            crate::log(&format!("bisect: phase {} recorded {ticks} ticks", phase + 1));
             false
         }
         PhaseTick::Finished => {
+            let ticks = close_phase(phase);
             drop(clock);
             RUNNING.store(false, Ordering::Relaxed);
             DISABLED.store(0, Ordering::Relaxed);
+            crate::perf::pin_pump(false);
+            crate::log(&format!("bisect: phase {} recorded {ticks} ticks", phase + 1));
             crate::log("bisect: finished; every subsystem switched back on");
             true
         }
     }
+}
+
+/// Store the tick count of the phase that just ended and start counting for the next one.
+fn close_phase(index: usize) -> u64 {
+    let now = crate::perf::poll_count();
+    let start = PHASE_POLLS.swap(now, Ordering::Relaxed);
+    let ticks = now.saturating_sub(start);
+    TICKS[index].store(ticks.min(u32::MAX as u64) as u32, Ordering::Relaxed);
+    ticks
 }
 
 fn log_phase(index: usize) {
@@ -178,7 +205,10 @@ pub fn section() -> String {
     );
     let kind = CLOCK_KIND.lock().map(|k| *k).unwrap_or("none");
     out.push_str(&format!(
-        "# measured with the {kind}; the same clock in every phase, so the phases compare\n"
+        "# measured with the {kind}. One clock for every phase on purpose: a pad clock stops\n\
+         # being fed in the phase that switches the pad hooks off, and the message pump takes over\n\
+         # at about half the tick rate - two instruments, and phases that cannot be compared. The\n\
+         # tick count on each phase is how you check that the rate stayed put.\n"
     ));
     if (0..PLAN.len()).all(|index| samples(index).iter().all(|us| *us == 0)) {
         out.push_str(
@@ -215,6 +245,7 @@ pub fn section() -> String {
             seconds_with_hitches,
             seconds: values.len(),
             worst_at,
+            ticks: TICKS[index].load(Ordering::Relaxed),
         }));
         out.push('\n');
     }

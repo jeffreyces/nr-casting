@@ -73,6 +73,11 @@ y_bumper = auto
 recluse_chr_ids = 8131
 
 [logging]
+; Install the input detours at all. Leave on. off is a stutter experiment, not a way to play:
+; with no detours the mod cannot cast, but the report then shows what the game's frame timing
+; looks like with the DLL loaded and doing nothing - the comparison a loaded mod cannot make
+; any other way. Use it for one session, compare the bundle with a normal run, then set it back.
+hooks = on
 ; Log every cast, not just captures and errors
 debug_log = off
 ; Perf log: one line when a window lost a frame and otherwise every 5 minutes, with the pad-poll

@@ -44,6 +44,11 @@ pub struct Config {
     /// The panel window's top-left corner, as saved when the player last moved it. `None` = the
     /// default spot (80, 80), clamped onto the screen. Saved with the size, one ini write.
     pub panel_pos: Option<(i32, i32)>,
+    /// Install the input detours at all. `off` is a stutter experiment, not a setting: with no
+    /// detours the mod cannot cast, but it can still say what the game's frame timing looks like
+    /// with the DLL loaded and doing nothing - the one comparison a loaded-but-inert mod cannot
+    /// otherwise make.
+    pub hooks: bool,
     /// Log every cast, not just captures and errors.
     pub debug_log: bool,
     /// Log a ten-second line of pad-poll timing: frame gaps as the game sees them, and the cost of
@@ -116,6 +121,7 @@ impl Default for Config {
             ui_scale_name: "auto".to_string(),
             panel_size: None,
             panel_pos: None,
+            hooks: true,
             debug_log: false,
             // Matches the shipped ini: quiet (one line per five minutes, or when a frame is lost),
             // and the only way a stutter is recorded at the time it happens.
@@ -549,6 +555,7 @@ perf_log = off
                             config.overlay = truthy(value);
                         }
                     }
+                    "hooks" => config.hooks = truthy(value),
                     "debug_log" => config.debug_log = truthy(value),
                     "perf_log" => config.perf_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),

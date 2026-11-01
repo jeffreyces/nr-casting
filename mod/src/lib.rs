@@ -159,9 +159,18 @@ fn run() {
     // First, before any thread or hook exists: if anything faults from here on, the log says
     // what faulted and where, instead of the user having to describe a crash.
     crash::install();
-    // Read-only instrumentation: counts the game's own GetAsyncKeyState calls so the log can say
-    // whether a keyboard/mouse cast can be presented there when no controller is connected.
-    rawinput::install();
+    // The config is read this early because `hooks = off` decides whether any detour is installed
+    // at all - a stutter experiment that has to run before the first hook exists to mean anything.
+    config::migrate_from_game_dir();
+    let cfg = config::load();
+    if cfg.hooks {
+        // Read-only instrumentation: counts the game's own GetAsyncKeyState calls so the log can say
+        // whether a keyboard/mouse cast can be presented there when no controller is connected.
+        rawinput::install();
+    } else {
+        log("hooks: off in the ini - no input detours installed, so casting is disabled; this is \
+             the stutter comparison, not a way to play");
+    }
     // Panics are logged too, and the previous hook still runs: another mod may have installed
     // one, and a panic must not become invisible just because we replaced its handler.
     let previous_hook = std::panic::take_hook();
@@ -171,8 +180,6 @@ fn run() {
         logging::try_log(&format!("panic on thread '{name}': {info}"));
         previous_hook(info);
     }));
-    config::migrate_from_game_dir();
-
     // Derived files belong to one executable build. If the game changed, drop them before the
     // log handle is opened: the catalogue is re-read from the live params on the next panel
     // open, and the log starts clean instead of carrying lines from a different build.
@@ -192,7 +199,6 @@ fn run() {
     // Uptime is measured from here: a report wants "how long has this run been going", and the
     // clock starts on first use otherwise - which is the report itself.
     logging::start_clock();
-    let cfg = config::load();
     log(&format!(
         "=== nr_casting loaded ({} opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)",
         cfg.hotkey_name
@@ -233,7 +239,7 @@ fn run() {
     seed_store();
     probe::resolve_table();
     window::start();
-    if config::load().pad_hook {
+    if config::load().pad_hook && config::load().hooks {
         std::thread::spawn(watch_hook);
         match install_hook() {
             Ok(addr) => log(&format!("XInputGetState hooked at {addr:p}")),

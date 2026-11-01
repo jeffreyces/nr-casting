@@ -656,17 +656,22 @@ pub struct PhaseSummary<'a> {
     pub seconds: usize,
     /// Which second held the worst gap, one-based.
     pub worst_at: usize,
+    /// Ticks the recorder saw during the phase. A phase recorded at 30 ticks a second is not
+    /// comparable with one recorded at 60, so the count travels with the numbers.
+    pub ticks: u32,
 }
 
 /// The two lines a phase gets: the summary, then how often it stuttered and where the worst was.
 pub fn phase_lines(phase: &PhaseSummary<'_>) -> String {
     format!(
-        "phase {}/{} {} (off: {}): {}\n    {} hitches over 32ms in {} of {} seconds; worst {}ms at second {}",
+        "phase {}/{} {} (off: {}): {} [{} ticks, {:.0}/s]\n    {} hitches over 32ms in {} of {} seconds; worst {}ms at second {}",
         phase.index,
         phase.phases,
         phase.label,
         phase.off,
         gap_line(&phase.stats),
+        phase.ticks,
+        if phase.seconds == 0 { 0.0 } else { phase.ticks as f32 / phase.seconds as f32 },
         phase.hitches,
         phase.seconds_with_hitches,
         phase.seconds,
@@ -1587,9 +1592,11 @@ mod raw_tests {
             seconds_with_hitches: 1,
             seconds: 4,
             worst_at: 2,
+            ticks: 1800,
         });
         assert!(line.starts_with("phase 4/6 pad casting off (off: pad hooks): "), "{line}");
         assert!(line.contains("4 s sampled (1 with no pad poll)"), "{line}");
+        assert!(line.contains("1800 ticks, 450/s"), "{line}");
         assert!(line.contains("7 hitches over 32ms in 1 of 4 seconds"), "{line}");
         assert!(line.contains("worst 66ms at second 2"), "{line}");
     }

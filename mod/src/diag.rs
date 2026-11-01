@@ -364,8 +364,9 @@ fn state() -> String {
     let cfg = crate::config::load();
     let _ = writeln!(
         out,
-        "config: overlay={} debug_log={} perf_log={} ui_scale={} bind_modifier={} chord_stage={}",
-        cfg.overlay, cfg.debug_log, cfg.perf_log, cfg.ui_scale_name, cfg.bind_modifier_name, cfg.chord_stage
+        "config: overlay={} hooks={} pad_hook={} debug_log={} perf_log={} ui_scale={} \
+         bind_modifier={} chord_stage={}",
+        cfg.overlay, cfg.hooks, cfg.pad_hook, cfg.debug_log, cfg.perf_log, cfg.ui_scale_name, cfg.bind_modifier_name, cfg.chord_stage
     );
     match crate::weapon_ids() {
         Some((left, right)) => {
