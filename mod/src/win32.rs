@@ -17,4 +17,13 @@ extern "system" {
     ) -> i32;
     pub fn GetCurrentThreadId() -> u32;
     pub fn GetTickCount64() -> u64;
+    pub fn OpenThread(access: u32, inherit: i32, thread_id: u32) -> *mut u8;
+    /// The four `FILETIME`s are 8-byte values the API writes in place; `*mut u64` matches them.
+    pub fn GetThreadTimes(
+        thread: *mut u8,
+        creation: *mut u64,
+        exit: *mut u64,
+        kernel: *mut u64,
+        user: *mut u64,
+    ) -> i32;
 }

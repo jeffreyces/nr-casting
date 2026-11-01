@@ -443,6 +443,17 @@ fn performance() -> String {
         out.push_str(&series);
         out.push('\n');
     }
+    // Was each slow second spent working or waiting? A gap alone cannot say, and the difference
+    // decides whether the next step is the game's CPU or the thing drawing its frames.
+    if crate::threadcpu::watching() {
+        let cpu = crate::perf::cpu_report();
+        if !cpu.is_empty() {
+            out.push_str(&cpu);
+            out.push('\n');
+        }
+    } else {
+        out.push_str("frame thread CPU: not sampled (no frame loop seen - panel closed before a frame?)\n");
+    }
     out
 }
 

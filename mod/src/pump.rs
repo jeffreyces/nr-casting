@@ -58,7 +58,11 @@ unsafe extern "system" fn peek_detour(
     let out = original(msg, hwnd, min, max, remove);
     // The panel pumps its own messages on its own thread; those ticks say nothing about the game's
     // frame cadence and would flatten the series while the panel is open.
-    if crate::win32::GetCurrentThreadId() != IGNORE_THREAD.load(Ordering::Relaxed) {
+    let thread = crate::win32::GetCurrentThreadId();
+    if thread != IGNORE_THREAD.load(Ordering::Relaxed) {
+        // This is the thread that runs the frame loop, so it is also the one whose CPU time says
+        // whether a slow second was spent working or waiting.
+        crate::threadcpu::note_frame_thread(thread);
         crate::perf::report_pump(started);
     }
     out

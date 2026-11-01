@@ -33,6 +33,11 @@ const SERIES_LEN: usize = 300;
 #[allow(clippy::declare_interior_mutable_const)]
 const ZERO: AtomicU32 = AtomicU32::new(0);
 static SERIES: [AtomicU32; SERIES_LEN] = [ZERO; SERIES_LEN];
+/// The frame thread's CPU time in the same second, in microseconds. Beside the gap it answers the
+/// first question a stutter report has: was that second spent working, or waiting?
+static SERIES_CPU: [AtomicU32; SERIES_LEN] = [ZERO; SERIES_LEN];
+/// The most CPU the frame thread used in any second of the current window.
+static CPU_MAX_US: AtomicU32 = AtomicU32::new(0);
 static SERIES_HEAD: AtomicU32 = AtomicU32::new(0);
 static SERIES_FILLED: AtomicU32 = AtomicU32::new(0);
 /// The worst gap since the current one-second sample started, and when it started.
@@ -63,6 +68,10 @@ pub fn tick() -> Second {
     };
     let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
     SERIES[head].store(sample.worst_us, Ordering::Relaxed);
+    // Sampled from a thread that is allowed to make a syscall, once a second.
+    let cpu = crate::threadcpu::cpu_since_last().unwrap_or(0).min(u32::MAX as u64) as u32;
+    SERIES_CPU[head].store(cpu, Ordering::Relaxed);
+    CPU_MAX_US.fetch_max(cpu, Ordering::Relaxed);
     SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
     TICKED_AT.store(ticks(), Ordering::Relaxed);
     // The same sample feeds the guided bisect, so a phase and the rolling series are the same
@@ -112,7 +121,7 @@ pub fn pump_pinned() -> bool {
 /// plus a flush, in the middle of a frame, every ten seconds. Measured at up to 17 ms in a
 /// reporter's log (`our detour max 17055us`), which is a stutter we were causing ourselves. The
 /// hook now only stores these numbers; a thread that is allowed to block writes them.
-static PENDING: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+static PENDING: [AtomicU64; 7] = [const { AtomicU64::new(0) }; 7];
 static PENDING_OPEN: AtomicBool = AtomicBool::new(false);
 static HAS_PENDING: AtomicBool = AtomicBool::new(false);
 
@@ -133,16 +142,18 @@ pub fn start_writer() {
         let over = PENDING[3].load(Ordering::Relaxed);
         let cost_peak = PENDING[4].load(Ordering::Relaxed);
         let elapsed = PENDING[5].load(Ordering::Relaxed);
+        let cpu_peak = PENDING[6].load(Ordering::Relaxed);
         let mean = if polls > 0 { sum / polls } else { 0 };
         let open = PENDING_OPEN.load(Ordering::Relaxed);
         crate::log(&format!(
             "perf: {polls} input ticks in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), \
-             our detour max {}us, panel {}",
+             our detour max {}us, frame thread cpu max {:.1}ms, panel {}",
             elapsed as f64 / 1_000_000.0,
             mean as f64 / 1000.0,
             peak as f64 / 1000.0,
             over,
             cost_peak,
+            cpu_peak as f64 / 1000.0,
             if open { "open" } else { "closed" }
         ));
     });
@@ -216,6 +227,71 @@ pub fn summary() -> String {
 }
 
 /// The series itself, oldest first, one line per second: `t-300s ... t-1s`.
+/// The frame thread's CPU time per second, beside the gap series and summarised against it.
+///
+/// The summary is the point: "194 seconds were slow" is a symptom, while "of those, 133 were spent
+/// waiting rather than working" is a diagnosis. Waiting means the frame thread handed the work off
+/// and had nothing to do - a GPU-bound frame, which is what a render-side wrapper or an expensive
+/// effects chain produces. Working means the CPU itself was busy - game logic, or something
+/// scanning the process.
+pub fn cpu_report() -> String {
+    let filled = (SERIES_FILLED.load(Ordering::Relaxed) as usize).min(SERIES_LEN);
+    if filled == 0 {
+        return String::new();
+    }
+    let head = SERIES_HEAD.load(Ordering::Relaxed) as usize % SERIES_LEN;
+    let mut per_second = Vec::with_capacity(filled);
+    let mut slow = 0usize;
+    let mut working = 0usize;
+    let mut waiting = 0usize;
+    for i in 0..filled {
+        let index = (head + SERIES_LEN - filled + i) % SERIES_LEN;
+        let gap = SERIES[index].load(Ordering::Relaxed) as u64;
+        let cpu = SERIES_CPU[index].load(Ordering::Relaxed) as u64;
+        per_second.push(cpu);
+        if gap > 32_000 {
+            slow += 1;
+            // The gap is the spacing between ticks, so a second has several frames in it; compare
+            // against the per-frame budget rather than the whole second.
+            if cpu * 10 >= gap * 9 {
+                working += 1;
+            } else if cpu * 2 <= gap {
+                waiting += 1;
+            }
+        }
+    }
+    let mut sorted = per_second.clone();
+    sorted.sort_unstable();
+    let at = |p: f64| -> f64 {
+        let index = ((sorted.len() - 1) as f64 * p) as usize;
+        sorted[index] as f64 / 1000.0
+    };
+    let max = *sorted.last().unwrap_or(&0) as f64 / 1000.0;
+    let mut out = format!(
+        "frame thread CPU per second: p50 {:.1} ms, p90 {:.1} ms, max {max:.1} ms",
+        at(0.5),
+        at(0.9)
+    );
+    if slow == 0 {
+        out.push_str("; no slow seconds to attribute");
+    } else {
+        out.push_str(&format!(
+            "; of {slow} seconds over 32ms, {working} were CPU-bound and {waiting} were waiting on \
+             something else (GPU, a wrapper, vsync), {} were mixed",
+            slow.saturating_sub(working + waiting)
+        ));
+    }
+    out.push('\n');
+    out.push_str("frame thread CPU (ms per second, oldest first):\n");
+    for (i, cpu) in per_second.iter().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        out.push_str(&format!("{:.1}", *cpu as f32 / 1000.0));
+    }
+    out
+}
+
 pub fn series() -> String {
     let filled = (SERIES_FILLED.load(Ordering::Relaxed) as usize).min(SERIES_LEN);
     let head = SERIES_HEAD.load(Ordering::Relaxed) as usize % SERIES_LEN;
@@ -352,6 +428,7 @@ fn record(now: u64, cost: u32) {
     let peak = GAP_MAX_US.swap(0, Ordering::Relaxed);
     let over = GAP_OVER_32MS.swap(0, Ordering::Relaxed);
     let cost_peak = DETOUR_MAX_US.swap(0, Ordering::Relaxed);
+    let cpu_peak = CPU_MAX_US.swap(0, Ordering::Relaxed);
     WINDOW.store(now, Ordering::Relaxed);
     let mean = if polls > 0 { sum / polls as u64 } else { 0 };
 
@@ -379,6 +456,7 @@ fn record(now: u64, cost: u32) {
     PENDING[3].store(over as u64, Ordering::Relaxed);
     PENDING[4].store(cost_peak as u64, Ordering::Relaxed);
     PENDING[5].store(elapsed as u64, Ordering::Relaxed);
+    PENDING[6].store(cpu_peak as u64, Ordering::Relaxed);
     PENDING_OPEN.store(open, Ordering::Relaxed);
     let _ = mean;
     HAS_PENDING.store(true, Ordering::Release);

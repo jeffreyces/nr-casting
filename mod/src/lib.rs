@@ -59,6 +59,7 @@ mod perf;
 mod diag;
 mod pointer;
 mod pump;
+mod threadcpu;
 mod win32;
 mod probe;
 mod store;
