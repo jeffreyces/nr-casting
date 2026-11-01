@@ -43,21 +43,18 @@ pub(crate) fn copy_to_clipboard(text: &str) {
     }
 }
 
-/// Show a file in the file manager, selected, so it can be dragged straight into a chat window.
+/// Open the folder that holds a file, so the player can drag it into a chat window.
+///
+/// This used to launch `explorer.exe /select,<path>`, which is a named system binary spawned by
+/// the shell verb — the shape a "system binary proxy execution" heuristic looks for, not the shape
+/// a mod that writes a report has. Opening the directory itself reaches the same file manager
+/// through the shell's own association and names no executable at all. The file is no longer
+/// pre-selected; the folder is.
 pub(crate) fn reveal(path: &std::path::Path) -> bool {
     let verb = HSTRING::from("open");
-    let program = HSTRING::from("explorer.exe");
-    let arguments = HSTRING::from(format!("/select,\"{}\"", path.display()));
-    let result = unsafe {
-        ShellExecuteW(
-            None,
-            &verb,
-            &program,
-            &arguments,
-            None,
-            SW_SHOWNORMAL,
-        )
-    };
+    let folder = path.parent().unwrap_or(path);
+    let target = HSTRING::from(folder.display().to_string());
+    let result = unsafe { ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL) };
     log_shell_failure("file manager", result.0 as isize);
     result.0 as isize > 32
 }

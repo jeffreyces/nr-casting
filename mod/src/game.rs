@@ -260,7 +260,7 @@ pub(crate) fn sample_player_selection(now: u32) {
 }
 
 /// Sample without the throttle. For binding: the spell captured must be the one selected at the
-
+/// moment the gesture completes, not up to 100 ms earlier.
 fn sample_now() {
     let Some(magic) = magic_data() else { return };
     let sel = magic.selected_slot;

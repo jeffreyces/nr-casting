@@ -367,9 +367,8 @@ static Y_BEFORE: AtomicBool = AtomicBool::new(false);
 static LAST_PAD_LOG: AtomicU32 = AtomicU32::new(u32::MAX);
 /// Last HUD-mirror pass, in milliseconds (see `idle`).
 static LAST_MIRROR_MS: AtomicU32 = AtomicU32::new(0);
-/// When on, idle polls mirror the weapon's slot 1 into the selection so the game's
-/// own spell HUD shows what is bound. Locks the D-pad wheel while on (see README).
-
+// When on, idle polls mirror the weapon's slot 1 into the selection so the game's own spell HUD
+// shows what is bound. Locks the D-pad wheel while on (see README).
 pub(crate) fn install_hook() -> Result<*mut u8, String> {
     let installed = unsafe {
         // Hook the pointer the *game* calls, not just the export in the xinput DLL.
@@ -777,7 +776,7 @@ unsafe fn game_import_slot() -> Result<*const *mut u8, String> {
         first_thunk: u32,
     }
 
-    let base = GetModuleHandleA(std::ptr::null()) as *mut u8;
+    let base = GetModuleHandleA(std::ptr::null());
     if base.is_null() {
         return Err("no main module handle".into());
     }

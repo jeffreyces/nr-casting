@@ -13,7 +13,7 @@
 
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, SendInput, INPUT, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_KEYUP, VIRTUAL_KEY,
 };
 
@@ -184,18 +184,21 @@ unsafe fn hand_off_to_recluse(record: &mut [u8]) -> bool {
 /// `GetAsyncKeyState` and a clipboard write is reading a keylogger signature; the modern API costs
 /// nothing here and reads as what it is.
 fn send_key(key: u8, released: bool) {
-    let mut input = INPUT::default();
-    input.r#type = INPUT_KEYBOARD;
-    input.Anonymous.ki = KEYBDINPUT {
-        wVk: VIRTUAL_KEY(key as u16),
-        wScan: 0,
-        dwFlags: if released {
-            KEYEVENTF_KEYUP
-        } else {
-            KEYBD_EVENT_FLAGS(0)
+    let input = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(key as u16),
+                wScan: 0,
+                dwFlags: if released {
+                    KEYEVENTF_KEYUP
+                } else {
+                    KEYBD_EVENT_FLAGS(0)
+                },
+                time: 0,
+                dwExtraInfo: 0,
+            },
         },
-        time: 0,
-        dwExtraInfo: 0,
     };
     // The return value is the number of events inserted and is deliberately ignored: a refused
     // injection means the desktop is not ours to type into (a UAC prompt, a locked session), and
