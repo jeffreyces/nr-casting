@@ -269,6 +269,32 @@ unsafe extern "system" fn key_detour(vk: i32) -> i16 {
     original(vk)
 }
 
+/// `RAWINPUTHEADER` on x64: `DWORD dwType`, `DWORD dwSize`, `HANDLE hDevice`, `WPARAM wParam`.
+const HEADER_BYTES: usize = 4 + 4 + 8 + 8;
+/// `RIM_TYPEMOUSE`.
+const RIM_TYPE_MOUSE: u32 = 0;
+
+fn record_of<'a>(data: *mut u8, out: isize) -> &'a mut [u8] {
+    unsafe { std::slice::from_raw_parts_mut(data, out as usize) }
+}
+
+/// Zero a mouse record's payload, leaving the header (type, size, device) intact.
+///
+/// The game then sees a mouse record that describes no movement and no buttons - which is what
+/// "the panel has the mouse" means - while keyboard and any other device pass through untouched.
+fn neutralise_mouse(record: &mut [u8]) {
+    if record.len() <= HEADER_BYTES {
+        return;
+    }
+    let kind = u32::from_ne_bytes([record[0], record[1], record[2], record[3]]);
+    if kind != RIM_TYPE_MOUSE {
+        return;
+    }
+    for byte in record[HEADER_BYTES..].iter_mut() {
+        *byte = 0;
+    }
+}
+
 unsafe extern "system" fn raw_data_detour(
     hraw: *mut u8,
     command: u32,
@@ -284,20 +310,19 @@ unsafe extern "system" fn raw_data_detour(
     if crate::bisect::disabled(crate::bisect::bit::RAW) {
         return original(hraw, command, data, size, header_size);
     }
-    // While a chord is staging, the mouse is not allowed to reach the game: the press belongs to
-    // our cast, not to the game's own attack. This check lived in a second detour on this same
-    // function until the duplicate was removed.
-    if command == RID_INPUT
-        && !crate::bisect::disabled(crate::bisect::bit::RAW)
-        && crate::pointer::starving()
-        && !data.is_null()
-        && unsafe { *size } >= 4
-    {
-        // Leave the buffer as the game found it and report "no input".
-        return 0;
-    }
     let out = original(hraw, command, data, size, header_size);
     if command == RID_INPUT && !data.is_null() && out > 0 {
+        // While the panel owns the mouse, the game must not see its clicks: the press belongs to
+        // the panel, not to the game's own attack. This is applied *after* the read, to mouse
+        // records only.
+        //
+        // It used to be a `return 0` before the read, which reported "no input" for every record
+        // on that call - keyboard included - for as long as the panel was open. Swallowing
+        // keyboard records is not what this is for, and it is the kind of thing that makes keys
+        // feel like they are not registering.
+        if crate::pointer::starving() && !crate::bisect::disabled(crate::bisect::bit::RAW) {
+            neutralise_mouse(record_of(data, out));
+        }
         stats::raw_call();
         // The buffer is the caller's, sized by the same call: trust `out`, and let the helpers
         // reject anything whose own `dwSize` does not fit.

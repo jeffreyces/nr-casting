@@ -303,28 +303,15 @@ static CURSOR: std::sync::Mutex<Vec<retour::RawDetour>> = std::sync::Mutex::new(
 static CURSOR_ENGAGED: AtomicBool = AtomicBool::new(false);
 
 /// Engaged while the panel is open, disengaged while it is closed. Idempotent.
-pub fn engage_cursor(on: bool) {
-    if CURSOR_ENGAGED.swap(on, Ordering::Relaxed) == on {
-        return;
-    }
-    let guard = CURSOR.lock().unwrap_or_else(|e| e.into_inner());
-    for raw in guard.iter() {
-        // SAFETY: the detour records we keep are all installed and owned by this module; a toggle
-        // writes the function's prologue back and forth. The panel thread does this while the game
-        // runs, which is safe because the original bytes are restored before the call returns.
-        let outcome = unsafe { if on { raw.enable() } else { raw.disable() } };
-        if let Err(e) = outcome {
-            crate::log(&format!(
-                "pointer: could not {} the cursor hooks: {e:?}",
-                if on { "engage" } else { "disengage" }
-            ));
-        }
-    }
-    crate::log(&format!(
-        "pointer: cursor hooks {} ({} of them)",
-        if on { "engaged" } else { "disengaged" },
-        guard.len()
-    ));
+pub fn engage_cursor(_on: bool) {
+    // Deliberately a no-op: the hooks stay installed.
+    //
+    // Unpatching `SetCursor` and friends at runtime is only safe when nothing in the game is
+    // executing them, and nothing guarantees that - the game calls them from whichever thread owns
+    // the window, at arbitrary moments. The saving was four cheap detours; the risk was a
+    // half-restored prologue in a running game, which is not a trade worth making for a
+    // microsecond. The detours short-circuit on `is_open()` instead, exactly as they did before.
+    CURSOR_ENGAGED.store(true, Ordering::Relaxed);
 }
 
 /// Whether the cursor hooks are currently in the path.
