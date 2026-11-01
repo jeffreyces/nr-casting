@@ -83,6 +83,16 @@ pub struct Config {
     /// press inside that window becomes a weapon swap. Two is reliable; one is about 8-13 ms faster
     /// and is worth trying once `chord_trigger_floor` handles the swap input (it does now).
     pub chord_stage: u8,
+    /// Install the XInput hooks at all. `off` = no pad hook, no watch thread: the game's XInput
+    /// calls never enter our code, so pad casting is gone and mouse casting is untouched.
+    ///
+    /// This exists to make one comparison possible that nothing else can make. A stutter that only
+    /// appears with a controller connected cannot be bisected by the guided run, because every
+    /// phase keeps the hook in the path on purpose (see `bisect`). Unplugging the pad removes the
+    /// game's calls *and* our hook in the same act, so it cannot tell "our polling work costs
+    /// frames" from "being in the call path costs frames". Flipping this to `off` removes only the
+    /// hook, which is the missing half of that measurement.
+    pub pad_hook: bool,
 }
 
 /// Who gets Y+R1 / Y+L1.
@@ -120,6 +130,7 @@ impl Default for Config {
             bind_modifier_kb_name: "Super".to_string(),
             chord_stage: 2,
             bind_modifier_name: "L3".to_string(),
+            pad_hook: true,
         }
     }
 }
@@ -450,6 +461,11 @@ hud_mirror = off
 ; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. The same gesture on mouse and keyboard is
 ; Super (Windows key) + click: Super + LMB / Shift / Ctrl / Alt.
 bind_modifier = L3
+; Install the XInput hook at all. on = pad casting works as documented. off = the game's controller
+; calls never enter this DLL: pad casting is gone, mouse casting is untouched. This is a diagnostic
+; for stutter reports that only appear with a controller connected and disappear when it is
+; unplugged, because unplugging removes both the game's calls and our hook at once.
+pad_hook = on
 
 [recluse]
 ; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
@@ -564,6 +580,7 @@ perf_log = off
                         )),
                     },
                     "hud_mirror" => config.hud_mirror = truthy(value),
+                    "pad_hook" => config.pad_hook = truthy(value),
                     "chord_stage" => {
                         config.chord_stage = value.trim().parse::<u8>().unwrap_or(2).min(4)
                     }

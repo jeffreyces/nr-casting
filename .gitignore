@@ -1,6 +1,7 @@
 # Build output — the shipped artefact is dist/nr_casting/, produced by tools/package.sh
 /target/
 mod/target/
+mod/pure/target/
 dist/
 
 # Runtime files the mod writes beside its DLL

@@ -233,13 +233,22 @@ fn run() {
     seed_store();
     probe::resolve_table();
     window::start();
-    std::thread::spawn(watch_hook);
-    match install_hook() {
-        Ok(addr) => log(&format!("XInputGetState hooked at {addr:p}")),
-        Err(e) => {
-            log(&format!("HOOK FAILED: {e}"));
-            return;
+    if config::load().pad_hook {
+        std::thread::spawn(watch_hook);
+        match install_hook() {
+            Ok(addr) => log(&format!("XInputGetState hooked at {addr:p}")),
+            Err(e) => {
+                log(&format!("HOOK FAILED: {e}"));
+                return;
+            }
         }
+    } else {
+        // Diagnostic switch, not a feature: with the hook out of the path the game's XInput calls
+        // never enter this DLL, so a stutter that disappears is ours and one that stays is not.
+        log(
+            "input: pad_hook = off — XInput is not hooked, so the pad cannot cast \
+             (mouse and keyboard are unaffected)",
+        );
     }
     log_foreign_modules();
     log(&format!("files in: {}", config::data_dir().display()));

@@ -8,6 +8,11 @@ publish = false
 # me3 loads this with LoadLibrary, so it has to be a DLL (output: nr_casting.dll).
 crate-type = ["cdylib"]
 
+[build-dependencies]
+# VERSIONINFO + manifest: the DLL must identify itself (name, product, version) to Windows,
+# to antivirus UIs, and to anyone reading its Properties dialog.
+embed-resource = "3"
+
 [dependencies]
 # Pure slot parsing and input routing, kept in its own crate so `cargo test` can exercise it
 # without a Windows target or a running game.
