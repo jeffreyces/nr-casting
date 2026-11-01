@@ -87,6 +87,10 @@ pub fn is_running() -> bool {
 /// Returns `false` when nothing is feeding the frame clock: a run of six empty minutes is worse
 /// than no run, and the guard belongs here rather than in the button that happens to call it.
 pub fn start() -> bool {
+    if !crate::config::load().hooks {
+        crate::log("bisect: refused to start - hooks = off, so there is nothing to switch");
+        return false;
+    }
     if !crate::perf::frame_clock_live() {
         crate::log("bisect: refused to start - nothing is feeding the frame clock");
         return false;

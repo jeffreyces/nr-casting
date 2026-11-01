@@ -106,11 +106,19 @@ pub(crate) fn draw(ui: &Ui, prompt: bool) -> ReportRow {
     ui.same_line();
     // The guided run: no five-minute wait, no ini editing, and it switches the subsystems itself so
     // the comparison happens in one sitting rather than four.
-    if ui.button("bundle diagnostics & report") {
-        row.prompt = true;
-    }
-    if ui.is_item_hovered() {
-        ui.tooltip_text("six one-minute phases with parts of the mod switched off in turn");
+    //
+    // It needs the hooks installed: the whole point is to switch them off one at a time, and with
+    // `hooks = off` there is nothing to switch - six identical phases and a report that looks like
+    // a measurement. Say so instead of offering a button that cannot answer anything.
+    if crate::config::load().hooks {
+        if ui.button("bundle diagnostics & report") {
+            row.prompt = true;
+        }
+        if ui.is_item_hovered() {
+            ui.tooltip_text("six one-minute phases with parts of the mod switched off in turn");
+        }
+    } else {
+        ui.text_disabled("bundle run needs hooks = on (they are already off in the ini)");
     }
     row
 }
