@@ -228,6 +228,14 @@ fn log_phase(index: usize) {
 
 /// The report section: one line per phase, then the phases' series side by side.
 pub fn section() -> String {
+    // Nothing was run, so there is nothing to describe: six phases of zeros are not a measurement,
+    // and printing them beside a paragraph that says so is noise of the kind that makes a report
+    // look broken when it is simply a plain one.
+    if !EVER_RAN.load(Ordering::Relaxed) {
+        return "# no bundle run in this session: this is a plain report. The six phases exist only\n\
+                # after the bundle button is pressed (six minutes; press it and stand still).\n"
+            .to_string();
+    }
     let mut out = String::from(
         "# six phases of 60 s, switched by the mod, nothing for the player to change\n\
          # worst gap per second is what one second's slowest frame cost; 32 ms is two frames at 60 Hz\n",
@@ -241,22 +249,12 @@ pub fn section() -> String {
          # work: pad and raw-input detours short-circuit, the cursor detours are removed outright.\n"
     ));
     if (0..PLAN.len()).all(|index| samples(index).iter().all(|us| *us == 0)) {
-        // Two different silences used to print the same paragraph: a run whose clock never ticked,
-        // and a session where the button was simply never pressed. The second one is the common
-        // case (a plain report) and the old text blamed the player for not having a character
-        // loaded, which was wrong and sent them looking for a bug in their game.
-        if !EVER_RAN.load(Ordering::Relaxed) {
-            out.push_str(
-                "# no bundle run in this session: this is a plain report, and the six phases only\n\
-                 # exist once the bundle button has been pressed. Nothing here is missing.\n",
-            );
-        } else {
-            out.push_str(
-                "# every phase is empty although a run was started: nothing was feeding the frame\n\
-                 # clock - not the pad, not the message pump. Load a character and run this again;\n\
-                 # the state section says which clock is live.\n",
-            );
-        }
+        // A run was started and saw nothing: the clock was dead for the whole six minutes.
+        out.push_str(
+            "# every phase is empty although a run was started: nothing was feeding the frame\n\
+             # clock - not the pad, not the message pump. Load a character and run this again;\n\
+             # the state section says which clock is live.\n",
+        );
     }
     for (index, (label, bits)) in PLAN.iter().enumerate() {
         let values = samples(index);
