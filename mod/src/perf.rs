@@ -106,6 +106,48 @@ pub fn pump_pinned() -> bool {
     PUMP_ONLY.load(Ordering::Relaxed)
 }
 
+/// A finished ten-second window, waiting to be written.
+///
+/// The line used to be formatted and written *inside* the hook, on the game's own thread: file I/O
+/// plus a flush, in the middle of a frame, every ten seconds. Measured at up to 17 ms in a
+/// reporter's log (`our detour max 17055us`), which is a stutter we were causing ourselves. The
+/// hook now only stores these numbers; a thread that is allowed to block writes them.
+static PENDING: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+static PENDING_OPEN: AtomicBool = AtomicBool::new(false);
+static HAS_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Start the thread that writes perf lines, once, at load.
+pub fn start_writer() {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if !HAS_PENDING.swap(false, Ordering::Acquire) {
+            continue;
+        }
+        let polls = PENDING[0].load(Ordering::Relaxed);
+        let sum = PENDING[1].load(Ordering::Relaxed);
+        let peak = PENDING[2].load(Ordering::Relaxed);
+        let over = PENDING[3].load(Ordering::Relaxed);
+        let cost_peak = PENDING[4].load(Ordering::Relaxed);
+        let elapsed = PENDING[5].load(Ordering::Relaxed);
+        let mean = if polls > 0 { sum / polls } else { 0 };
+        let open = PENDING_OPEN.load(Ordering::Relaxed);
+        crate::log(&format!(
+            "perf: {polls} input ticks in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), \
+             our detour max {}us, panel {}",
+            elapsed as f64 / 1_000_000.0,
+            mean as f64 / 1000.0,
+            peak as f64 / 1000.0,
+            over,
+            cost_peak,
+            if open { "open" } else { "closed" }
+        ));
+    });
+}
+
 /// How many ticks the recorder has seen, for per-phase tick rates.
 pub fn poll_count() -> u64 {
     POLLS.load(Ordering::Relaxed) as u64
@@ -329,13 +371,15 @@ fn record(now: u64, cost: u32) {
         return;
     }
     QUIET_WINDOWS.store(0, Ordering::Relaxed);
-    crate::log(&format!(
-        "perf: {polls} input ticks in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), our detour max {}us, panel {}",
-        elapsed as f64 / 1_000_000.0,
-        mean as f64 / 1000.0,
-        peak as f64 / 1000.0,
-        over,
-        cost_peak,
-        if open { "open" } else { "closed" }
-    ));
+    // Nothing here may block: this runs inside the game's own hook. The numbers go to atomics and
+    // the writer thread does the formatting and the file write.
+    PENDING[0].store(polls as u64, Ordering::Relaxed);
+    PENDING[1].store(sum, Ordering::Relaxed);
+    PENDING[2].store(peak as u64, Ordering::Relaxed);
+    PENDING[3].store(over as u64, Ordering::Relaxed);
+    PENDING[4].store(cost_peak as u64, Ordering::Relaxed);
+    PENDING[5].store(elapsed as u64, Ordering::Relaxed);
+    PENDING_OPEN.store(open, Ordering::Relaxed);
+    let _ = mean;
+    HAS_PENDING.store(true, Ordering::Release);
 }

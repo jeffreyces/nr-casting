@@ -199,6 +199,9 @@ fn run() {
     // Uptime is measured from here: a report wants "how long has this run been going", and the
     // clock starts on first use otherwise - which is the report itself.
     logging::start_clock();
+    // Perf lines are written off the game's thread: formatting and flushing a file inside a
+    // per-frame hook measured at up to 17 ms, which is a stutter of our own making.
+    perf::start_writer();
     log(&format!(
         "=== nr_casting loaded ({} opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)",
         cfg.hotkey_name
