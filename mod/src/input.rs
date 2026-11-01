@@ -183,7 +183,21 @@ extern "system" {
     fn LoadLibraryA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
     fn GetModuleHandleA(name: *const u8) -> *mut u8;
+    /// The loader's own PE-header accessor: validates `MZ`/`PE\0\0` and returns the NT headers, or
+    /// null when the image really has none. Never parse this by hand.
+    fn RtlImageNtHeader(base: *mut u8) -> *mut u8;
+    /// Resolves a data directory to an **absolute** address in a mapped image, which is the only
+    /// reliable way to reach the import table without trusting a header offset we guessed.
+    fn RtlImageDirectoryEntryToData(
+        base: *mut u8,
+        mapped_as_image: u8,
+        directory: u16,
+        size: *mut u32,
+    ) -> *mut u8;
 }
+
+/// `IMAGE_DIRECTORY_ENTRY_IMPORT`.
+const IMAGE_DIRECTORY_ENTRY_IMPORT: u16 = 1;
 
 /// The pad entry point we hooked. Cached so the watcher can ask "is my jump still there?" without
 /// walking the game's import table every tick.
@@ -357,7 +371,7 @@ static LAST_MIRROR_MS: AtomicU32 = AtomicU32::new(0);
 /// own spell HUD shows what is bound. Locks the D-pad wheel while on (see README).
 
 pub(crate) fn install_hook() -> Result<*mut u8, String> {
-    unsafe {
+    let installed = unsafe {
         // Hook the pointer the *game* calls, not just the export in the xinput DLL.
         //
         // Another mod that hooks input (a class port, an overlay) can route the game's polls
@@ -383,7 +397,14 @@ pub(crate) fn install_hook() -> Result<*mut u8, String> {
                 Ok(target)
             }
         }
+    };
+    // Whatever the walk concluded, say what the game actually imports: this line is what tells
+    // the next bundle whether an IAT route exists at all, or whether the export patch is the only
+    // way into this game's pad reads.
+    if let Some(walk) = import_walk() {
+        log(&format!("import walk: {walk}"));
     }
+    installed
 }
 
 /// Hook `XInputGetStateEx` as well, when the DLL exports it separately.
@@ -733,54 +754,49 @@ unsafe fn game_import_slot() -> Result<*const *mut u8, String> {
         first_thunk: u32,
     }
 
-    let base = GetModuleHandleA(std::ptr::null()) as *const u8;
-    if base.is_null() || !probe::readable(base, 0x40) {
-        return Err("main module header unreadable".into());
+    let base = GetModuleHandleA(std::ptr::null()) as *mut u8;
+    if base.is_null() {
+        return Err("no main module handle".into());
     }
-    if *(base as *const u16) != 0x5A4D {
-        return Err("main module is not an MZ image".into());
+    // Ask the loader instead of parsing the header by hand.
+    //
+    // The hand parse checked `MZ` at the base, then read `e_lfanew` at +0x3C and assumed 0x168.
+    // That assumption is what fails on every machine this shipped to — Windows and Proton alike —
+    // with a garbage `e_lfanew` (0x45d33ac0, i.e. the four bytes at +0x3C are not the field), and
+    // the old message blamed a "packed image" for what is our own read. RtlImageNtHeader does the
+    // same check properly and returns null when the image really has no usable header, and
+    // RtlImageDirectoryEntryToData hands back the import directory as an absolute address, which
+    // removes the RVAs-from-a-guessed-header problem entirely. Both live in ntdll, which this image
+    // already imports.
+    let nt = unsafe { RtlImageNtHeader(base) };
+    if nt.is_null() {
+        return Err("main module has no readable NT headers".into());
     }
-    let pe_offset = *((base as *const u32).add(0x3C)) as usize;
-    if !probe::readable(base.add(pe_offset), 0x18) {
-        // Reality check: ELDEN RING's header is intact on disk (e_lfanew 0x168) but not in
-        // memory under Proton — Arxan or the loader has overwritten it, so the import table
-        // cannot be walked at runtime there. On Windows the walk works and the pad is hooked
-        // through the import slot; here it falls back to the export's prologue.
-        return Err(format!(
-            "PE header unusable (e_lfanew {pe_offset:#x}, expected 0x168) — packed image"
-        ));
-    }
-    let nt = base.add(pe_offset);
-    if *(nt as *const u32) != 0x0000_4550 {
-        return Err("PE signature missing".into());
-    }
-
-    // COFF header is 20 bytes; the optional header follows.
-    let opt = nt.add(24);
+    // `SizeOfImage` out of the optional header, only to bound the RVAs we are handed below.
+    let opt = unsafe { nt.add(24) };
     if !probe::readable(opt, 0x80) {
         return Err("optional header unreadable".into());
     }
-    let magic = *(opt as *const u16);
-    let (dir_offset, size_of_image_offset) = match magic {
-        0x20b => (112usize, 56usize), // PE32+
-        0x10b => (96, 56),            // PE32
-        _ => return Err(format!("unknown optional header magic {magic:#x}")),
-    };
-    let image_size = *(opt.add(size_of_image_offset) as *const u32) as usize;
+    let image_size = unsafe { *(opt.add(56) as *const u32) } as usize;
     if image_size == 0 {
         return Err("image size is zero".into());
     }
     let in_module = |rva: usize| rva != 0 && rva < image_size;
 
-    // Data directory 1 is the import table; entry 0 is exports.
-    let import_rva = *(opt.add(dir_offset + 8) as *const u32) as usize;
-    if !in_module(import_rva) {
-        return Err(format!("import directory rva {import_rva:#x} is outside the image"));
+    // Data directory 1 is the import table. `mapped_as_image` = 1: the file is mapped, so the
+    // loader's own fixups apply.
+    let mut import_size = 0u32;
+    let import_dir =
+        unsafe { RtlImageDirectoryEntryToData(base, 1, IMAGE_DIRECTORY_ENTRY_IMPORT, &mut import_size) };
+    if import_dir.is_null() || import_size == 0 {
+        return Err(format!("no import directory (reported {import_size} bytes)"));
     }
+    let descriptors = import_size as usize / std::mem::size_of::<ImportDescriptor>();
 
     let mut seen: Vec<String> = Vec::new();
-    for index in 0..256usize {
-        let descriptor = base.add(import_rva + index * std::mem::size_of::<ImportDescriptor>());
+    for index in 0..descriptors.min(256) {
+        let descriptor =
+            (import_dir as *const u8).add(index * std::mem::size_of::<ImportDescriptor>());
         if !probe::readable(descriptor, std::mem::size_of::<ImportDescriptor>()) {
             return Err(format!("descriptor {index} unreadable; saw {seen:?}"));
         }
@@ -811,6 +827,12 @@ unsafe fn game_import_slot() -> Result<*const *mut u8, String> {
                 descriptor.original_first_thunk, descriptor.first_thunk
             ));
         }
+        // Scan the whole xinput thunk list instead of returning on the first match: what the game
+        // imports, and in which spelling, is the fact that decides whether routing the IAT can
+        // work at all. "ordinal 2 only" and "ordinal 100 as well" are different worlds, and the
+        // old code could tell them apart only by falling through to the export patch.
+        let mut entries: Vec<String> = Vec::new();
+        let mut wanted: Option<*const *mut u8> = None;
         for slot_index in 0..4096usize {
             let thunk = base.add(thunk_rva as usize + slot_index * 8) as *const u64;
             let slot = base.add(descriptor.first_thunk as usize + slot_index * 8) as *const *mut u8;
@@ -825,8 +847,10 @@ unsafe fn game_import_slot() -> Result<*const *mut u8, String> {
             // never matches — that is why this walk used to fall through to the exported
             // function every time. Accept both spellings.
             if entry & 0x8000_0000_0000_0000 != 0 {
-                if entry & 0xFFFF == XINPUT_GET_STATE_ORDINAL {
-                    return Ok(slot);
+                let ordinal = entry & 0xFFFF;
+                entries.push(format!("ordinal {ordinal}"));
+                if ordinal == XINPUT_GET_STATE_ORDINAL && wanted.is_none() {
+                    wanted = Some(slot);
                 }
                 continue;
             }
@@ -835,12 +859,31 @@ unsafe fn game_import_slot() -> Result<*const *mut u8, String> {
             if !in_module(name_rva) || !probe::readable(base.add(name_rva), 16) {
                 continue;
             }
-            if read_c_string(base.add(name_rva)) == "XInputGetState" {
-                return Ok(slot);
+            let name = read_c_string(base.add(name_rva));
+            entries.push(name.clone());
+            if name == "XInputGetState" && wanted.is_none() {
+                wanted = Some(slot);
             }
         }
+        let _ = IMPORT_WALK.set(format!("{module_name}: [{}]", entries.join(", ")));
+        if let Some(slot) = wanted {
+            return Ok(slot);
+        }
+        seen.push(format!("{module_name}: no XInputGetState"));
     }
     Err(format!("no xinput entry among {seen:?}"))
+}
+
+/// What the import walk saw for the xinput descriptor, for the log.
+///
+/// It is written once, on the first successful walk, and printed whether the slot was routed or
+/// not: `ordinal 2, ordinal 100, XInputGetState` in a reporter's log answers "can the IAT route
+/// carry this game's polls" without another round trip.
+static IMPORT_WALK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The import walk's summary, or `None` if it never completed.
+pub(crate) fn import_walk() -> Option<&'static str> {
+    IMPORT_WALK.get().map(String::as_str)
 }
 
 unsafe fn read_c_string(ptr: *const u8) -> String {
