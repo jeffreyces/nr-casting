@@ -40,12 +40,8 @@ pub fn start_clock() {
 /// and the tick counter (a shared-page read) provides the rest; a log timestamp needs to correlate
 /// with other logs, not to be nanosecond-accurate.
 fn epoch_millis() -> u128 {
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetTickCount64() -> u64;
-    }
     static BASE: OnceLock<u128> = OnceLock::new();
-    let ticks = unsafe { GetTickCount64() } as u128;
+    let ticks = unsafe { crate::win32::GetTickCount64() } as u128;
     *BASE.get_or_init(|| {
         let wall = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

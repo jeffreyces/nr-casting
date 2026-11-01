@@ -18,16 +18,11 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 /// A thread whose pump calls are not the game's (the panel's own message loop).
 static IGNORE_THREAD: AtomicU32 = AtomicU32::new(0);
 
-extern "system" {
-    fn GetModuleHandleA(name: *const u8) -> *mut u8;
-    fn GetCurrentThreadId() -> u32;
-}
-
 /// Hook the pump. Failing to install is not an error worth stopping for: the pad poll still exists,
 /// and a run without a controller then says why it has no data.
 pub fn install() -> Result<(), String> {
     unsafe {
-        let user32 = GetModuleHandleA(c"user32.dll".as_ptr() as *const u8);
+        let user32 = crate::win32::GetModuleHandleA(c"user32.dll".as_ptr() as *const u8);
         if user32.is_null() {
             return Err("user32 not loaded".into());
         }
@@ -43,7 +38,7 @@ pub fn installed() -> bool {
 
 /// Stop counting the calling thread's pump calls. Called from the panel's own thread.
 pub fn ignore_current_thread() {
-    unsafe { IGNORE_THREAD.store(GetCurrentThreadId(), Ordering::Relaxed) };
+    unsafe { IGNORE_THREAD.store(crate::win32::GetCurrentThreadId(), Ordering::Relaxed) };
 }
 
 unsafe extern "system" fn peek_detour(
@@ -63,7 +58,7 @@ unsafe extern "system" fn peek_detour(
     let out = original(msg, hwnd, min, max, remove);
     // The panel pumps its own messages on its own thread; those ticks say nothing about the game's
     // frame cadence and would flatten the series while the panel is open.
-    if GetCurrentThreadId() != IGNORE_THREAD.load(Ordering::Relaxed) {
+    if crate::win32::GetCurrentThreadId() != IGNORE_THREAD.load(Ordering::Relaxed) {
         crate::perf::report_pump(started);
     }
     out

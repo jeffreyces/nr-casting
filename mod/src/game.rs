@@ -295,11 +295,7 @@ pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
 /// times per pad poll on the game's own input thread — up to 250 syscalls a second for a clock
 /// nobody needs to be wall-precise.
 pub(crate) fn now_ms() -> u32 {
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetTickCount64() -> u64;
-    }
-    unsafe { GetTickCount64() as u32 }
+    unsafe { crate::win32::GetTickCount64() as u32 }
 }
 
 /// The character the game currently considers the player, without validating the object.

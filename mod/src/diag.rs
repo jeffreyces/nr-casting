@@ -118,8 +118,10 @@ fn bundle(reason: &str) -> String {
     section(&mut out, "gpu", &gpu_info());
     section(&mut out, "display", &display_info());
     section(&mut out, "environment", &environment());
-    section(&mut out, "modules", &modules());
-    section(&mut out, "game folder dlls", &graphics());
+    // One enumeration for both sections: each call walks the process's module list.
+    let loaded = crate::module_paths();
+    section(&mut out, "modules", &module_lines(&loaded));
+    section(&mut out, "game folder dlls", &graphics(&loaded));
     section(&mut out, "state", &state());
     section(&mut out, "performance", &performance());
     section(&mut out, "config", &read_text("nr_casting.ini"));
@@ -268,12 +270,12 @@ fn environment() -> String {
 /// cannot tell you which one that is, and "is it dxgi?" is the first question a stutter report
 /// raises. This section gives the file size, the build date from its PE header, and which known
 /// wrapper strings appear inside it.
-fn graphics() -> String {
-    let Some(game_dir) = game_directory() else {
+fn graphics(modules: &[(String, String)]) -> String {
+    let Some(game_dir) = game_directory(modules) else {
         return "game folder unknown".to_string();
     };
     let mut out = String::new();
-    for (name, path) in crate::module_paths() {
+    for (name, path) in modules {
         if !path.to_ascii_lowercase().starts_with(&game_dir) {
             continue;
         }
@@ -292,8 +294,9 @@ fn graphics() -> String {
         // The size from the file, not the bytes we read: the read is capped at 8 MiB for speed and
         // reporting the cap as the size was nonsense (six 8 MiB files on a 220 MiB exe).
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(bytes.len() as u64);
-        let markers = markers_in(&bytes);
-        let built = pe_build_date(&bytes)
+        let markers = nr_casting_core::wrapper_markers(&bytes);
+        let built = nr_casting_core::pe_build_timestamp(&bytes)
+            .map(nr_casting_core::civil_date)
             .map(|date| format!("built {date}"))
             .unwrap_or_else(|| "build date unreadable".to_string());
         let _ = writeln!(
@@ -320,9 +323,9 @@ fn graphics() -> String {
 }
 
 /// The folder the game's exe was loaded from, lowercased with a trailing separator.
-fn game_directory() -> Option<String> {
-    crate::module_paths()
-        .into_iter()
+fn game_directory(modules: &[(String, String)]) -> Option<String> {
+    modules
+        .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("eldenring.exe"))
         .and_then(|(_, path)| {
             let path = std::path::Path::new(&path);
@@ -336,59 +339,19 @@ fn game_directory() -> Option<String> {
         })
 }
 
-/// Known wrapper strings, matched case-insensitively anywhere in the file.
-fn markers_in(bytes: &[u8]) -> Vec<&'static str> {
-    // Six bytes and up, and distinctive. "enb" is three bytes: in an 8 MiB binary it matches by
-    // chance about a third of the time, which is how a first version of this section labelled two
-    // NVIDIA DLLs as ENB and ReShade.
-    const MARKERS: [(&str, &[u8]); 8] = [
-        ("DXVK", b"dxvk"),
-        ("ReShade", b"reshade"),
-        ("Special K", b"special k"),
-        ("SpecialK", b"specialk"),
-        ("Vulkan", b"vkcreateinstance"),
-        ("DLSS-G", b"nvngx_dlssg"),
-        ("D3D12 Agility", b"d3d12core"),
-        ("Streamline", b"sl.interposer"),
-    ];
-    let lower: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
-    MARKERS
+
+
+
+/// The module list, formatted: name and load base, which is what a `crash:` line quotes.
+fn module_lines(loaded: &[(String, String)]) -> String {
+    if loaded.is_empty() {
+        return "no foreign DLLs loaded".to_string();
+    }
+    loaded
         .iter()
-        .filter(|(_, needle)| contains(&lower, needle))
-        .map(|(label, _)| *label)
-        .collect()
-}
-
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
-}
-
-/// The build date from a PE header, if the optional header is where it should be.
-fn pe_build_date(bytes: &[u8]) -> Option<String> {
-    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
-        return None;
-    }
-    let offset = u32::from_le_bytes(bytes.get(0x3c..0x40)?.try_into().ok()?) as usize;
-    let stamp = u32::from_le_bytes(bytes.get(offset + 8..offset + 12)?.try_into().ok()?);
-    // A zero or implausible stamp means the linker was told not to write one.
-    if stamp < 315_532_800 {
-        return None;
-    }
-    Some(nr_casting_core::civil_date(stamp as u64))
-}
-
-fn modules() -> String {
-    match crate::foreign_modules() {
-        Some(list) if !list.is_empty() => list
-            .iter()
-            .map(|(name, base)| format!("{name}@{base:#x}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Some(_) => "no foreign DLLs loaded".to_string(),
-        None => "enumeration failed".to_string(),
-    }
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The live picture a bug report needs, and that the debug log would otherwise have to be turned on

@@ -14,7 +14,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
-use nr_casting_core::{gap_line, gap_stats, PhaseClock, PhaseTick};
+use nr_casting_core::{gap_stats, PhaseClock, PhaseTick};
 
 /// The subsystems a phase can switch off.
 pub mod bit {
@@ -78,7 +78,14 @@ pub fn is_running() -> bool {
 }
 
 /// Start the run at phase one, everything switched back on.
-pub fn start() {
+///
+/// Returns `false` when nothing is feeding the frame clock: a run of six empty minutes is worse
+/// than no run, and the guard belongs here rather than in the button that happens to call it.
+pub fn start() -> bool {
+    if !crate::perf::frame_clock_live() {
+        crate::log("bisect: refused to start - nothing is feeding the frame clock");
+        return false;
+    }
     for filled in FILLED.iter() {
         filled.store(0, Ordering::Relaxed);
     }
@@ -93,6 +100,7 @@ pub fn start() {
     RUNNING.store(true, Ordering::Relaxed);
     crate::log(&format!("bisect: frame clock is the {kind}"));
     log_phase(0);
+    true
 }
 
 pub fn cancel() {
@@ -125,9 +133,9 @@ pub fn on_second(second: crate::perf::Second) -> bool {
     if !is_running() {
         return false;
     }
-    let Ok(mut clock) = CLOCK.lock() else {
-        return false;
-    };
+    // A poisoned lock (a panic in another thread while it held this) must not turn the run into a
+    // silent no-op: the sample is still worth recording, and the phase clock is plain data.
+    let mut clock = CLOCK.lock().unwrap_or_else(|e| e.into_inner());
     let phase = clock.phase().min(PLAN.len() - 1);
     let filled = FILLED[phase].fetch_add(1, Ordering::Relaxed) as usize;
     if filled < SLOTS {
@@ -195,19 +203,20 @@ pub fn section() -> String {
             .max_by_key(|(_, us)| **us)
             .map(|(i, _)| i + 1)
             .unwrap_or(0);
-        out.push_str(&format!(
-            "phase {}/{} {} (off: {}): {}\n    {} hitches over 32ms in {} of {} seconds; worst {}ms at second {}\n",
-            index + 1,
-            PLAN.len(),
+        // The line itself lives in the tested crate: it is a format string with six numbers in
+        // it, and the last time one of those drifted it printed the wrong count for weeks.
+        out.push_str(&nr_casting_core::phase_lines(&nr_casting_core::PhaseSummary {
+            index: index + 1,
+            phases: PLAN.len(),
             label,
-            if *bits == 0 { "nothing".to_string() } else { describe(*bits) },
-            gap_line(&stats),
+            off: &if *bits == 0 { "nothing".to_string() } else { describe(*bits) },
+            stats,
             hitches,
             seconds_with_hitches,
-            values.len(),
-            stats.max as f32 / 1000.0,
-            worst_at
-        ));
+            seconds: values.len(),
+            worst_at,
+        }));
+        out.push('\n');
     }
     out.push('\n');
     for (index, (label, _)) in PLAN.iter().enumerate() {

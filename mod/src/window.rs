@@ -936,52 +936,8 @@ impl App {
                 ui.columns(1, "footer", false);
                 // ---- controls --------------------------------------------------------------
                 // A section like the help text below it: a separator, the row, a separator. No
-                // frame of its own — the extra box only made the panel look smaller.
+                // frame of its own - the extra box only made the panel look smaller.
                 ui.separator();
-                if bundle_prompt {
-                    help_line(
-                        ui,
-                        &format!(
-                            "Bundle run: load a character with the controller connected, stand \
-                             somewhere quiet and still, then start. {} phases of {} s: everything on, \
-                             then each subsystem off on its own, then all of them off. The report is \
-                             written and opened when the {} minutes are up. Casting stops during the \
-                             pad phase - that is expected.",
-                            crate::bisect::phases(),
-                            crate::bisect::PHASE_SECONDS,
-                            crate::bisect::total_seconds() / 60
-                        ),
-                    );
-                    vspace(ui, 6.0);
-                    let pad_live = crate::perf::frame_clock_live();
-                    if !pad_live {
-                        help_line(
-                            ui,
-                            "No frame clock right now: load a character and wait a moment. The \
-                             pad poll or the game's message pump is what measures frames; with \
-                             neither, six minutes would record nothing.",
-                        );
-                        vspace(ui, 4.0);
-                    }
-                    if pad_live
-                        && ui.button(format!(
-                            "start the {} minute run and close the panel",
-                            crate::bisect::total_seconds() / 60
-                        ))
-                    {
-                        bundle_started = true;
-                        bundle_prompt = false;
-                    }
-                    ui.same_line();
-                    if ui.button("cancel") {
-                        bundle_prompt = false;
-                    }
-                    vspace(ui, 6.0);
-                }
-                if let Some(status) = crate::bisect::status() {
-                    help_line(ui, &status);
-                    vspace(ui, 6.0);
-                }
                 // Breathing room of its own: the row sits between two rules, and without a margin
                 // its buttons and the dropdown crowd the separators above and below.
                 vspace(ui, 10.0);
@@ -1003,40 +959,6 @@ impl App {
                     reset_layout = true;
                 }
                 ui.same_line();
-                // One button, in the order a report actually needs: the file first, then the issue
-                // page, then the file manager opened on that file so it can be dragged into the
-                // page. Nothing is uploaded - there is no endpoint - the player attaches it.
-                //
-                // It counts down the five minutes the report wants of frame data, measured from
-                // the character loading. A report that says "300 s sampled" should have 300
-                // seconds in it, so the button is disabled until it does.
-                let waiting = crate::perf::remaining_seconds();
-                if waiting > 0 {
-                    ui.disabled(true, || {
-                        ui.button(format!("diagnostics & report ({}s)", waiting));
-                    });
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(format!(
-                            "collecting frame data since the character loaded - ready in {waiting}s"
-                        ));
-                    }
-                } else if ui.button("diagnostics & report") {
-                    diagnostics = true;
-                }
-                ui.same_line();
-                // The guided run: no five-minute wait, no ini editing, and it switches the
-                // subsystems itself so the comparison happens in one sitting rather than four.
-                if crate::bisect::is_running() {
-                    if ui.button("cancel bundle run") {
-                        crate::bisect::cancel();
-                    }
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text("stop the run and switch everything back on");
-                    }
-                } else if ui.button("bundle diagnostics & report") {
-                    bundle_prompt = true;
-                }
-                ui.same_line();
                 if ui.button("close") {
                     // Handled after the frame: closing mid-frame would drop the state.
                     assign = assign.or(Some((usize::MAX, 0)));
@@ -1047,6 +969,12 @@ impl App {
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
                     scale_choice = Some(choice);
                 }
+                // The reports get their own row: they are about handing over evidence, not about
+                // editing an assignment, and one of them is disabled for minutes at a time.
+                let report = crate::panel_report::draw(ui, bundle_prompt);
+                bundle_prompt = report.prompt;
+                diagnostics = report.diagnostics;
+                bundle_started = report.start_run;
                 if !self.note.is_empty() {
                     vspace(ui, 4.0);
                     // Wrapped, like the help lines: an unwrapped status line runs off the panel
@@ -1119,10 +1047,16 @@ impl App {
         // The prompt is App state: it has to survive the frame that set it.
         self.bundle_prompt = bundle_prompt;
         if bundle_started {
-            crate::bisect::start();
-            // The panel has to be closed: while it is open it owns the input and the GPU device, and
-            // the run is measuring the game without it.
-            self.close_next_frame = true;
+            if crate::bisect::start() {
+                // The panel has to be closed: while it is open it owns the input and the GPU
+                // device, and the run is measuring the game without it.
+                self.close_next_frame = true;
+            } else {
+                // The prompt is still on screen, so say why instead of leaving a dead button.
+                self.note =
+                    "could not start: nothing is feeding the frame clock (load a character first)"
+                        .to_string();
+            }
         }
         if diagnostics {
             self.publish_report("panel button");
@@ -1291,7 +1225,7 @@ impl App {
 ///
 /// `text_disabled` never wraps, so the long control lines ran off the side of the panel; the colour
 /// is pushed by hand so wrapping and the disabled grey can both apply.
-fn help_line(ui: &Ui, text: &str) {
+pub(crate) fn help_line(ui: &Ui, text: &str) {
     let disabled = ui.clone_style().colors[imgui::StyleColor::TextDisabled as usize];
     let _color = ui.push_style_color(imgui::StyleColor::Text, disabled);
     ui.text_wrapped(text);
@@ -1301,7 +1235,7 @@ fn help_line(ui: &Ui, text: &str) {
 ///
 /// `ui.spacing()` is one `ItemSpacing.y` (scaled with the UI), which is not what the layout wants
 /// here: the character block asks for 10 px margins and 5 px between its lines, whatever the scale.
-fn vspace(ui: &Ui, px: f32) {
+pub(crate) fn vspace(ui: &Ui, px: f32) {
     let spacing = ui.clone_style().item_spacing[1];
     ui.dummy([0.0, (px - spacing).max(0.0)]);
 }

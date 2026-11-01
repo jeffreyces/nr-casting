@@ -21,10 +21,6 @@ const FAILED: u8 = 2;
 
 static STATE: AtomicU8 = AtomicU8::new(UNVALIDATED);
 
-extern "system" {
-    fn GetModuleHandleA(name: *const u8) -> *mut u8;
-}
-
 /// True once the structural probe has passed. Steering is refused until then.
 pub fn validated() -> bool {
     STATE.load(Ordering::Relaxed) == VALIDATED
@@ -125,7 +121,7 @@ fn write_map(extra: &[String]) {
     let rvas = eldenring::rva::get();
     let (hash, size) = exe_fingerprint();
     // SAFETY: GetModuleHandleA(NULL) returns the main module handle.
-    let base = unsafe { GetModuleHandleA(std::ptr::null()) } as usize;
+    let base = unsafe { crate::win32::GetModuleHandleA(std::ptr::null()) } as usize;
 
     let table = info.as_ref().map(|i| i.table).unwrap_or("unknown");
     let fallback = info.as_ref().map(|i| i.used_fallback).unwrap_or(false);
@@ -195,7 +191,7 @@ pub(crate) fn exe_version() -> String {
 /// The loaded executable's `[base, base + size)`, for deciding whether a pointer is code.
 pub(crate) fn image_range() -> Option<(usize, usize)> {
     // SAFETY: GetModuleHandleA(NULL) is the main module.
-    let base = unsafe { GetModuleHandleA(std::ptr::null()) } as usize;
+    let base = unsafe { crate::win32::GetModuleHandleA(std::ptr::null()) } as usize;
     let (_, size) = exe_fingerprint();
     (base != 0 && size > 0).then_some((base, size as usize))
 }
@@ -276,10 +272,21 @@ pub fn validate_player() {
 
     // Reading the right fields is half of it: we also *write* the selected slot. Prove, once, that
     // the field takes a value and gives it back, and that the bytes around it do not move.
+    //
+    // Once per *process*, not once per attempt: validation retries every 250 ms until it passes,
+    // so a build whose write path fails would otherwise be written to four times a second forever,
+    // each write briefly changing the player's selection. The verdict is kept and reused.
     if failure.is_none() {
-        match crate::game::verify_selected_slot_write() {
-            Ok(line) => results.push(line),
-            Err(reason) => failure = Some(reason),
+        static WRITE: std::sync::Mutex<Option<Result<String, String>>> =
+            std::sync::Mutex::new(None);
+        let mut slot = WRITE.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_none() {
+            *slot = Some(crate::game::verify_selected_slot_write());
+        }
+        match slot.as_ref() {
+            Some(Ok(line)) => results.push(line.clone()),
+            Some(Err(reason)) => failure = Some(reason.clone()),
+            None => {}
         }
     }
 

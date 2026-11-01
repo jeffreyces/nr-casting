@@ -84,6 +84,9 @@ pub fn tick_if_due(poll_ticks: u64) {
     }
 }
 
+/// How recent a tick must be for its clock to count as live.
+const LIVE_WINDOW_US: u32 = 2_000_000;
+
 /// Whether the game has polled the pad within the last couple of seconds.
 ///
 /// The whole frame measurement hangs off the pad poll: it is the only per-frame call the game makes
@@ -92,14 +95,14 @@ pub fn tick_if_due(poll_ticks: u64) {
 /// start one and the report says why rather than printing zeros.
 pub fn pad_live() -> bool {
     let last = PAD_AT.load(Ordering::Relaxed);
-    last != 0 && micros(ticks().saturating_sub(last)) <= 2_000_000
+    last != 0 && micros(ticks().saturating_sub(last)) <= LIVE_WINDOW_US
 }
 
 /// Whether *any* of our per-frame hooks is being called: the pad if a controller is in use, the
 /// keyboard and mouse otherwise. Either is a frame clock, which is what a run needs.
 pub fn frame_clock_live() -> bool {
     let last = LAST.load(Ordering::Relaxed);
-    last != 0 && micros(ticks().saturating_sub(last)) <= 2_000_000
+    last != 0 && micros(ticks().saturating_sub(last)) <= LIVE_WINDOW_US
 }
 
 /// How long the series still needs before it holds a full five minutes, in seconds.

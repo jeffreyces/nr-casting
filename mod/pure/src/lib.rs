@@ -601,6 +601,75 @@ pub fn redact_character_slug(text: &str) -> String {
     out
 }
 
+/// Labels of the graphics wrappers whose strings appear in a binary's bytes.
+///
+/// Six bytes and up, and distinctive: a three-byte marker like "enb" matches a random 8 MiB
+/// binary about a third of the time, which is how an earlier version of the report section
+/// labelled two NVIDIA DLLs as ENB and ReShade. Absence is not proof of anything.
+pub fn wrapper_markers(bytes: &[u8]) -> Vec<&'static str> {
+    const MARKERS: [(&str, &[u8]); 8] = [
+        ("DXVK", b"dxvk"),
+        ("ReShade", b"reshade"),
+        ("Special K", b"special k"),
+        ("SpecialK", b"specialk"),
+        ("Vulkan", b"vkcreateinstance"),
+        ("DLSS-G", b"nvngx_dlssg"),
+        ("D3D12 Agility", b"d3d12core"),
+        ("Streamline", b"sl.interposer"),
+    ];
+    let lower: Vec<u8> = bytes.iter().map(|byte| byte.to_ascii_lowercase()).collect();
+    MARKERS
+        .iter()
+        .filter(|(_, needle)| lower.windows(needle.len()).any(|window| window == *needle))
+        .map(|(label, _)| *label)
+        .collect()
+}
+
+/// The build timestamp from a PE header, in Unix seconds.
+///
+/// Every PE has one at `e_lfanew + 8`; a linker told not to write one leaves zero, and anything
+/// before 1980 is a sentinel rather than a build.
+pub fn pe_build_timestamp(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+        return None;
+    }
+    let offset = u32::from_le_bytes(bytes.get(0x3c..0x40)?.try_into().ok()?) as usize;
+    let stamp = u32::from_le_bytes(bytes.get(offset + 8..offset + 12)?.try_into().ok()?);
+    (stamp >= 315_532_800).then_some(stamp as u64)
+}
+
+/// One phase of a bundle run, ready to print.
+pub struct PhaseSummary<'a> {
+    pub index: usize,
+    pub phases: usize,
+    pub label: &'a str,
+    /// What the phase switched off, or `nothing`.
+    pub off: &'a str,
+    pub stats: GapStats,
+    pub hitches: u32,
+    pub seconds_with_hitches: usize,
+    pub seconds: usize,
+    /// Which second held the worst gap, one-based.
+    pub worst_at: usize,
+}
+
+/// The two lines a phase gets: the summary, then how often it stuttered and where the worst was.
+pub fn phase_lines(phase: &PhaseSummary<'_>) -> String {
+    format!(
+        "phase {}/{} {} (off: {}): {}\n    {} hitches over 32ms in {} of {} seconds; worst {}ms at second {}",
+        phase.index,
+        phase.phases,
+        phase.label,
+        phase.off,
+        gap_line(&phase.stats),
+        phase.hitches,
+        phase.seconds_with_hitches,
+        phase.seconds,
+        phase.stats.max as f32 / 1000.0,
+        phase.worst_at
+    )
+}
+
 /// `YYYY-MM-DD` for a Unix timestamp, by the civil-from-days algorithm (no `chrono`, no locale).
 pub fn civil_date(unix_secs: u64) -> String {
     let days = (unix_secs / 86_400) as i64;
@@ -1446,6 +1515,55 @@ mod raw_tests {
 
 
 
+
+
+    #[test]
+    fn wrapper_markers_need_six_bytes_to_be_worth_anything() {
+        // A real DXVK export table mentions the name and its entry points.
+        let dxvk = b"...DXVK... vkCreateInstance ...";
+        assert_eq!(wrapper_markers(dxvk), vec!["DXVK", "Vulkan"]);
+        // Three bytes of noise hit by chance in a big binary; nothing here is a wrapper.
+        let noise: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        assert!(wrapper_markers(&noise).is_empty(), "{:?}", wrapper_markers(&noise));
+        assert_eq!(wrapper_markers(b"special k"), vec!["Special K"]);
+        assert_eq!(wrapper_markers(b"SpecialK"), vec!["SpecialK"]);
+    }
+
+    #[test]
+    fn pe_build_timestamp_reads_the_header_or_refuses() {
+        let mut image = vec![0u8; 0x200];
+        image[0..2].copy_from_slice(b"MZ");
+        image[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        image[0x88..0x8c].copy_from_slice(&1_700_000_000u32.to_le_bytes());
+        assert_eq!(pe_build_timestamp(&image), Some(1_700_000_000));
+        // No stamp written by the linker.
+        image[0x88..0x8c].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(pe_build_timestamp(&image), None);
+        // Not a PE at all, and a truncated one.
+        assert_eq!(pe_build_timestamp(b"not a pe"), None);
+        let mut elf = image.clone();
+        elf[0] = b'\x7f';
+        assert_eq!(pe_build_timestamp(&elf), None);
+    }
+
+    #[test]
+    fn phase_lines_says_how_often_as_well_as_how_bad() {
+        let line = phase_lines(&PhaseSummary {
+            index: 4,
+            phases: 6,
+            label: "pad casting off",
+            off: "pad hooks",
+            stats: gap_stats(&[14_500, 66_000, 0, 15_000]),
+            hitches: 7,
+            seconds_with_hitches: 1,
+            seconds: 4,
+            worst_at: 2,
+        });
+        assert!(line.starts_with("phase 4/6 pad casting off (off: pad hooks): "), "{line}");
+        assert!(line.contains("4 s sampled (1 with no pad poll)"), "{line}");
+        assert!(line.contains("7 hitches over 32ms in 1 of 4 seconds"), "{line}");
+        assert!(line.contains("worst 66ms at second 2"), "{line}");
+    }
 
     #[test]
     fn civil_date_matches_known_dates() {

@@ -53,11 +53,13 @@ mod logging;
 mod overlay;
 mod params;
 mod panel_geometry;
+mod panel_report;
 mod panel_shell;
 mod perf;
 mod diag;
 mod pointer;
 mod pump;
+mod win32;
 mod probe;
 mod store;
 mod window;
@@ -368,12 +370,6 @@ fn run() {
     }
 }
 
-extern "system" {
-    fn GetCurrentProcess() -> *mut u8;
-    fn K32EnumProcessModules(p: *mut u8, modules: *mut *mut u8, size: u32, needed: *mut u32) -> i32;
-    fn GetModuleFileNameW(module: *mut u8, buffer: *mut u16, size: u32) -> u32;
-}
-
 /// The DLLs in this process that are neither Windows' nor ours, with their load bases.
 ///
 /// Every compatibility report so far reduces to "which other DLL is loaded": proxy DLLs for
@@ -387,7 +383,7 @@ pub(crate) fn module_paths() -> Vec<(String, String)> {
     let mut out = Vec::new();
     for (name, base) in foreign_modules().unwrap_or_default() {
         let mut buffer = [0u16; 512];
-        let len = unsafe { GetModuleFileNameW(base as *mut u8, buffer.as_mut_ptr(), buffer.len() as u32) };
+        let len = unsafe { win32::GetModuleFileNameW(base as *mut u8, buffer.as_mut_ptr(), buffer.len() as u32) };
         if len == 0 {
             continue;
         }
@@ -403,8 +399,8 @@ pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
     let mut needed = 0u32;
     // SAFETY: fixed buffer; `needed` gets the true byte size, which is range-checked below.
     let ok = unsafe {
-        K32EnumProcessModules(
-            GetCurrentProcess(),
+        win32::K32EnumProcessModules(
+            win32::GetCurrentProcess(),
             modules.as_mut_ptr(),
             (modules.len() * std::mem::size_of::<*mut u8>()) as u32,
             &mut needed,
@@ -420,7 +416,7 @@ pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
     for module in modules.iter().take(count) {
         let mut buffer = [0u16; 1024];
         // SAFETY: handle from the enumeration; buffer is sized for MAX_PATH comfortably.
-        let len = unsafe { GetModuleFileNameW(*module, buffer.as_mut_ptr(), buffer.len() as u32) };
+        let len = unsafe { win32::GetModuleFileNameW(*module, buffer.as_mut_ptr(), buffer.len() as u32) };
         if len == 0 {
             continue;
         }
