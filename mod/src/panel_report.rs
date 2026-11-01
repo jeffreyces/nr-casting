@@ -28,11 +28,12 @@ pub(crate) fn draw(ui: &Ui, prompt: bool) -> ReportRow {
         help_line(
             ui,
             &format!(
-                "Bundle run: load a character with the controller connected, stand somewhere \\
-                 quiet and still, then start. {} phases of {} s: everything on, then each \
-                 subsystem off on its own, then all of them off. The report is written and opened \
-                 when the {} minutes are up. Casting stops during the pad phase - that is \
-                 expected.",
+                "Bundle run: load a character with the controller connected, stand somewhere \
+                 quiet and still, then start. {} phases of {} s: everything on, then the raw-input \
+                 hooks, the cursor hooks and the pad hook switched off one at a time, then every \
+                 hook group off, then everything back on. The report is written and opened when \
+                 the {} minutes are up. Casting stops during the pad phase - that is expected; the \
+                 mouse and keyboard keep working.",
                 crate::bisect::phases(),
                 crate::bisect::PHASE_SECONDS,
                 crate::bisect::total_seconds() / 60

@@ -33,11 +33,11 @@ pub const PHASE_SECONDS: u32 = 60;
 /// often, and a comparison that skipped it would be missing the prime suspect.
 const PLAN: [(&str, u32); 6] = [
     ("everything on", 0),
-    ("pointer detours off", bit::POINTER),
     ("raw input hooks off", bit::RAW),
+    ("cursor hooks taken out", bit::POINTER),
     ("pad casting off (the hook still times)", bit::PAD),
-    ("housekeeping thread off", bit::THREADS),
-    ("all of our work off", bit::PAD | bit::RAW | bit::POINTER | bit::THREADS),
+    ("every hook group off", bit::PAD | bit::RAW | bit::POINTER | bit::THREADS),
+    ("everything back on", 0),
 ];
 
 /// The most samples one phase can hold.
@@ -106,13 +106,22 @@ pub fn start() -> bool {
     // phase a pad clock cannot measure. Leaving both clocks free meant phase 4 and phase 6 were
     // recorded about once a frame while phases 1, 2, 3 and 5 were recorded about twice a frame,
     // and the report claimed they were the same measurement.
-    crate::perf::pin_pump(true);
+    // One clock for the whole run. Present, when the pass-through timer is installed: it is the
+    // only clock that survives a phase switching the pad and raw-input hooks off. The pump is the
+    // fallback, and it is pinned then for the same reason.
+    if !crate::perf::present_live() {
+        crate::perf::pin_pump(true);
+    }
     PHASE_POLLS.store(crate::perf::poll_count(), Ordering::Relaxed);
-    let kind = "message pump (pinned for the run)";
+    let kind = if crate::perf::present_live() {
+        "Present (frames, timed in the graphics path)"
+    } else {
+        "message pump (pinned for the run)"
+    };
     if let Ok(mut clock) = CLOCK_KIND.lock() {
         *clock = kind;
     }
-    DISABLED.store(PLAN[0].1, Ordering::Relaxed);
+    apply_bits(PLAN[0].1);
     RUNNING.store(true, Ordering::Relaxed);
     crate::log(&format!("bisect: frame clock is the {kind}"));
     log_phase(0);
@@ -121,7 +130,7 @@ pub fn start() -> bool {
 
 pub fn cancel() {
     if RUNNING.swap(false, Ordering::Relaxed) {
-        DISABLED.store(0, Ordering::Relaxed);
+        apply_bits(0);
         crate::perf::pin_pump(false);
         crate::log("bisect: cancelled; every subsystem back on");
     }
@@ -164,7 +173,7 @@ pub fn on_second(second: crate::perf::Second) -> bool {
         PhaseTick::NextPhase => {
             let ticks = close_phase(phase);
             let next = clock.phase();
-            DISABLED.store(PLAN[next].1, Ordering::Relaxed);
+            apply_bits(PLAN[next].1);
             log_phase(next);
             crate::log(&format!("bisect: phase {} recorded {ticks} ticks", phase + 1));
             false
@@ -173,13 +182,25 @@ pub fn on_second(second: crate::perf::Second) -> bool {
             let ticks = close_phase(phase);
             drop(clock);
             RUNNING.store(false, Ordering::Relaxed);
-            DISABLED.store(0, Ordering::Relaxed);
+            apply_bits(0);
             crate::perf::pin_pump(false);
             crate::log(&format!("bisect: phase {} recorded {ticks} ticks", phase + 1));
             crate::log("bisect: finished; every subsystem switched back on");
             true
         }
     }
+}
+
+/// Apply a phase's switches.
+///
+/// The cursor detours are a *patch*, not a flag: they can be taken out of the process entirely, so
+/// the phase that tests them restores the game's own code rather than merely passing through. The
+/// pad and raw-input detours stay installed and short-circuit (a hook cannot be removed safely
+/// while the game may be inside it), which is why those phases separate "what our code does" from
+/// "the fact that we are loaded".
+fn apply_bits(bits: u32) {
+    DISABLED.store(bits, Ordering::Relaxed);
+    crate::pointer::engage_cursor(bits & bit::POINTER == 0);
 }
 
 /// Store the tick count of the phase that just ended and start counting for the next one.
@@ -209,10 +230,11 @@ pub fn section() -> String {
     );
     let kind = CLOCK_KIND.lock().map(|k| *k).unwrap_or("none");
     out.push_str(&format!(
-        "# measured with the {kind}. One clock for every phase on purpose: a pad clock stops\n\
-         # being fed in the phase that switches the pad hooks off, and the message pump takes over\n\
-         # at about half the tick rate - two instruments, and phases that cannot be compared. The\n\
-         # tick count on each phase is how you check that the rate stayed put.\n"
+        "# measured with the {kind}. One clock for every phase on purpose: a clock fed by a hook\n\
+         # that a phase switches off stops measuring that phase. The tick count on each phase is\n\
+         # how you check the rate stayed put; a phase at a different rate is not comparable.\n\
+         # phases 2-5 switch hook groups off, so the comparison is between our presence and our\n\
+         # work: pad and raw-input detours short-circuit, the cursor detours are removed outright.\n"
     ));
     if (0..PLAN.len()).all(|index| samples(index).iter().all(|us| *us == 0)) {
         out.push_str(
