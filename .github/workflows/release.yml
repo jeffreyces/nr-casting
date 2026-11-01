@@ -175,6 +175,31 @@ jobs:
 
       # Curated notes: grouped conventional commits with a short brief, kept in the repo so a
       # release can be reviewed like any other change. Bump the file with the version.
+      #
+      # The file describes ONE version. A tag once shipped while the file still began with the
+      # previous release (and the two before it), so the published body was somebody else's notes.
+      # Check the file against the tag instead of trusting whoever bumped it.
+      - name: The notes file is this version's notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME#v}"
+          first="$(head -1 RELEASE_NOTES.md)"
+          case "$first" in
+            "# v${tag} "*) ;;
+            *)
+              echo "RELEASE_NOTES.md begins with: $first"
+              echo "expected it to begin with '# v${tag} ...'"
+              exit 1
+              ;;
+          esac
+          count="$(grep -cE '^# v[0-9]+\.[0-9]+\.[0-9]+' RELEASE_NOTES.md || true)"
+          if [ "$count" -ne 1 ]; then
+            echo "RELEASE_NOTES.md has $count version headings; a release carries exactly one."
+            grep -nE '^# v[0-9]+\.[0-9]+\.[0-9]+' RELEASE_NOTES.md || true
+            exit 1
+          fi
+
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
