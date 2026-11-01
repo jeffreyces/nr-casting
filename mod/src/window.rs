@@ -957,9 +957,9 @@ impl App {
                     if !pad_live {
                         help_line(
                             ui,
-                            "No input polls right now: load a character and wait until the game \
-                             is polling (the pad if you use one, otherwise the keyboard - either \
-                             is the frame clock). Starting now would record six empty minutes.",
+                            "No frame clock right now: load a character and wait a moment. The \
+                             pad poll or the game's message pump is what measures frames; with \
+                             neither, six minutes would record nothing.",
                         );
                         vspace(ui, 4.0);
                     }
@@ -1761,6 +1761,8 @@ pub fn start() {
         return;
     }
     std::thread::spawn(|| {
+        // This thread pumps its own messages; its `PeekMessageW` calls are not the game's frames.
+        crate::pump::ignore_current_thread();
         match crate::pointer::install() {
             Ok(()) => crate::log("pointer: detours installed"),
             Err(e) => crate::log(&format!("pointer: FAILED to install detours: {e}")),
@@ -1787,8 +1789,8 @@ pub fn start() {
                 app.hotkey_registered = registered;
             }
         });
-        // One wake a second, for the frame series: the pad poll cannot be the only clock, because
-        // a keyboard-and-mouse player never produces one. `SetTimer` returns zero when it cannot
+        // One wake a second, for the frame series: it is what turns a second's worth of ticks into
+        // one sample, and what the report button counts down. `SetTimer` returns zero when it cannot
         // arm one (out of timers, or a window that is not ready); the poll path then advances the
         // series instead, and this line says so rather than leaving the report button disabled for
         // a whole session with nothing in the log.

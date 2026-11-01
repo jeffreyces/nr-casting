@@ -57,6 +57,7 @@ mod panel_shell;
 mod perf;
 mod diag;
 mod pointer;
+mod pump;
 mod probe;
 mod store;
 mod window;
@@ -195,6 +196,12 @@ fn run() {
         cfg.hotkey_name
     ));
     log("crash: exception observer installed (faults are logged with module and offset)");
+    // The frame heartbeat, installed whether or not the panel is enabled: casting-only players
+    // report stutters too, and without a controller the pad poll does not exist to measure them.
+    match pump::install() {
+        Ok(()) => log("pump: PeekMessageW hook installed (frame heartbeat)"),
+        Err(e) => log(&format!("pump: no frame heartbeat: {e}")),
+    }
     log(&format!(
         "config: debug_log={} y_bumper={} bind_modifier={} bind_modifier_kb={} files in {}",
         cfg.debug_log,

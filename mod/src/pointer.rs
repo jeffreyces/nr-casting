@@ -329,7 +329,7 @@ unsafe extern "system" fn raw_buffer_detour(data: *mut u8, size: *mut u32, heade
     original(data, size, header)
 }
 
-fn hook(
+pub(crate) fn hook(
     name: &std::ffi::CStr,
     module: *mut u8,
     detour: *const (),

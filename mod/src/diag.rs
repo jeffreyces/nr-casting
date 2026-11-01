@@ -317,10 +317,21 @@ fn state() -> String {
     let _ = writeln!(out, "raw: {}", crate::stats::raw_report());
     let _ = writeln!(
         out,
-        "chords: Y+R1/Y+L1 {} | panel {} | player cursor {}",
+        "chords: {} | panel {} | player cursor {} | frame clock {}",
         if crate::input::y_bumper() { "ours" } else { "Recluse's" },
         if crate::UI_OPEN.load(std::sync::atomic::Ordering::Relaxed) { "open" } else { "closed" },
-        if crate::input::game_shows_cursor() { "shown" } else { "hidden" }
+        if crate::input::game_shows_cursor() { "shown" } else { "hidden" },
+        // Which hook is providing the frame clock: the pad poll when a controller is in use, the
+        // message pump otherwise. "none" means a report would have no frame data at all.
+        if crate::perf::pad_live() {
+            "pad"
+        } else if crate::pump::installed() && crate::perf::frame_clock_live() {
+            "pump"
+        } else if crate::perf::frame_clock_live() {
+            "keys"
+        } else {
+            "none - nothing polling"
+        }
     );
     out
 }

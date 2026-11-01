@@ -200,12 +200,15 @@ pub fn report(started: u64) {
     record(now, cost);
 }
 
-/// The same, from a keyboard or mouse hook, when the pad is not the one being polled.
+/// The fallback clock: the game's own message pump, which runs once a frame whatever the input
+/// device is.
 ///
-/// ER polls `GetAsyncKeyState` every frame whether or not a controller is attached, so it is a
-/// frame clock on its own. Both sources feed one series, and the keyboard one stands down while the
-/// pad is live: two hooks per frame would otherwise halve every gap and make the p50 meaningless.
-pub fn report_keys(started: u64) {
+/// `GetAsyncKeyState` looked like a frame clock and is not one - ER calls it when it wants a key's
+/// state, 24 times in seven minutes on a keyboard-and-mouse session, so a "gap" was the time
+/// between two keystrokes and a run recorded six empty minutes. `PeekMessageW` is called by the
+/// loop itself, so it is the one per-frame signal that exists without a controller. It stands down
+/// while the pad is live: the pad poll is the same measurement with the game's own frame cadence.
+pub fn report_pump(started: u64) {
     let now = ticks();
     if now == 0 || started == 0 {
         return;

@@ -211,16 +211,7 @@ unsafe fn steer_click(record: &[u8]) {
     }
 }
 
-/// `GetAsyncKeyState` is called by the game every frame, whether or not a controller is attached,
-/// so it is a frame clock of its own - the one that exists for a keyboard-and-mouse player.
 unsafe extern "system" fn key_detour(vk: i32) -> i16 {
-    let started = crate::perf::ticks();
-    let out = key_detour_inner(vk);
-    crate::perf::report_keys(started);
-    out
-}
-
-unsafe extern "system" fn key_detour_inner(vk: i32) -> i16 {
     let tramp = KEY_TRAMPOLINE.load(Ordering::Acquire);
     if tramp.is_null() {
         return 0;
