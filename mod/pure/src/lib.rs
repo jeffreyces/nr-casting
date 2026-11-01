@@ -601,6 +601,22 @@ pub fn redact_character_slug(text: &str) -> String {
     out
 }
 
+/// `YYYY-MM-DD` for a Unix timestamp, by the civil-from-days algorithm (no `chrono`, no locale).
+pub fn civil_date(unix_secs: u64) -> String {
+    let days = (unix_secs / 86_400) as i64;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// What one second did to a run of fixed-length phases.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhaseTick {
@@ -1430,6 +1446,15 @@ mod raw_tests {
 
 
 
+
+    #[test]
+    fn civil_date_matches_known_dates() {
+        assert_eq!(civil_date(0), "1970-01-01");
+        assert_eq!(civil_date(1_700_000_000), "2023-11-14");
+        assert_eq!(civil_date(1_782_000_000), "2026-06-21");
+        // A PE timestamp is a u32 count of seconds, and 2106 is the wrap.
+        assert_eq!(civil_date(4_294_967_295), "2106-02-07");
+    }
 
     #[test]
     fn phase_clock_walks_the_phases_and_finishes_on_the_last() {

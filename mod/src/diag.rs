@@ -119,6 +119,7 @@ fn bundle(reason: &str) -> String {
     section(&mut out, "display", &display_info());
     section(&mut out, "environment", &environment());
     section(&mut out, "modules", &modules());
+    section(&mut out, "game folder dlls", &graphics());
     section(&mut out, "state", &state());
     section(&mut out, "performance", &performance());
     section(&mut out, "config", &read_text("nr_casting.ini"));
@@ -258,6 +259,115 @@ fn environment() -> String {
         }
     }
     out
+}
+
+/// The DLLs loaded from the game's own folder, with enough detail to name them.
+///
+/// A wrapper such as ReShade, DXVK or Special K installs itself as a proxy beside the exe - usually
+/// under a system name like `dxgi.dll` - and hooks the present path. A module list that prints names
+/// cannot tell you which one that is, and "is it dxgi?" is the first question a stutter report
+/// raises. This section gives the file size, the build date from its PE header, and which known
+/// wrapper strings appear inside it.
+fn graphics() -> String {
+    let Some(game_dir) = game_directory() else {
+        return "game folder unknown".to_string();
+    };
+    let mut out = String::new();
+    for (name, path) in crate::module_paths() {
+        if !path.to_ascii_lowercase().starts_with(&game_dir) {
+            continue;
+        }
+        // Only the first few megabytes: a wrapper's own name and version strings live in the
+        // resources near the front, and a 200 MB DLL should not be read in full to answer "which
+        // wrapper is this".
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        if std::io::Read::read_to_end(&mut std::io::Read::take(file, 8 * 1024 * 1024), &mut bytes)
+            .is_err()
+        {
+            continue;
+        }
+        let markers = markers_in(&bytes);
+        let built = pe_build_date(&bytes)
+            .map(|date| format!("built {date}"))
+            .unwrap_or_else(|| "build date unreadable".to_string());
+        let _ = writeln!(
+            out,
+            "{name}: {} KiB, {built}{}",
+            bytes.len() / 1024,
+            if markers.is_empty() {
+                String::new()
+            } else {
+                format!(", contains: {}", markers.join(", "))
+            }
+        );
+    }
+    if out.is_empty() {
+        return "no DLLs loaded from the game folder".to_string();
+    }
+    out.push_str(
+        "# a wrapper here hooks the present path: to test it, rename the file (dxgi.dll -> dxgi.dll.off)\n\
+         # and run the bundle again. Phase 1 is the comparison - same clock, same standstill.\n",
+    );
+    out
+}
+
+/// The folder the game's exe was loaded from, lowercased with a trailing separator.
+fn game_directory() -> Option<String> {
+    crate::module_paths()
+        .into_iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("eldenring.exe"))
+        .and_then(|(_, path)| {
+            let path = std::path::Path::new(&path);
+            path.parent().map(|dir| {
+                let mut text = dir.to_string_lossy().to_ascii_lowercase();
+                if !text.ends_with('\\') {
+                    text.push('\\');
+                }
+                text
+            })
+        })
+}
+
+/// Known wrapper strings, matched case-insensitively anywhere in the file.
+fn markers_in(bytes: &[u8]) -> Vec<&'static str> {
+    const MARKERS: [(&str, &[u8]); 7] = [
+        ("DXVK", b"dxvk"),
+        ("ReShade", b"reshade"),
+        ("Special K", b"special k"),
+        ("ENB", b"enb"),
+        ("Vulkan", b"vkcreateinstance"),
+        ("DLSS-G", b"nvngx_dlssg"),
+        ("frame generation", b"dlssg"),
+    ];
+    let lower: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
+    MARKERS
+        .iter()
+        .filter(|(_, needle)| contains(&lower, needle))
+        .map(|(label, _)| *label)
+        .collect()
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// The build date from a PE header, if the optional header is where it should be.
+fn pe_build_date(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+        return None;
+    }
+    let offset = u32::from_le_bytes(bytes.get(0x3c..0x40)?.try_into().ok()?) as usize;
+    let stamp = u32::from_le_bytes(bytes.get(offset + 8..offset + 12)?.try_into().ok()?);
+    // A zero or implausible stamp means the linker was told not to write one.
+    if stamp < 315_532_800 {
+        return None;
+    }
+    Some(nr_casting_core::civil_date(stamp as u64))
 }
 
 fn modules() -> String {

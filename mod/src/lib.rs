@@ -368,19 +368,36 @@ fn run() {
     }
 }
 
+extern "system" {
+    fn GetCurrentProcess() -> *mut u8;
+    fn K32EnumProcessModules(p: *mut u8, modules: *mut *mut u8, size: u32, needed: *mut u32) -> i32;
+    fn GetModuleFileNameW(module: *mut u8, buffer: *mut u16, size: u32) -> u32;
+}
+
 /// The DLLs in this process that are neither Windows' nor ours, with their load bases.
 ///
 /// Every compatibility report so far reduces to "which other DLL is loaded": proxy DLLs for
 /// frame generation, another overlay, a class-port mod. Naming them in the log turns that from
 /// a guessing game into a line somebody can paste into a bug report, and the base is what lets a
 /// `crash:` line ("in X.dll (base …, offset …)") be matched to a module.
-pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
-    extern "system" {
-        fn GetCurrentProcess() -> *mut u8;
-        fn K32EnumProcessModules(p: *mut u8, modules: *mut *mut u8, size: u32, needed: *mut u32)
-            -> i32;
-        fn GetModuleFileNameW(module: *mut u8, buffer: *mut u16, size: u32) -> u32;
+
+/// Every loaded module with its full path, so a report can say which DLLs came from the game's own
+/// folder (a proxy, an overlay, a wrapper) rather than from Windows.
+pub(crate) fn module_paths() -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (name, base) in foreign_modules().unwrap_or_default() {
+        let mut buffer = [0u16; 512];
+        let len = unsafe { GetModuleFileNameW(base as *mut u8, buffer.as_mut_ptr(), buffer.len() as u32) };
+        if len == 0 {
+            continue;
+        }
+        let path = String::from_utf16_lossy(&buffer[..len as usize]);
+        out.push((name, path));
     }
+    out
+}
+
+pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
 
     let mut modules = [std::ptr::null_mut::<u8>(); 512];
     let mut needed = 0u32;
