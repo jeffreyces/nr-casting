@@ -276,6 +276,7 @@ pub fn cpu_report() -> String {
     let head = SERIES_HEAD.load(Ordering::Relaxed) as usize % SERIES_LEN;
     let mut per_second = Vec::with_capacity(filled);
     let mut per_frame = Vec::with_capacity(filled);
+    let mut ratios = Vec::with_capacity(filled);
     let mut slow = 0usize;
     let mut working = 0usize;
     let mut waiting = 0usize;
@@ -293,11 +294,16 @@ pub fn cpu_report() -> String {
         let frames = 1_000_000.0 / gap as f64;
         let cpu_frame = cpu as f64 / frames;
         per_frame.push(cpu_frame);
+        // The share of each frame the thread actually spent working. 0.9 means the frame time is
+        // the thread; 0.2 means the thread handed the frame off and waited three quarters of it,
+        // which is what a GPU-bound frame looks like.
+        ratios.push((cpu_frame / gap as f64).clamp(0.0, 2.0));
         if gap > 32_000 {
             slow += 1;
-            if cpu_frame >= 0.85 * gap as f64 {
+            let share = cpu_frame / gap as f64;
+            if share >= 0.8 {
                 working += 1;
-            } else if cpu_frame <= 0.5 * gap as f64 {
+            } else if share <= 0.4 {
                 waiting += 1;
             }
         }
@@ -313,20 +319,31 @@ pub fn cpu_report() -> String {
     };
     let core = per_second.iter().map(|us| *us as f64 / 10_000.0).sum::<f64>()
         / per_second.len().max(1) as f64;
+    ratios.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let share_at = |p: f64| -> f64 {
+        if ratios.is_empty() {
+            return 0.0;
+        }
+        ratios[((ratios.len() - 1) as f64 * p) as usize] * 100.0
+    };
     let mut out = format!(
         "frame thread CPU: {:.0}% of one core on average; per frame p50 {:.2} ms, p90 {:.2} ms, \
-         max {:.2} ms (a tick is assumed to be a frame - the tick rate is printed above)",
+         max {:.2} ms; the thread used p50 {:.0}% of each frame's time (p90 {:.0}%) - near 100% \
+         means the frame time is the CPU, low means it was waiting on something else. A tick is \
+         assumed to be a frame; the tick rate is printed above.",
         core,
         at(0.5),
         at(0.9),
-        at(1.0)
+        at(1.0),
+        share_at(0.5),
+        share_at(0.9)
     );
     if slow == 0 {
         out.push_str("; no slow seconds to attribute");
     } else {
         out.push_str(&format!(
-            "; of {slow} seconds over 32ms, {working} were CPU-bound and {waiting} were waiting on \
-             something else (GPU, a wrapper, vsync), {} were mixed",
+            "; of {slow} seconds over 32ms, {working} spent >=80% of the frame working, {waiting} \
+             spent <=40% (waiting on the GPU, a wrapper or vsync), {} were between",
             slow.saturating_sub(working + waiting)
         ));
     }
@@ -354,7 +371,13 @@ pub fn series() -> String {
         if i > 0 {
             out.push(' ');
         }
-        out.push_str(&format!("{:.1}", us as f32 / 1000.0));
+        if us == 0 {
+            // No tick in that second: a pause, a load screen, or nothing polling. Printing 0.0
+            // would read as a perfect second, which is the opposite of what it is.
+            out.push_str("n/a");
+        } else {
+            out.push_str(&format!("{:.1}", us as f32 / 1000.0));
+        }
     }
     out
 }
