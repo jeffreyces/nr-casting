@@ -416,9 +416,10 @@ fn state() -> String {
     let _ = writeln!(out, "raw: {}", crate::stats::raw_report());
     let _ = writeln!(
         out,
-        "chords: {} | panel {} | player cursor {} | frame clock {}",
+        "chords: {} | panel {} | cursor hooks {} | player cursor {} | frame clock {}",
         if crate::input::y_bumper() { "ours" } else { "Recluse's" },
         if crate::UI_OPEN.load(std::sync::atomic::Ordering::Relaxed) { "open" } else { "closed" },
+        if crate::pointer::cursor_engaged() { "in" } else { "out" },
         if crate::input::game_shows_cursor() { "shown" } else { "hidden" },
         // Which hook is providing the frame clock: Present when the pass-through timer is in place
         // (frames, by definition), otherwise the pad poll when a controller is in use, otherwise

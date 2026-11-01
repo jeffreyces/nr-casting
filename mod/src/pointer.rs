@@ -350,6 +350,68 @@ pub(crate) fn hook(
     }
 }
 
+/// The cursor detours, kept alive so they can be switched off again.
+///
+/// `hook` hands its `RawDetour` to the process (it is needed for its lifetime), which means the
+/// patch cannot be removed - and these four functions exist only to keep the cursor usable while the
+/// panel is open. A session that opens the panel once paid for them until it exited. Disabling a
+/// detour restores the original bytes, so the game calls the real function with nothing of ours in
+/// the path at all; that is the only way to make "not needed" actually mean "not there".
+static CURSOR: std::sync::Mutex<Vec<retour::RawDetour>> = std::sync::Mutex::new(Vec::new());
+static CURSOR_ENGAGED: AtomicBool = AtomicBool::new(false);
+
+/// Engaged while the panel is open, disengaged while it is closed. Idempotent.
+pub fn engage_cursor(on: bool) {
+    if CURSOR_ENGAGED.swap(on, Ordering::Relaxed) == on {
+        return;
+    }
+    let guard = CURSOR.lock().unwrap_or_else(|e| e.into_inner());
+    for raw in guard.iter() {
+        // SAFETY: the detour records we keep are all installed and owned by this module; a toggle
+        // writes the function's prologue back and forth. The panel thread does this while the game
+        // runs, which is safe because the original bytes are restored before the call returns.
+        let outcome = unsafe { if on { raw.enable() } else { raw.disable() } };
+        if let Err(e) = outcome {
+            crate::log(&format!(
+                "pointer: could not {} the cursor hooks: {e:?}",
+                if on { "engage" } else { "disengage" }
+            ));
+        }
+    }
+    crate::log(&format!(
+        "pointer: cursor hooks {} ({} of them)",
+        if on { "engaged" } else { "disengaged" },
+        guard.len()
+    ));
+}
+
+/// Whether the cursor hooks are currently in the path.
+pub fn cursor_engaged() -> bool {
+    CURSOR_ENGAGED.load(Ordering::Relaxed)
+}
+
+/// A detour whose patch can be undone, recorded so it can be toggled later.
+fn hook_switchable(
+    name: &std::ffi::CStr,
+    module: *mut u8,
+    detour: *const (),
+    slot: &'static AtomicPtr<()>,
+) -> Result<(), String> {
+    unsafe {
+        let address = GetProcAddress(module, name.as_ptr() as *const u8);
+        if address.is_null() {
+            return Err(format!("{} not found", name.to_string_lossy()));
+        }
+        let raw = retour::RawDetour::new(address as *const (), detour)
+            .map_err(|e| format!("{} detour: {e:?}", name.to_string_lossy()))?;
+        raw.enable()
+            .map_err(|e| format!("{} enable: {e:?}", name.to_string_lossy()))?;
+        slot.store(raw.trampoline() as *const () as *mut (), Ordering::Release);
+        CURSOR.lock().unwrap_or_else(|e| e.into_inner()).push(raw);
+        Ok(())
+    }
+}
+
 /// Install the pointer detours.
 pub fn install() -> Result<(), String> {
     unsafe {
@@ -357,13 +419,17 @@ pub fn install() -> Result<(), String> {
         if user32.is_null() {
             return Err("user32 not loaded".into());
         }
-        hook(c"ClipCursor", user32, clip_detour as *const (), &CLIP_TRAMP)
-            .and_then(|_| hook(c"SetCursorPos", user32, pos_detour as *const (), &POS_TRAMP))
+        // The four cursor hooks exist for the panel and are switched off when it closes; the two
+        // raw-input hooks below are the mouse casting path and stay in place.
+        hook_switchable(c"ClipCursor", user32, clip_detour as *const (), &CLIP_TRAMP)
             .and_then(|_| {
-                hook(c"SetCursor", user32, set_cursor_detour as *const (), &SETCURSOR_TRAMP)
+                hook_switchable(c"SetCursorPos", user32, pos_detour as *const (), &POS_TRAMP)
             })
             .and_then(|_| {
-                hook(c"SetCapture", user32, capture_detour as *const (), &CAPTURE_TRAMP)
+                hook_switchable(c"SetCursor", user32, set_cursor_detour as *const (), &SETCURSOR_TRAMP)
+            })
+            .and_then(|_| {
+                hook_switchable(c"SetCapture", user32, capture_detour as *const (), &CAPTURE_TRAMP)
             })
             .and_then(|_| {
                 hook(c"GetRawInputData", user32, raw_data_detour as *const (), &RAW_DATA_TRAMP)

@@ -650,6 +650,8 @@ impl App {
 
     /// Build the device, swap chain and ImGui renderer. First open only.
     fn init_gfx(&mut self) -> bool {
+        // The cursor hooks exist for the panel: they go in with it and come out with it.
+        crate::pointer::engage_cursor(true);
         if self.gfx.is_some() {
             return true;
         }
@@ -1917,6 +1919,8 @@ pub fn start() {
                     if let Ok(mut guard) = cell.try_borrow_mut() {
                         if let Some(app) = guard.as_mut() {
                             app.drop_gfx_if_idle();
+                            // Nothing of ours needs the cursor while the panel is closed.
+                            crate::pointer::engage_cursor(false);
                         }
                     }
                 });
