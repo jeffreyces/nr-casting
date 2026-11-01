@@ -288,6 +288,40 @@ pub fn section() -> String {
         }));
         out.push('\n');
     }
+    // A phase recorded at a different tick rate is a different measurement - the header promises
+    // that, but nothing checked it. Phase 1 in a real run ticked at 74/s while phases 2-6 ticked at
+    // exactly 60/s (the panel was still tearing down while phase 1 began), and the table presented
+    // all six as comparable. Say so, and name the phase that moved.
+    let rates: Vec<(usize, f64)> = (0..PLAN.len())
+        .map(|index| {
+            let seconds = samples(index).len();
+            let ticks = TICKS[index].load(Ordering::Relaxed) as f64;
+            (index, if seconds == 0 { 0.0 } else { ticks / seconds as f64 })
+        })
+        .filter(|(_, rate)| *rate > 0.0)
+        .collect();
+    if let (Some(min), Some(max)) = (
+        rates
+            .iter()
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)),
+        rates
+            .iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)),
+    ) {
+        // 10%: below that the rates are the same clock under load; above it, one phase is being
+        // recorded more often than another and its gaps are not the same quantity.
+        if max.1 > min.1 * 1.10 {
+            out.push_str(&format!(
+                "# not comparable: phase {} ran at {:.0} ticks/s against {:.0}/s in phase {}. The\n\
+                 # tick rate moved, so the two are different measurements - re-run if either phase\n\
+                 # matters to your conclusion.\n",
+                max.0 + 1,
+                max.1,
+                min.1,
+                min.0 + 1
+            ));
+        }
+    }
     out.push('\n');
     for (index, (label, _)) in PLAN.iter().enumerate() {
         let values = samples(index);
