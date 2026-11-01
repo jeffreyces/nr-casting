@@ -607,8 +607,13 @@ pub fn redact_character_slug(text: &str) -> String {
 /// binary about a third of the time, which is how an earlier version of the report section
 /// labelled two NVIDIA DLLs as ENB and ReShade. Absence is not proof of anything.
 pub fn wrapper_markers(bytes: &[u8]) -> Vec<&'static str> {
-    const MARKERS: [(&str, &[u8]); 8] = [
-        ("DXVK", b"dxvk"),
+    // Every needle is six bytes or more: "dxvk" alone is four, and it matched inside a block of
+    // base64 in a 54 MB NVIDIA DLSS DLL - the same class of false positive as "enb" in an earlier
+    // version of this section. Absence is not proof; a hit has to be worth reading.
+    const MARKERS: [(&str, &[u8]); 10] = [
+        ("DXVK", b"dxvk-cache"),
+        ("DXVK", b"dxvk_config"),
+        ("DXVK", b"dxvk_hud"),
         ("ReShade", b"reshade"),
         ("Special K", b"special k"),
         ("SpecialK", b"specialk"),
@@ -1518,9 +1523,33 @@ mod raw_tests {
 
 
     #[test]
+    fn every_marker_is_at_least_six_bytes() {
+        // The test that would have caught two false positives: a four-byte needle matches by chance
+        // in a large binary, which is how a DLSS DLL was labelled DXVK and two NVIDIA DLLs ENB.
+        let markers: [&[u8]; 10] = [
+            b"dxvk-cache",
+            b"dxvk_config",
+            b"dxvk_hud",
+            b"reshade",
+            b"special k",
+            b"specialk",
+            b"vkcreateinstance",
+            b"nvngx_dlssg",
+            b"d3d12core",
+            b"sl.interposer",
+        ];
+        for marker in markers {
+            assert!(marker.len() >= 6, "{} is too short", String::from_utf8_lossy(marker));
+        }
+        // The exact bytes that produced the wrong label: base64 noise containing "DXvK".
+        let noise = b"bNINCcwaiUktTEzASj0NLS3rigptkyyQqzgL1gr6DXvKo61SjFxuLUonDFgMLg0wa3xs7aq1KaONd60O";
+        assert!(wrapper_markers(noise).is_empty(), "{:?}", wrapper_markers(noise));
+    }
+
+    #[test]
     fn wrapper_markers_need_six_bytes_to_be_worth_anything() {
         // A real DXVK export table mentions the name and its entry points.
-        let dxvk = b"...DXVK... vkCreateInstance ...";
+        let dxvk = b"...DXVK... state cache: .dxvk-cache ... vkCreateInstance ...";
         assert_eq!(wrapper_markers(dxvk), vec!["DXVK", "Vulkan"]);
         // Three bytes of noise hit by chance in a big binary; nothing here is a wrapper.
         let noise: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
