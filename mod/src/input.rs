@@ -604,6 +604,8 @@ unsafe fn patch_is_ours(target: *mut u8) -> bool {
 pub(crate) fn watch_hook() {
     let mut attempts = 0;
     let mut warned = false;
+    // Set once, if the import slot turned out not to be the route the game reads.
+    let mut escalated = false;
     let mut tried_import_slot = false;
     let mut last_polls = crate::stats::pad_polls();
     let mut idle_ticks = 0u32;
@@ -658,7 +660,28 @@ pub(crate) fn watch_hook() {
 
         // The bytes decide, not the poll counter: "our jump is gone" is unambiguous, while "no
         // polls" also happens in menus, cutscenes and with no controller connected.
-        if unsafe { patch_is_ours(target) } || unsafe { import_slot_is_ours() } {
+        let patched = unsafe { patch_is_ours(target) };
+        let routed = unsafe { import_slot_is_ours() };
+        if patched || routed {
+            // A route that works is not a route the game reads. The import slot can now be ours
+            // (the walk finally succeeds), while the game reaches XInputGetStateEx through
+            // GetProcAddress and never touches that slot — silent, permanent cast failure. Two
+            // idle ticks on a validated world is enough evidence: add the export hook as well.
+            // The pointer store is left in place, so a game that *does* read the slot keeps using
+            // our detour and costs nothing extra.
+            if routed && !patched && !escalated {
+                escalated = true;
+                log(
+                    "input: the import slot is ours but the game is not reading it — hooking the \
+                     export as well (the slot stays routed for anything that does use it)",
+                );
+                if let Err(e) = hook_target(target) {
+                    log(&format!("input: export hook failed: {e}"));
+                }
+                unsafe { hook_ex(target) };
+                idle_ticks = 0;
+                continue;
+            }
             if !warned {
                 log(
                     "input: hooked, but the game is not polling XInputGetState — is a \
