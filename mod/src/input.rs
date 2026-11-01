@@ -748,16 +748,15 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     }
     let original: unsafe extern "system" fn(u32, *mut XInputState) -> u32 =
         std::mem::transmute(tramp);
-    if crate::bisect::disabled(crate::bisect::bit::PAD) {
-        // A bisect phase with the pad hooks off: the game gets its own report, untouched, and none
-        // of our work runs. The hook and its jump are still in the path, which is the point - it
-        // separates what we do from the fact that we are loaded.
-        return original(user, state);
-    }
     let ret = original(user, state);
     if ret != 0 {
         crate::stats::pad_unplugged();
     }
+    // Timed even in the phase that switches the pad's work off: this poll is the frame clock the
+    // run measures with, and a clock that stops when the thing it measures is switched off makes
+    // that phase's numbers incomparable with every other phase. (Learned the hard way: the first
+    // version handed the clock to the message pump mid-phase, which injected a two-second "gap"
+    // and moved that phase's p50 by 5 ms.)
     crate::perf::report(perf_started);
     if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
         if ret == 0 {
@@ -773,13 +772,17 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
                 CALLER_BUDGET.fetch_sub(1, Ordering::Relaxed);
                 note_caller();
             }
-            adjust_inner(&mut *state);
-            // This poll runs on the game's own input thread, which is the only thread that can
-            // raise the cursor's display counter for the game's window (it is per input queue).
-            // Every 8th poll is plenty: the panel opens in one frame and a hidden cursor catches up
-            // in a few of these.
-            if n.is_multiple_of(8) {
-                crate::pointer::game_thread_tick();
+            // The phase that tests our pad work switches this off and nothing else: the report
+            // still goes through untouched and the poll is still timed.
+            if !crate::bisect::disabled(crate::bisect::bit::PAD) {
+                adjust_inner(&mut *state);
+                // This poll runs on the game's own input thread, which is the only thread that can
+                // raise the cursor's display counter for the game's window (it is per input
+                // queue). Every 8th poll is plenty: the panel opens in one frame and a hidden
+                // cursor catches up in a few of these.
+                if n.is_multiple_of(8) {
+                    crate::pointer::game_thread_tick();
+                }
             }
         }
         // A failed read goes back to the game unchanged. Mouse casts do not come through here any

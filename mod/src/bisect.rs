@@ -35,9 +35,9 @@ const PLAN: [(&str, u32); 6] = [
     ("everything on", 0),
     ("pointer detours off", bit::POINTER),
     ("raw input hooks off", bit::RAW),
-    ("pad hooks off (casting stops)", bit::PAD),
+    ("pad casting off (the hook still times)", bit::PAD),
     ("housekeeping thread off", bit::THREADS),
-    ("everything off", bit::PAD | bit::RAW | bit::POINTER | bit::THREADS),
+    ("all of our work off", bit::PAD | bit::RAW | bit::POINTER | bit::THREADS),
 ];
 
 /// The most samples one phase can hold.
@@ -46,6 +46,9 @@ const SLOTS: usize = 90;
 static DISABLED: AtomicU32 = AtomicU32::new(0);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static CLOCK: Mutex<PhaseClock> = Mutex::new(PhaseClock::new(PLAN.len(), PHASE_SECONDS));
+/// Which hook measured the frames for this run. Every phase has to use the same one, or the phases
+/// are not comparable - the first run proved it by switching mid-phase and moving its own p50.
+static CLOCK_KIND: Mutex<&'static str> = Mutex::new("none");
 static FILLED: [AtomicU32; PLAN.len()] = [const { AtomicU32::new(0) }; PLAN.len()];
 static SERIES: [AtomicU32; PLAN.len() * SLOTS] =
     [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
@@ -79,8 +82,13 @@ pub fn start() {
     if let Ok(mut clock) = CLOCK.lock() {
         clock.restart();
     }
+    let kind = if crate::perf::pad_live() { "pad poll" } else { "message pump" };
+    if let Ok(mut clock) = CLOCK_KIND.lock() {
+        *clock = kind;
+    }
     DISABLED.store(PLAN[0].1, Ordering::Relaxed);
     RUNNING.store(true, Ordering::Relaxed);
+    crate::log(&format!("bisect: frame clock is the {kind}"));
     log_phase(0);
 }
 
@@ -156,6 +164,10 @@ pub fn section() -> String {
         "# six phases of 60 s, switched by the mod, nothing for the player to change\n\
          # worst gap per second is what one second's slowest frame cost; 32 ms is two frames at 60 Hz\n",
     );
+    let kind = CLOCK_KIND.lock().map(|k| *k).unwrap_or("none");
+    out.push_str(&format!(
+        "# measured with the {kind}; the same clock in every phase, so the phases compare\n"
+    ));
     if (0..PLAN.len()).all(|index| samples(index).iter().all(|us| *us == 0)) {
         out.push_str(
             "# every phase is empty: nothing was feeding the frame clock - not the pad, not the\n\
