@@ -364,6 +364,8 @@ struct App {
     /// One-shot: nobody has sized this panel by hand, so it should open exactly as tall as its
     /// content instead of at the design height with a band of empty space under it.
     needs_fit: bool,
+    /// Measure the layout again on the next frame, for a change that is meant to alter it.
+    remeasure: bool,
     /// The saved corner, so a drag that moves nothing does not rewrite the file.
     saved_pos: (i32, i32),
     /// What the diagnostics buttons last did, shown under the controls.
@@ -463,6 +465,7 @@ impl App {
             pending_center: false,
             close_next_frame: false,
             needs_fit: config.panel_size.is_none(),
+            remeasure: true,
             saved_pos: window_pos(hwnd).unwrap_or((0, 0)),
             note: String::new(),
             bundle_prompt: false,
@@ -915,6 +918,8 @@ impl App {
                 if ui.checkbox("list everything", &mut show) {
                     model.show_all = show;
                     model.panel.set_show_all(show);
+                    // Doubling the list is a layout change: the window is fitted to it again.
+                    self.remeasure = true;
                 }
 
                 ui.next_column();
@@ -1017,8 +1022,14 @@ impl App {
                 // "list everything" doubles the list.
                 let scale_now = (ui.text_line_height() / BASE_FONT_PX).max(0.1);
                 let measured = used_height / scale_now;
-                if self.natural_height < 1.0 || (measured - self.natural_height).abs() > 0.15 * self.natural_height {
+                // Re-measured when the *layout* changes on purpose - the first open, a scale the
+                // player picked, "reset layout", "list everything" - and never merely because the
+                // content grew. A prompt, a status line or a longer tooltip is transient: latching
+                // it moved the scale, and the panel resized itself under a button the player had
+                // only just clicked.
+                if (self.needs_fit || self.remeasure) && measured > 0.0 {
                     self.natural_height = measured;
+                    self.remeasure = false;
                 }
                 // The frame, on the window's own draw list at the window's own rect: both are
                 // inside the render target by construction, so no size can clip an edge.
