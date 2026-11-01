@@ -1460,10 +1460,10 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             match msg {
                 WM_TIMER => {
                     if wparam.0 == SAMPLER_TIMER_ID {
-                        let sample = crate::perf::tick();
+                        let second = crate::perf::tick();
                         // The same second feeds the guided run; when the last phase closes, the
                         // report is written without the player touching anything.
-                        if crate::bisect::on_second(sample) {
+                        if crate::bisect::on_second(second) {
                             app.publish_report("bundle run");
                         }
                         return Some(LRESULT(0));

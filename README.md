@@ -277,7 +277,9 @@ CPU, and a per-second record of the frame gaps over the last five minutes.
   load a character, stand somewhere quiet and still, and start. The mod records six one-minute
   phases — everything on, then the pointer detours off, the raw-input hooks off, the pad hooks off
   (casting stops for that minute, which is expected), the housekeeping thread off, and finally all of
-  them off — and writes a report whose first section puts the six phases side by side. It needs a
+  them off — and writes a report whose first section puts the six phases side by side: for each one,
+  the per-second worst gap (p50/p90/max), how many seconds lost a frame, **how many individual
+  hitches** there were over 32 ms, and which second the worst one fell in. It needs a
   frame clock, and takes the best one available: the pad poll when a controller is attached,
   otherwise the game's own message pump (`PeekMessageW`), which runs once a frame in the world and in
   every menu. The state section of the report says which clock was live. That is the

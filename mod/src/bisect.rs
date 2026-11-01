@@ -52,6 +52,9 @@ static CLOCK_KIND: Mutex<&'static str> = Mutex::new("none");
 static FILLED: [AtomicU32; PLAN.len()] = [const { AtomicU32::new(0) }; PLAN.len()];
 static SERIES: [AtomicU32; PLAN.len() * SLOTS] =
     [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
+/// Individual gaps over 32 ms in each second, for the "how often" half of the picture.
+static HITCHES: [AtomicU32; PLAN.len() * SLOTS] =
+    [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
 
 /// Total wall time a run needs, in seconds (six minutes).
 pub fn total_seconds() -> u32 {
@@ -118,7 +121,7 @@ pub fn status() -> Option<String> {
 /// Record one second's worst gap, and move the run on when the phase's minute is up.
 ///
 /// Returns `true` on the second the whole run finished, so the caller can write the report.
-pub fn on_second(sample_us: u32) -> bool {
+pub fn on_second(second: crate::perf::Second) -> bool {
     if !is_running() {
         return false;
     }
@@ -128,7 +131,8 @@ pub fn on_second(sample_us: u32) -> bool {
     let phase = clock.phase().min(PLAN.len() - 1);
     let filled = FILLED[phase].fetch_add(1, Ordering::Relaxed) as usize;
     if filled < SLOTS {
-        SERIES[phase * SLOTS + filled].store(sample_us, Ordering::Relaxed);
+        SERIES[phase * SLOTS + filled].store(second.worst_us, Ordering::Relaxed);
+        HITCHES[phase * SLOTS + filled].store(second.hitches, Ordering::Relaxed);
     }
     match clock.tick() {
         PhaseTick::Second => false,
@@ -177,13 +181,32 @@ pub fn section() -> String {
     }
     for (index, (label, bits)) in PLAN.iter().enumerate() {
         let values = samples(index);
+        let stats = gap_stats(&values);
+        let hitches: u32 = (0..values.len())
+            .map(|i| HITCHES[index * SLOTS + i].load(Ordering::Relaxed))
+            .sum();
+        let seconds_with_hitches = (0..values.len())
+            .filter(|i| HITCHES[index * SLOTS + i].load(Ordering::Relaxed) > 0)
+            .count();
+        // The second the worst gap fell in, so a stall can be matched against the log.
+        let worst_at = values
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, us)| **us)
+            .map(|(i, _)| i + 1)
+            .unwrap_or(0);
         out.push_str(&format!(
-            "phase {}/{} {} (off: {}): {}\n",
+            "phase {}/{} {} (off: {}): {}\n    {} hitches over 32ms in {} of {} seconds; worst {}ms at second {}\n",
             index + 1,
             PLAN.len(),
             label,
             if *bits == 0 { "nothing".to_string() } else { describe(*bits) },
-            gap_line(&gap_stats(&values))
+            gap_line(&stats),
+            hitches,
+            seconds_with_hitches,
+            values.len(),
+            stats.max as f32 / 1000.0,
+            worst_at
         ));
     }
     out.push('\n');

@@ -36,6 +36,8 @@ static SERIES: [AtomicU32; SERIES_LEN] = [ZERO; SERIES_LEN];
 static SERIES_HEAD: AtomicU32 = AtomicU32::new(0);
 static SERIES_FILLED: AtomicU32 = AtomicU32::new(0);
 /// The worst gap since the current one-second sample started, and when it started.
+/// Gaps over 32 ms seen in the current second, so a report can say how often rather than how bad.
+static SECOND_HITCHES: AtomicU32 = AtomicU32::new(0);
 static SECOND_MAX_US: AtomicU32 = AtomicU32::new(0);
 /// The panel's open state at the last written line, so a line is written when it changes.
 static LAST_OPEN: AtomicBool = AtomicBool::new(false);
@@ -54,10 +56,13 @@ static PAD_AT: AtomicU64 = AtomicU64::new(0);
 ///
 /// Driven by a one-second window timer, not by the pad poll: a keyboard-and-mouse player never
 /// produces a pad poll, and their report must still fill (and the button must still count down).
-pub fn tick() -> u32 {
-    let sample = SECOND_MAX_US.swap(0, Ordering::Relaxed);
+pub fn tick() -> Second {
+    let sample = Second {
+        worst_us: SECOND_MAX_US.swap(0, Ordering::Relaxed),
+        hitches: SECOND_HITCHES.swap(0, Ordering::Relaxed),
+    };
     let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
-    SERIES[head].store(sample, Ordering::Relaxed);
+    SERIES[head].store(sample.worst_us, Ordering::Relaxed);
     SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
     TICKED_AT.store(ticks(), Ordering::Relaxed);
     // The same sample feeds the guided bisect, so a phase and the rolling series are the same
@@ -189,6 +194,17 @@ fn micros(ticks: u64) -> u32 {
     ((ticks as u128 * 1_000_000) / freq as u128).min(u32::MAX as u128) as u32
 }
 
+/// One second's worth of frame data.
+///
+/// `worst_us` is the slowest gap in that second; `hitches` is how many gaps went over 32 ms (two
+/// frames at 60 Hz). The two together are the difference between "it stutters" and "it stutters
+/// four times a second", which is the question a stutter report actually asks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Second {
+    pub worst_us: u32,
+    pub hitches: u32,
+}
+
 /// Record one poll: `started` is the tick taken on entry to the detour.
 pub fn report(started: u64) {
     let now = ticks();
@@ -240,6 +256,7 @@ fn record(now: u64, cost: u32) {
         GAP_MAX_US.fetch_max(gap, Ordering::Relaxed);
         if gap > 32_000 {
             GAP_OVER_32MS.fetch_add(1, Ordering::Relaxed);
+            SECOND_HITCHES.fetch_add(1, Ordering::Relaxed);
         }
         // The worst gap in this second; `tick` files it and moves the series on.
         SECOND_MAX_US.fetch_max(gap, Ordering::Relaxed);
