@@ -992,7 +992,7 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
             }
             // The phase that tests our pad work switches this off and nothing else: the report
             // still goes through untouched and the poll is still timed.
-            if !crate::bisect::disabled(crate::bisect::bit::PAD) {
+            if !crate::bisect::disabled(crate::bisect::PAD) {
                 adjust_inner(&mut *state);
                 // This poll runs on the game's own input thread, which is the only thread that can
                 // raise the cursor's display counter for the game's window (it is per input
@@ -1376,7 +1376,7 @@ fn adjust_inner(state: &mut XInputState) {
         LAST_BIND.store(u32::MAX, Ordering::Relaxed);
         {
             let _t = crate::padcost::Timer::start(crate::padcost::IDLE);
-            idle(pad, now);
+            idle(pad);
         }
         return;
     }
@@ -1429,7 +1429,7 @@ fn adjust_inner(state: &mut XInputState) {
     }
     // Marks raised during this poll (by the mirror, by the panel opening) are served here, after
     // the routing has finished: the dispatcher's work is never in the middle of a cast decision.
-    crate::dispatch::run(now);
+    crate::dispatch::run(now, crate::dispatch::Clock::PadPoll);
 }
 
 /// Bind the game's currently selected spell to `slot` of the weapon in one hand.
@@ -1498,7 +1498,7 @@ fn held_from(pad: &XInputGamepad, chord: bool) -> Held {
 ///
 /// Mirroring forces the wheel selection every frame, which would stop the player cycling spells
 /// — so it is suppressed while the panel is open, and only writes when the selection differs.
-fn idle(pad: &mut XInputGamepad, now: u32) {
+fn idle(pad: &mut XInputGamepad) {
     // Counted so the report can say "the idle path reads nothing" and mean it. Only an actual
     // restore counts: a borrow merely being in flight is a deadline check, not a read.
     // Nothing spell-shaped is held, so any borrowed magic entry goes back now. Mouse and keyboard
@@ -1507,7 +1507,7 @@ fn idle(pad: &mut XInputGamepad, now: u32) {
     if release_borrowed() {
         crate::padcost::note_idle_read();
     }
-    hud_mirror_tick(pad, now);
+    hud_mirror_tick(pad);
 }
 
 /// Keep the HUD's "selected spell" showing what R1 will cast. Opt-in, and the only HUD job here.
@@ -1515,7 +1515,7 @@ fn idle(pad: &mut XInputGamepad, now: u32) {
 /// Separate from the idle path because it is a different concern with a different cost: this is a
 /// weapon read, a selection compare and possibly a steering write - game memory on the poll thread,
 /// which is the thread whose stalls a player feels. The idle path itself reads nothing.
-fn hud_mirror_tick(pad: &mut XInputGamepad, _now: u32) {
+fn hud_mirror_tick(pad: &mut XInputGamepad) {
     if UI_OPEN.load(Ordering::Relaxed) || !crate::config::load().hud_mirror {
         return;
     }

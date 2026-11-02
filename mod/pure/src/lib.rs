@@ -948,6 +948,16 @@ pub const RAW: u32 = 2;
 pub const POINTER: u32 = 4;
 pub const THREADS: u32 = 8;
 
+/// Whether a throttled job may run now.
+///
+/// The rule the dispatcher exists for, kept here so it can be asserted rather than described: an
+/// event may fire sixty times a second, and the handler declares how often acting on it is worth.
+/// `last == 0` means it has never run, which is always due - otherwise a one-second throttle would
+/// also delay the first run by a second after load.
+pub fn due(now: u32, last: u32, min_ms: u32) -> bool {
+    last == 0 || min_ms == 0 || now.wrapping_sub(last) >= min_ms
+}
+
 /// One line of the pad-path section: where our pad work spends its time.
 ///
 /// Five figures in one format string, so it is assembled here where a test can read it - the last
@@ -985,6 +995,27 @@ mod tests {
                 .any(|(_, off)| *off == PAD | RAW | POINTER | THREADS),
             "no phase switches everything off"
         );
+    }
+
+    #[test]
+    fn a_throttle_lets_the_first_run_through_and_holds_the_next() {
+        // Never run: due immediately, whatever the interval.
+        assert!(due(1_000, 0, 5_000));
+        // Ran a moment ago: held.
+        assert!(!due(1_050, 1_000, 100));
+        // Exactly at the interval is due, not one tick later.
+        assert!(due(1_100, 1_000, 100));
+        // Unthrottled handlers always run.
+        assert!(due(1_001, 1_000, 0));
+    }
+
+    #[test]
+    fn a_throttle_survives_the_millisecond_counter_wrapping() {
+        // The clock is a u32 of milliseconds and wraps every 49 days. A wrapping subtraction is the
+        // whole reason this works, so pin the case: last run just before the wrap, now just after.
+        let last = u32::MAX - 50;
+        assert!(due(60, last, 100));      // 111 ms later, across the wrap
+        assert!(!due(20, last, 100));     // 71 ms later, still inside the interval
     }
 
     #[test]

@@ -251,7 +251,7 @@ unsafe extern "system" fn key_detour(vk: i32) -> i16 {
     if tramp.is_null() {
         return 0;
     }
-    if crate::bisect::disabled(crate::bisect::bit::RAW) {
+    if crate::bisect::disabled(crate::bisect::RAW) {
         let original: unsafe extern "system" fn(i32) -> i16 = std::mem::transmute(tramp);
         return original(vk);
     }
@@ -312,7 +312,7 @@ unsafe extern "system" fn raw_data_detour(
         return 0;
     }
     let original: RawInputDataFn = std::mem::transmute(tramp);
-    if crate::bisect::disabled(crate::bisect::bit::RAW) {
+    if crate::bisect::disabled(crate::bisect::RAW) {
         return original(hraw, command, data, size, header_size);
     }
     let out = original(hraw, command, data, size, header_size);
@@ -325,7 +325,7 @@ unsafe extern "system" fn raw_data_detour(
         // on that call - keyboard included - for as long as the panel was open. Swallowing
         // keyboard records is not what this is for, and it is the kind of thing that makes keys
         // feel like they are not registering.
-        if crate::pointer::starving() && !crate::bisect::disabled(crate::bisect::bit::RAW) {
+        if crate::pointer::starving() && !crate::bisect::disabled(crate::bisect::RAW) {
             neutralise_mouse(record_of(data, out));
         }
         stats::raw_call();
@@ -347,7 +347,7 @@ unsafe extern "system" fn raw_buffer_detour(
         return 0;
     }
     let original: RawInputBufferFn = std::mem::transmute(tramp);
-    if crate::bisect::disabled(crate::bisect::bit::RAW) {
+    if crate::bisect::disabled(crate::bisect::RAW) {
         return original(data, size, header_size);
     }
     let count = original(data, size, header_size);

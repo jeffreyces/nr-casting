@@ -18,13 +18,9 @@ use nr_casting_core::{gap_stats, PhaseClock, PhaseTick};
 
 /// The subsystems a phase can switch off, and the plan itself, live in the pure crate: the plan has
 /// a shape worth asserting (a baseline at each end, every subsystem measured alone, one phase with
-/// everything off) and assertions only run where the tests do.
-pub mod bit {
-    pub const PAD: u32 = nr_casting_core::PAD;
-    pub const RAW: u32 = nr_casting_core::RAW;
-    pub const POINTER: u32 = nr_casting_core::POINTER;
-    pub const THREADS: u32 = nr_casting_core::THREADS;
-}
+/// everything off) and assertions only run where the tests do. Re-exported rather than re-declared,
+/// so there is no second definition to drift.
+pub use nr_casting_core::{PAD, POINTER, RAW, THREADS};
 
 /// Seconds each phase runs.
 pub const PHASE_SECONDS: u32 = 60;
@@ -211,7 +207,7 @@ pub fn on_second(second: crate::perf::Second) -> bool {
 /// step with the same two lines, which is why there isn't one.
 fn apply_bits(bits: u32) {
     DISABLED.store(bits, Ordering::Relaxed);
-    crate::pointer::engage_cursor(bits & bit::POINTER == 0);
+    crate::pointer::engage_cursor(bits & POINTER == 0);
 }
 
 /// Store the tick count of the phase that just ended and start counting for the next one.
@@ -352,13 +348,13 @@ fn samples(index: usize) -> Vec<u32> {
 }
 
 fn describe(bits: u32) -> String {
-    [bit::PAD, bit::RAW, bit::POINTER, bit::THREADS]
+    [PAD, RAW, POINTER, THREADS]
         .iter()
         .filter(|b| bits & **b != 0)
         .map(|b| match *b {
-            bit::PAD => "pad hooks",
-            bit::RAW => "raw input hooks",
-            bit::POINTER => "pointer detours",
+            PAD => "pad hooks",
+            RAW => "raw input hooks",
+            POINTER => "pointer detours",
             _ => "housekeeping thread",
         })
         .collect::<Vec<_>>()

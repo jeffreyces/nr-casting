@@ -21,10 +21,11 @@ const N: usize = 4;
 // The selection sample used to have a slot here. It is no longer read from the poll thread at all,
 // so there is nothing left to time: a zero row in a report is worse than no row.
 //
-// `pointer recheck` is the other periodic read that was never measured: once a second `player()`
-// asks the OS whether the character's block is still readable, and on a machine whose pages are not
-// resident that is exactly the kind of work this report exists to count.
-const NAMES: [&str; N] = ["adjust_inner", "idle path", "chord path", "pointer recheck"];
+// `character recheck` is the other periodic read that was never measured: `player()` asks the OS
+// whether the character's block is still readable, and on a machine whose pages are not resident
+// that is exactly the kind of work this report exists to count. It runs per *check* (on a change of
+// character, or the net behind it), not per frame - which is why the section header says so.
+const NAMES: [&str; N] = ["adjust_inner", "idle path", "chord path", "character recheck"];
 
 static CALLS: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
 /// How often a part cost more than 250 us - about a fresh page fault's price, and far more than

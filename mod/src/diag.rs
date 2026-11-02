@@ -452,8 +452,8 @@ fn state() -> String {
     crate::dispatch::report(&mut out, minutes);
     out.push_str("\n==== pad path ====\n");
     out.push_str(&format!(
-        "# mean is what one frame pays; worst is what one hitch can be. Since load ({minutes} min),\n\
-         # not the {series} s series above.\n",
+        "# mean is what one frame pays, except the last row: that one is per check, not per frame.\n\
+         # Worst is what one hitch can be. Since load ({minutes} min), not the {series} s series above.\n",
         series = crate::perf::SERIES_SECONDS
     ));
     out.push_str(&crate::padcost::report());

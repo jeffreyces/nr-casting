@@ -296,7 +296,7 @@ fn run() {
     loop {
         // A bisect phase with the thread off: the loop stays alive (so it can be switched back on)
         // and does nothing at all.
-        if bisect::disabled(bisect::bit::THREADS) {
+        if bisect::disabled(bisect::THREADS) {
             std::thread::sleep(Duration::from_secs(1));
             continue;
         }

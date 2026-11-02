@@ -11,7 +11,7 @@
 
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 extern "system" {
@@ -394,21 +394,43 @@ fn save_ui_key(key: &str, value: &str) {
 /// A key the file does not have yet is added at the end of the `[ui]` section rather than at the end
 /// of the file: an install shipped before the key existed gains it in the section a reader would
 /// look in, not under `[logging]`.
-/// When we last wrote the ini ourselves, so the watcher can tell our edit from the player's.
+/// The hash of the last file content we wrote ourselves.
 ///
-/// The panel saves geometry, scale and `show_all` into this file, and the watcher is watching it:
-/// every panel resize would otherwise reload the config mid-frame, which is churn nobody asked for
-/// and a second reason for the panel thread and the watcher to touch the same file at once.
-static SELF_WRITE_MS: AtomicU32 = AtomicU32::new(0);
+/// The panel saves geometry, scale and `show_all` into this ini, and the watcher watches that file:
+/// every panel resize would otherwise reload the config mid-frame. Comparing *content* rather than
+/// time is what makes this safe in both directions - a player's edit a second after a resize is
+/// still their edit and still reloads, and our own write is recognised however late the event lands.
+static SELF_HASH: AtomicU64 = AtomicU64::new(0);
 
-/// Whether a change was our own write, and should not be treated as an edit.
-fn is_self_write(now: u32) -> bool {
-    let at = SELF_WRITE_MS.load(Ordering::Relaxed);
-    at != 0 && now.wrapping_sub(at) < 5_000
+/// FNV-1a: enough to tell "the bytes we wrote" from "the bytes the player wrote".
+fn content_hash(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Remember what we just wrote, so the watcher can recognise it.
+fn note_self_write(bytes: &[u8]) {
+    SELF_HASH.store(content_hash(bytes), Ordering::Relaxed);
+}
+
+/// Whether the file on disk is still exactly what we last wrote.
+fn is_self_write() -> bool {
+    let ours = SELF_HASH.load(Ordering::Relaxed);
+    if ours == 0 {
+        return false;
+    }
+    match std::fs::read(ini_file()) {
+        Ok(bytes) => content_hash(&bytes) == ours,
+        // Cannot read it: do not claim it is ours.
+        Err(_) => false,
+    }
 }
 
 fn save_ui_keys(section: &str, pairs: &[(&str, &str)]) {
-    SELF_WRITE_MS.store(crate::millis(), Ordering::Relaxed);
     let file = ini_file();
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     let header = format!("[{section}]");
@@ -459,9 +481,12 @@ fn save_ui_keys(section: &str, pairs: &[(&str, &str)]) {
             None => out.push_str(&missing),
         }
     }
-    if let Err(e) = std::fs::write(&file, out) {
-        let keys: Vec<&str> = pairs.iter().map(|(key, _)| *key).collect();
-        crate::log(&format!("config: could not save {}: {e}", keys.join(", ")));
+    match std::fs::write(&file, &out) {
+        Ok(()) => note_self_write(out.as_bytes()),
+        Err(e) => {
+            let keys: Vec<&str> = pairs.iter().map(|(key, _)| *key).collect();
+            crate::log(&format!("config: could not save {}: {e}", keys.join(", ")));
+        }
     }
 }
 
@@ -560,15 +585,22 @@ pub fn watch() {
             if hit != WAIT_OBJECT_0 {
                 continue;
             }
-            unsafe {
-                FindNextChangeNotification(handle);
+            // Re-arm. If this fails the handle stays signaled, so every later wait would return
+            // immediately - a background thread spinning at a full core for the rest of the session,
+            // which nobody would attribute to the ini. Stop instead, and say so once.
+            if unsafe { FindNextChangeNotification(handle) } == 0 {
+                crate::log(
+                    "config: the folder watcher stopped (the notification could not be re-armed); \
+                     the ini is read at launch only from here on",
+                );
+                return;
             }
             // Editors write in two steps; give the second one time to land.
             std::thread::sleep(std::time::Duration::from_millis(500));
             if !ini_file().exists() {
                 continue;
             }
-            if is_self_write(crate::millis()) {
+            if is_self_write() {
                 // The panel wrote it (geometry, scale, show_all). Nothing for the player to see.
                 continue;
             }
@@ -639,8 +671,11 @@ debug_log = off
 ; sees it) and the longest time our own code spent inside it. Use it to report stutter.
 perf_log = off
 ";
-            if let Err(e) = std::fs::write(&file, defaults) {
-                crate::log(&format!("config: could not write {}: {e}", file.display()));
+            match std::fs::write(&file, defaults) {
+                Ok(()) => note_self_write(defaults.as_bytes()),
+                Err(e) => {
+                    crate::log(&format!("config: could not write {}: {e}", file.display()));
+                }
             }
         }
 

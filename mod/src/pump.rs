@@ -66,7 +66,7 @@ unsafe extern "system" fn peek_detour(
         crate::perf::report_pump(started);
         // The frame clock serves marks too: with no controller there are no pad polls, and a panel
         // that opened would otherwise wait for one that never comes. Cheap - one atomic swap.
-        crate::dispatch::run(crate::millis());
+        crate::dispatch::run(crate::millis(), crate::dispatch::Clock::FrameClock);
     }
     out
 }
