@@ -442,10 +442,30 @@ pub(crate) fn invalidate_weapon_cache() {
     WEAPON_AT.store(0, Ordering::Relaxed);
 }
 
+/// When input was last seen, so the pair is re-read while the game may still be applying it.
+static WEAPON_EDGE_MS: AtomicU32 = AtomicU32::new(0);
+
+/// How long after input the weapon pair is re-read on every poll.
+///
+/// A read taken at the moment of the press is a read of the *old* weapon: the game applies an
+/// equipment change in its own frame, after our hook has already returned that frame's report. So
+/// invalidating on the edge is not enough - the read that follows it caches the state the player was
+/// trying to leave, stamped as fresh, and the chord a frame later trusts it. For a fifth of a second
+/// after any input the cache is simply not believed: one pointer walk per poll, which is microseconds
+/// and only while the player is pressing things.
+const WEAPON_SETTLE_MS: u32 = 200;
+
+/// Note that the player pressed something. Called from the poll path on any edge.
+pub(crate) fn note_input_edge(now: u32) {
+    WEAPON_EDGE_MS.store(now, Ordering::Relaxed);
+}
+
 pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
     let now = now_ms();
     let cached = WEAPON_PAIR.load(Ordering::Relaxed);
-    if cached != u64::MAX
+    let settling = now.wrapping_sub(WEAPON_EDGE_MS.load(Ordering::Relaxed)) < WEAPON_SETTLE_MS;
+    if !settling
+        && cached != u64::MAX
         && now.wrapping_sub(WEAPON_AT.load(Ordering::Relaxed)) < WEAPON_CACHE_MS
     {
         return Some((unpack_weapon_id(cached >> 32), unpack_weapon_id(cached)));

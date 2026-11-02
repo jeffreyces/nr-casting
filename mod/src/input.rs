@@ -1194,6 +1194,11 @@ fn adjust_inner(state: &mut XInputState) {
     // timestamp on a stale pair is worse than no cache at all. The release lands after the swap.
     if pressed != previous || pulled != previous_pulls {
         crate::game::invalidate_weapon_cache();
+        // And stop believing the cache for a moment: the read that follows this edge still sees the
+        // weapon the player is switching away from, because the game applies the change in its own
+        // frame. Re-reading on every poll for 200 ms costs microseconds and is only paid while the
+        // player is actually pressing things.
+        crate::game::note_input_edge(now);
     }
     let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
         || now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) >= POLL_INTERVAL_MS;
@@ -1662,6 +1667,16 @@ pub(crate) fn steer_mouse(right: bool, slot: usize) -> bool {
 
 fn cast_slot(right: bool, slot: usize, which: &str, pad: &mut XInputGamepad, now: u32) -> bool {
     let bound = bound_spell(right, slot);
+    if crate::config::load().debug_log {
+        // Which weapon the decision used, because "it cast from the other catalyst" is a question
+        // about this line and nothing else. The id is what the slot table is keyed by.
+        let (left, right_id) = crate::game::weapon_ids().unwrap_or((0, 0));
+        debug!(
+            "cast: {which} -> hand {} weapon {} (pair L={left} R={right_id}) slot {slot} spell {bound}",
+            if right { "right" } else { "left" },
+            if right { right_id } else { left }
+        );
+    }
     if bound <= 0 {
         debug!("input: {which} has no bound spell");
         return false;
