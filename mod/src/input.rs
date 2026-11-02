@@ -1164,6 +1164,9 @@ fn catalyst_two_handed() -> bool {
 static LAST_BIND: AtomicU32 = AtomicU32::new(u32::MAX);
 
 fn adjust_inner(state: &mut XInputState) {
+    // Where this call's time goes, for the report. Three relaxed adds per poll when the perf log is
+    // off, which is what everything else here costs.
+    let _total = crate::padcost::Timer::start(crate::padcost::TOTAL);
     let now = crate::millis();
     let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
         || now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) >= POLL_INTERVAL_MS;
@@ -1301,7 +1304,10 @@ fn adjust_inner(state: &mut XInputState) {
 
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
-    sample_player_selection(now);
+    {
+        let _t = crate::padcost::Timer::start(crate::padcost::SAMPLE);
+        sample_player_selection(now);
+    }
 
     // Debug: log the pad on change, not on every pass — a held button at 125 passes a second
     // would fill the 4 MiB log in half a minute.
@@ -1332,7 +1338,10 @@ fn adjust_inner(state: &mut XInputState) {
     // cache so the next pass sees the corrected state instead of writing again).
     if route == Route::Idle {
         LAST_BIND.store(u32::MAX, Ordering::Relaxed);
-        idle(pad, now);
+        {
+            let _t = crate::padcost::Timer::start(crate::padcost::IDLE);
+            idle(pad, now);
+        }
         return;
     }
 
@@ -1352,6 +1361,8 @@ fn adjust_inner(state: &mut XInputState) {
         return;
     }
 
+    // The rest of the pass: the chord/cast decision and whatever game memory it needs.
+    let _chord = crate::padcost::Timer::start(crate::padcost::CHORD);
     match route {
         // Not our chord after all (a catalyst-less hand): the game owns this press — two-hand,
         // heavy attack — and nothing of ours is in flight.

@@ -61,6 +61,7 @@ mod diag;
 mod pointer;
 mod pump;
 mod threadcpu;
+mod padcost;
 mod win32;
 mod probe;
 mod store;

@@ -403,6 +403,16 @@ pub fn ticks() -> u64 {
     now as u64
 }
 
+/// Microseconds since a `ticks()` value. For a caller timing its own work: the pair is two reads
+/// of a shared page, so it is cheap enough to leave in a per-frame path.
+pub fn micros_since(started: u64) -> u64 {
+    let now = ticks();
+    if now <= started {
+        return 0;
+    }
+    micros(now - started) as u64
+}
+
 fn micros(ticks: u64) -> u32 {
     let freq = FREQ.load(Ordering::Relaxed);
     if freq == 0 {

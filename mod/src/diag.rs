@@ -437,6 +437,11 @@ fn state() -> String {
             format!(" - {refused} did NOT take, so those casts used the wheel's spell")
         }
     );
+    // Where our pad work spends its time. A group comparison can only say the group matters; this
+    // says which line to look at, and separates "our code is slow" from "the game is slow after it".
+    out.push_str("\n==== pad path ====\n");
+    out.push_str("# mean is what one frame pays; worst is what one hitch can be\n");
+    out.push_str(&crate::padcost::report());
     let _ = writeln!(
         out,
         "chords: {} | panel {} | cursor hooks {} | player cursor {} | frame clock {}",

@@ -140,6 +140,10 @@ unsafe extern "system" fn present_detour(this: *mut u8, sync_interval: u32, flag
     let out = original(this, sync_interval, flags);
     // The panel's own presents are not the game's frames.
     if CRATE_THREAD.with(|ours| !ours.get()) {
+        // The thread that presents is the frame thread. Attribution used to follow whoever called
+        // `PeekMessageW`, which on at least one machine is a different thread: a reporter's report
+        // showed 56 presents a second beside "46 ms of CPU per frame", which cannot both be true.
+        crate::threadcpu::note_frame_thread(crate::win32::GetCurrentThreadId());
         crate::perf::report_present(started);
     }
     out
