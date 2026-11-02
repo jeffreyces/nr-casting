@@ -1166,18 +1166,31 @@ fn catalyst_two_handed() -> bool {
 /// The last (hand, slot) a held bind gesture acted on, so one press binds once.
 static LAST_BIND: AtomicU32 = AtomicU32::new(u32::MAX);
 
+/// Which triggers were past the cast threshold on the previous poll, as two bits.
+static LAST_PULLS: AtomicU32 = AtomicU32::new(0);
+
 fn adjust_inner(state: &mut XInputState) {
     // Where this call's time goes, for the report. Three relaxed adds per poll when the perf log is
     // off, which is what everything else here costs.
     let _total = crate::padcost::Timer::start(crate::padcost::TOTAL);
     let now = crate::millis();
 
-    // A press edge, and only a press edge, forces a fresh weapon read: the pair is cached for
-    // 250 ms so a slow machine does not re-walk game memory on every poll, and a swap followed by a
-    // cast inside that window would otherwise be decided from the weapon that was in hand before.
+    // A press edge, and only a press edge, forces a fresh weapon read: the pair is cached so a slow
+    // machine does not re-walk game memory on every poll, and a swap followed by a cast inside that
+    // window would otherwise be decided from the weapon that was in hand before.
+    //
+    // A trigger is a press too. `buttons` carries only the digital half of the pad - R2 and L2 are
+    // analog - so this read `pressed & !previous` for years while a swap to the seal followed by R2
+    // produced no bit change at all: the pair stayed cached, the cast was decided from the weapon
+    // just put away, and the press did nothing. The next press a second later worked, because by
+    // then the cache had expired. Crossing the cast threshold is the edge; the raw value is not,
+    // because a trigger held at rest jitters by a count or two.
     let pressed = state.gamepad.buttons;
     let previous = LAST_BUTTONS.swap(pressed, Ordering::Relaxed);
-    if pressed & !previous != 0 {
+    let pulled = ((state.gamepad.right_trigger >= TRIGGER_THRESHOLD) as u32) << 1
+        | (state.gamepad.left_trigger >= TRIGGER_THRESHOLD) as u32;
+    let previous_pulls = LAST_PULLS.swap(pulled, Ordering::Relaxed);
+    if pressed & !previous != 0 || pulled & !previous_pulls != 0 {
         crate::game::invalidate_weapon_cache();
     }
     let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
