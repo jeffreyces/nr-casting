@@ -20,3 +20,6 @@ work/
 *.d
 *.rlib
 *.lib
+
+# Diagnostic reports copied in while reviewing (never shipped)
+nr_casting_diag_*.txt
