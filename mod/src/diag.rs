@@ -397,7 +397,11 @@ fn state() -> String {
     let _ = writeln!(
         out,
         "spell selected in the game: {}",
-        crate::PLAYER_SPELL.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            // One read, on demand: the number below is only ever printed here.
+            crate::game::sample_player_selection_now();
+            crate::PLAYER_SPELL.load(std::sync::atomic::Ordering::Relaxed)
+        }
     );
     // One counter, one meaning. This used to claim "N with no controller, 0 unplugged" from a
     // single value plus a hardcoded zero, so a wireless pad that dropped nine times in a session

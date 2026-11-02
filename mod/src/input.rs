@@ -12,7 +12,7 @@ use std::time::Duration;
 use nr_casting_core::{Held, Route};
 use windows::Win32::UI::WindowsAndMessaging::{GetCursorInfo, CURSORINFO, CURSOR_SHOWING};
 
-use crate::game::{release_borrowed, sample_player_selection, select_spell, selection_is, weapon_ids};
+use crate::game::{release_borrowed, select_spell, selection_is, weapon_ids};
 use crate::logging::{debug, log};
 use crate::store::store_get;
 use crate::{probe, UI_OPEN};
@@ -1324,12 +1324,10 @@ fn adjust_inner(state: &mut XInputState) {
     // Only the panel reads this, and only while it is open. Sampling it with the panel closed cost a
     // reporter 501 us of pad-path mean and 46 ms worst per sample, on a pointer chase that exists to
     // keep one line of a window fresh that nobody had open.
-    {
-        // Throttled to two seconds inside, and the throttled path is one atomic load: this is the
-        // report's "spell selected in the game" line, not something the input path needs.
-        let _t = crate::padcost::Timer::start(crate::padcost::SAMPLE);
-        sample_player_selection(now);
-    }
+    // Deliberately nothing here. The player's selected spell is read on demand, when a report is
+    // being written (see `game::sample_player_selection_now`). Reading it on the poll thread cost
+    // one report 153 stalls of about 29 ms each across seven minutes, and its only reader is a
+    // single line of a file written once in a while.
 
     // Debug: log the pad on change, not on every pass — a held button at 125 passes a second
     // would fill the 4 MiB log in half a minute.

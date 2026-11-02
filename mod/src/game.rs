@@ -271,26 +271,20 @@ pub(crate) fn select_spell(spell: i32) -> bool {
 /// `VirtualQuery` calls down a pointer chain. 100 ms is far below what the panel's "selected"
 /// line can show.
 /// value (binding).
-/// How often the player's selected spell is re-read. See the note inside.
-const SAMPLE_MS: u32 = 2_000;
-
-pub(crate) fn sample_player_selection(now: u32) {
-    // Wrapping compare on the caller's millisecond clock: `saturating_sub` would stall this for
-    // the 49 days between a wrap and the stored value being overtaken again.
-    // Two seconds, not 100 ms. The only reader of this value is the diagnostic report's
-    // "spell selected in the game" line and one debug line; nothing on the input path consumes it.
-    // At 100 ms it was re-reading a pointer chase ~36 times a second to keep a number fresh that
-    // gets printed once every few minutes.
-    static LAST: AtomicU32 = AtomicU32::new(0);
-    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < SAMPLE_MS {
-        return;
+/// Read the player's selected spell once, for a report about to be written.
+///
+/// Called when a report is built rather than from the input path: on a machine whose pages are not
+/// resident this read can cost tens of milliseconds, and paying that once per report is invisible
+/// where paying it on the pad poll is a stutter. The pointer is re-checked first, because a report
+/// can be asked for at any moment, including while the world is going away.
+pub(crate) fn sample_player_selection_now() {
+    if magic_data_verified().is_some() {
+        sample_now();
     }
-    LAST.store(now, Ordering::Relaxed);
-    sample_now();
 }
 
-/// Sample without the throttle. For binding: the spell captured must be the one selected at the
-/// moment the gesture completes, not up to 100 ms earlier.
+/// Read the selected spell once. For binding, where the spell captured must be the one selected at
+/// the moment the gesture completes, and for a report about to be written.
 fn sample_now() {
     let Some(magic) = magic_data() else { return };
     let sel = magic.selected_slot;

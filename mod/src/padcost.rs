@@ -14,11 +14,12 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 pub const TOTAL: usize = 0;
 pub const IDLE: usize = 1;
-pub const SAMPLE: usize = 2;
-pub const CHORD: usize = 3;
-const N: usize = 4;
+pub const CHORD: usize = 2;
+const N: usize = 3;
 
-const NAMES: [&str; N] = ["adjust_inner", "idle path", "selection sample", "chord path"];
+// The selection sample used to have a slot here. It is no longer read from the poll thread at all,
+// so there is nothing left to time: a zero row in a report is worse than no row.
+const NAMES: [&str; N] = ["adjust_inner", "idle path", "chord path"];
 
 static CALLS: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
 /// How often a part cost more than 250 us - about a fresh page fault's price, and far more than
