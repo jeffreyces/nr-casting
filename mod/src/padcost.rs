@@ -21,6 +21,11 @@ const N: usize = 4;
 const NAMES: [&str; N] = ["adjust_inner", "idle path", "selection sample", "chord path"];
 
 static CALLS: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
+/// How often a part cost more than 250 us - about a fresh page fault's price, and far more than
+/// any arithmetic in these functions. A count is what separates "one slow read" from "every read on
+/// a machine whose pages are not resident", which are different bugs with different fixes.
+static SLOW: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
+const SLOW_US: u64 = 250;
 static SUM_US: [AtomicU64; N] = [const { AtomicU64::new(0) }; N];
 static MAX_US: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
 
@@ -31,6 +36,9 @@ pub fn record(slot: usize, us: u64) {
         return;
     }
     CALLS[slot].fetch_add(1, Ordering::Relaxed);
+    if us > SLOW_US {
+        SLOW[slot].fetch_add(1, Ordering::Relaxed);
+    }
     SUM_US[slot].fetch_add(us, Ordering::Relaxed);
     MAX_US[slot].fetch_max(us.min(u32::MAX as u64) as u32, Ordering::Relaxed);
 }
@@ -75,9 +83,10 @@ pub fn report() -> String {
         let sum = SUM_US[slot].load(Ordering::Relaxed);
         let max = MAX_US[slot].load(Ordering::Relaxed);
         let mean = sum as f64 / calls as f64;
+        let slow = SLOW[slot].load(Ordering::Relaxed);
         out.push_str(&format!(
-            "  {}: {} calls, mean {:.1} us, worst {} us\n",
-            NAMES[slot], calls, mean, max
+            "  {}: {} calls, mean {:.1} us, worst {} us, {} over {} us\n",
+            NAMES[slot], calls, mean, max, slow, SLOW_US
         ));
     }
     out
