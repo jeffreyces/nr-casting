@@ -320,9 +320,9 @@ impl Panel {
         self.visible = visible;
         crate::UI_OPEN.store(visible, std::sync::atomic::Ordering::Relaxed);
         if visible {
-            // The report prints the game's selected spell; opening the panel is the moment to ask
-            // for it, and the poll thread does the reading.
-            crate::game::request_selection_sample();
+            // Opening the panel is the event; the dispatcher does the reading, on the game's
+            // thread, so the report has a fresh selected spell and the panel a fresh weapon pair.
+            crate::dispatch::mark(crate::dispatch::PANEL_OPEN);
         }
         crate::pointer::set_open(visible);
         if visible {

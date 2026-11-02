@@ -42,6 +42,7 @@
 //! `pointer`, `probe`, `overlay` (panel model), `window` (panel host).
 
 mod bisect;
+mod dispatch;
 mod config;
 mod crash;
 mod game;

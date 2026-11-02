@@ -875,10 +875,13 @@ impl App {
             }
         }
         if open {
-            // Opening the panel shows which weapon is in hand, so it cannot answer from the pair
-            // cached for the last cast: a swap a moment earlier would display the old weapon until
-            // something else happened to invalidate it.
+            // Opening the panel shows which weapon is in hand, so it cannot answer from a pair cached
+            // for the last cast. The invalidation is inline because it is one relaxed store and the
+            // reload below reads it immediately; the *read* that follows is the dispatcher's job
+            // (`PANEL_OPEN`), on the game's thread, so this thread never walks game memory for the
+            // selected spell.
             crate::game::invalidate_weapon_cache();
+            crate::dispatch::mark(crate::dispatch::PANEL_OPEN);
             self.model.reload();
         }
         crate::log(if open { "panel: open" } else { "panel: closed" });

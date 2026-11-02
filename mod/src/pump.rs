@@ -64,6 +64,9 @@ unsafe extern "system" fn peek_detour(
         // whether a slow second was spent working or waiting.
         crate::threadcpu::note_frame_thread(thread);
         crate::perf::report_pump(started);
+        // The frame clock serves marks too: with no controller there are no pad polls, and a panel
+        // that opened would otherwise wait for one that never comes. Cheap - one atomic swap.
+        crate::dispatch::run(crate::millis());
     }
     out
 }

@@ -370,7 +370,6 @@ static Y_BEFORE: AtomicBool = AtomicBool::new(false);
 /// instead of 125 times a second.
 static LAST_PAD_LOG: AtomicU32 = AtomicU32::new(u32::MAX);
 /// Last HUD-mirror pass, in milliseconds (see `idle`).
-static LAST_MIRROR_MS: AtomicU32 = AtomicU32::new(0);
 // When on, idle polls mirror the weapon's slot 1 into the selection so the game's own spell HUD
 // shows what is bound. Locks the D-pad wheel while on (see README).
 pub(crate) fn install_hook() -> Result<*mut u8, String> {
@@ -1428,6 +1427,9 @@ fn adjust_inner(state: &mut XInputState) {
         }
         Route::Idle => {}
     }
+    // Marks raised during this poll (by the mirror, by the panel opening) are served here, after
+    // the routing has finished: the dispatcher's work is never in the middle of a cast decision.
+    crate::dispatch::run(now);
 }
 
 /// Bind the game's currently selected spell to `slot` of the weapon in one hand.
@@ -1513,7 +1515,7 @@ fn idle(pad: &mut XInputGamepad, now: u32) {
 /// Separate from the idle path because it is a different concern with a different cost: this is a
 /// weapon read, a selection compare and possibly a steering write - game memory on the poll thread,
 /// which is the thread whose stalls a player feels. The idle path itself reads nothing.
-fn hud_mirror_tick(pad: &mut XInputGamepad, now: u32) {
+fn hud_mirror_tick(pad: &mut XInputGamepad, _now: u32) {
     if UI_OPEN.load(Ordering::Relaxed) || !crate::config::load().hud_mirror {
         return;
     }
@@ -1525,14 +1527,17 @@ fn hud_mirror_tick(pad: &mut XInputGamepad, now: u32) {
     if pad.buttons & XINPUT_GAMEPAD_DPAD != 0 {
         return;
     }
-    // 10 Hz is plenty for a number in a corner: the value only changes when the player moves the
-    // wheel by hand, and a pass is a weapon read plus a selection compare (three `VirtualQuery`
-    // calls) and possibly a write. It ran at 30 Hz for exactly this comparison, at three times the
-    // cost, for a number that was not changing.
-    if now.wrapping_sub(LAST_MIRROR_MS.load(Ordering::Relaxed)) < 100 {
-        return;
-    }
-    LAST_MIRROR_MS.store(now, Ordering::Relaxed);
+    // The rate is the dispatcher's business now: this only says the mirror may be worth a pass.
+    // Marking is cheaper than deciding, and a poll that arrives inside the interval is dropped
+    // instead of queued.
+    crate::dispatch::mark(crate::dispatch::MIRROR);
+}
+
+/// One mirror pass: make the game's own selection agree with what R1 will cast.
+///
+/// Called by the dispatcher, throttled there. No clock check of its own - a handler that also
+/// timed itself would be a second throttle disagreeing with the first.
+pub(crate) fn mirror_now() {
     let Some((left_id, right_id)) = weapon_ids() else {
         return;
     };
