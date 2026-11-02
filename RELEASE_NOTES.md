@@ -43,6 +43,18 @@ behaviour change worth knowing about (below).
 - **The selected-spell read is off the panel thread.** It moved there in 0.2.17 to get it off the poll
   path, which traded a stutter for a lifetime race against a pointer the game can free. It is
   requested when the panel opens and served by the poll thread; the report prints the reading's age.
+- **A fast weapon swap then cast used the catalyst it had just left** - or swallowed the press with no
+  spell and no failed-cast gesture at all. This one is subtle and was made repeatable by the longer
+  cache: the read taken at the moment of the press returns the *pre-swap* weapon, because the game
+  applies an equipment change in its own frame, after the mod has already handed over that frame's
+  report. The old pair came back stamped as fresh, and the chord a frame later trusted it. The cache
+  is now disbelieved for 200 ms after any input edge, which is microseconds per poll and only while
+  the player is pressing things.
+- **`debug_log = on` had no effect on debug lines.** The macro reads one atomic rather than the
+  config (the check has to come before the `format!`), and that atomic was filled once at load - so
+  the new live reload applied everywhere except the thing it was turned on for. A reload now pushes
+  the cached flags. A chord swallowed because the slot is unbound also logs the hand, weapon and slot
+  it decided were empty, so "I pressed it and nothing happened" is diagnosable from the file.
 - **Two clocks could run the same handler at once**, and the ini watcher could spin at a full core if
   its notification failed to re-arm. Both were found in a twelve-principles pass over these changes.
 
@@ -78,6 +90,10 @@ On the development machine, one nine-phase run:
 Spread across nine minutes 0.38 ms; the two identical closing phases agreed to 0.20 ms, so nothing
 drifted mid-run. The pad path measured `adjust_inner 0.7 us mean, 1 slow poll of 32,655`, and the
 character recheck fell from about 0.8 calls a second to 0.17.
+
+The swap-then-cast fix was verified from the log rather than by feel: with `debug_log` on, a session
+recorded 611 cast decisions and zero swallowed chords, every line naming the weapon it read
+(`R2 -> hand right weapon 34060000 (pair L=33090010 R=34060000) slot 1 spell 6810`).
 
 ## Not tested here
 
