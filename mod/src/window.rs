@@ -875,6 +875,10 @@ impl App {
             }
         }
         if open {
+            // Opening the panel shows which weapon is in hand, so it cannot answer from the pair
+            // cached for the last cast: a swap a moment earlier would display the old weapon until
+            // something else happened to invalidate it.
+            crate::game::invalidate_weapon_cache();
             self.model.reload();
         }
         crate::log(if open { "panel: open" } else { "panel: closed" });

@@ -1190,7 +1190,10 @@ fn adjust_inner(state: &mut XInputState) {
     let pulled = ((state.gamepad.right_trigger >= TRIGGER_THRESHOLD) as u32) << 1
         | (state.gamepad.left_trigger >= TRIGGER_THRESHOLD) as u32;
     let previous_pulls = LAST_PULLS.swap(pulled, Ordering::Relaxed);
-    if pressed & !previous != 0 || pulled & !previous_pulls != 0 {
+    // Any change, not just the press: the game applies an equipment swap a few frames *after* the
+    // button, so the read taken on the press can still see the weapon being put away - and a fresh
+    // timestamp on a stale pair is worse than no cache at all. The release lands after the swap.
+    if pressed != previous || pulled != previous_pulls {
         crate::game::invalidate_weapon_cache();
     }
     let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
