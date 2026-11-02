@@ -109,9 +109,13 @@ fn on_panel_open() {
 ///
 /// Printed even when a handler never ran: "never ran" is information - a housekeeping pass feeding
 /// from an event nobody marks is the failure mode this section exists to make visible.
-pub fn report(out: &mut String) {
+pub fn report(out: &mut String, minutes: u64) {
     out.push_str("\n==== dispatch ====\n");
-    out.push_str("# how often each time-gated job ran, and what it cost\n");
+    out.push_str(&format!(
+        "# how often each time-gated job ran, and what it cost - since load ({minutes} min),\n\
+         # not the {series} s series above: a run count is a lifetime count\n",
+        series = crate::perf::SERIES_SECONDS
+    ));
     for (slot, handler) in HANDLERS.iter().enumerate() {
         let runs = RUNS[slot].load(Ordering::Relaxed);
         let sum = SUM_US[slot].load(Ordering::Relaxed);
@@ -122,6 +126,15 @@ pub fn report(out: &mut String) {
             continue;
         }
         let mean = sum as f64 / runs as f64;
+        // A handler that only marks costs less than the microsecond clock can see; saying `0 us`
+        // reads like a broken counter, so say what it is.
+        if worst == 0 {
+            out.push_str(&format!(
+                "  {}: {} runs, under 1 us each, {} marks inside its {} ms interval\n",
+                handler.name, runs, throttled, handler.min_ms
+            ));
+            continue;
+        }
         out.push_str(&format!(
             "  {}: {} runs, mean {mean:.1} us, worst {worst} us, {} marks inside its {min_ms} ms interval\n",
             handler.name,

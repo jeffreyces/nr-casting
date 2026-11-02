@@ -36,6 +36,11 @@ static DETOUR_SUM_US: AtomicU64 = AtomicU64::new(0);
 /// 60 ms hitch every 2 s is 3% of the time and indistinguishable from noise in a mean. The series
 /// makes the periodicity visible at a glance.
 const SERIES_LEN: usize = 300;
+
+/// How long the rolling series is, in seconds. Public because the report has to say which numbers
+/// are windowed and which are lifetime counts - readers kept assuming a run count covered the same
+/// five minutes as the series beside it, and the run count had been accumulating since load.
+pub const SERIES_SECONDS: u64 = SERIES_LEN as u64;
 #[allow(clippy::declare_interior_mutable_const)]
 const ZERO: AtomicU32 = AtomicU32::new(0);
 static SERIES: [AtomicU32; SERIES_LEN] = [ZERO; SERIES_LEN];

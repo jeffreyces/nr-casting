@@ -448,9 +448,14 @@ fn state() -> String {
     );
     // Where our pad work spends its time. A group comparison can only say the group matters; this
     // says which line to look at, and separates "our code is slow" from "the game is slow after it".
-    crate::dispatch::report(&mut out);
+    let minutes = (crate::logging::uptime_ms() / 60_000) as u64;
+    crate::dispatch::report(&mut out, minutes);
     out.push_str("\n==== pad path ====\n");
-    out.push_str("# mean is what one frame pays; worst is what one hitch can be\n");
+    out.push_str(&format!(
+        "# mean is what one frame pays; worst is what one hitch can be. Since load ({minutes} min),\n\
+         # not the {series} s series above.\n",
+        series = crate::perf::SERIES_SECONDS
+    ));
     out.push_str(&crate::padcost::report());
     let _ = writeln!(
         out,
