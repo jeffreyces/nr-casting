@@ -25,6 +25,9 @@ static CALLS: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
 /// any arithmetic in these functions. A count is what separates "one slow read" from "every read on
 /// a machine whose pages are not resident", which are different bugs with different fixes.
 static SLOW: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
+/// Idle passes that had to touch game memory anyway - a borrow still in flight. The idle path is
+/// supposed to read nothing at all, so this number is the proof rather than the hope.
+static IDLE_READS: AtomicU32 = AtomicU32::new(0);
 const SLOW_US: u64 = 250;
 static SUM_US: [AtomicU64; N] = [const { AtomicU64::new(0) }; N];
 static MAX_US: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
@@ -68,6 +71,11 @@ impl Drop for Timer {
     }
 }
 
+/// Record that an idle pass touched game memory.
+pub fn note_idle_read() {
+    IDLE_READS.fetch_add(1, Ordering::Relaxed);
+}
+
 /// One line per clock: mean and worst, and how often it ran.
 ///
 /// Mean is what a frame pays; worst is what a hitch can be. A part that runs 190 times a second at
@@ -89,5 +97,11 @@ pub fn report() -> String {
             NAMES[slot], calls, mean, max, slow, SLOW_US
         ));
     }
+    let idle_reads = IDLE_READS.load(Ordering::Relaxed);
+    let idle_calls = CALLS[IDLE].load(Ordering::Relaxed);
+    out.push_str(&format!(
+        "  idle passes that touched game memory: {} of {}\n",
+        idle_reads, idle_calls
+    ));
     out
 }

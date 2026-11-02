@@ -1303,14 +1303,19 @@ fn adjust_inner(state: &mut XInputState) {
 
     // Diagnostic: the stance is what the game animates and equips from, and the two-hand symptoms
     // are about it changing when nothing of ours asked for it.
-    if let Some(style) = crate::game::arm_style() {
-        if LAST_STANCE.swap(style as u8, Ordering::Relaxed) != style as u8 {
-            debug!(
-                "stance: arm_style -> {style:?} | player buttons={:#06x} rt={} | two_handed={}",
-                held.buttons,
-                pad.right_trigger,
-                catalyst_two_handed()
-            );
+    // Debug only, and behind the flag that decides whether debug lines are written at all: this is
+    // a read of the player's structure on every poll - on a machine whose pages are not resident
+    // that is a fault per poll, paid to feed a log line nobody had switched on.
+    if crate::config::load().debug_log {
+        if let Some(style) = crate::game::arm_style() {
+            if LAST_STANCE.swap(style as u8, Ordering::Relaxed) != style as u8 {
+                debug!(
+                    "stance: arm_style -> {style:?} | player buttons={:#06x} rt={} | two_handed={}",
+                    held.buttons,
+                    pad.right_trigger,
+                    catalyst_two_handed()
+                );
+            }
         }
     }
 
@@ -1319,7 +1324,9 @@ fn adjust_inner(state: &mut XInputState) {
     // Only the panel reads this, and only while it is open. Sampling it with the panel closed cost a
     // reporter 501 us of pad-path mean and 46 ms worst per sample, on a pointer chase that exists to
     // keep one line of a window fresh that nobody had open.
-    if UI_OPEN.load(Ordering::Relaxed) {
+    {
+        // Throttled to two seconds inside, and the throttled path is one atomic load: this is the
+        // report's "spell selected in the game" line, not something the input path needs.
         let _t = crate::padcost::Timer::start(crate::padcost::SAMPLE);
         sample_player_selection(now);
     }
@@ -1473,6 +1480,11 @@ fn held_from(pad: &XInputGamepad, chord: bool) -> Held {
 /// Mirroring forces the wheel selection every frame, which would stop the player cycling spells
 /// — so it is suppressed while the panel is open, and only writes when the selection differs.
 fn idle(pad: &mut XInputGamepad, now: u32) {
+    // Counted so the report can say "the idle path reads nothing" and mean it: releasing a borrow is
+    // the only thing here that touches the game, and it only runs while one is in flight.
+    if crate::game::borrow_active() {
+        crate::padcost::note_idle_read();
+    }
     // Nothing spell-shaped is held, so any borrowed magic entry goes back now. Mouse and keyboard
     // are not polled here at all: they keep their own layer in `rawinput`, which steers the
     // selection and lets the game's own click cast (see that module).

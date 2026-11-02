@@ -33,6 +33,11 @@ static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
 /// Non-blocking mirror of `BORROWED.is_some()` for the pad poll. The poll path runs on the game's
 /// input thread and must never queue behind the panel thread's lock.
 static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Whether a steered entry is still borrowed, i.e. whether releasing it would touch game memory.
+pub(crate) fn borrow_active() -> bool {
+    BORROW_ACTIVE.load(Ordering::Relaxed)
+}
 /// Lock-free mirror of `Borrow::steered`: the spell the borrowed entry currently holds.
 ///
 /// Steering is a write to game memory behind two `VirtualQuery` checks and two locks. Doing that
@@ -266,11 +271,18 @@ pub(crate) fn select_spell(spell: i32) -> bool {
 /// `VirtualQuery` calls down a pointer chain. 100 ms is far below what the panel's "selected"
 /// line can show.
 /// value (binding).
+/// How often the player's selected spell is re-read. See the note inside.
+const SAMPLE_MS: u32 = 2_000;
+
 pub(crate) fn sample_player_selection(now: u32) {
     // Wrapping compare on the caller's millisecond clock: `saturating_sub` would stall this for
     // the 49 days between a wrap and the stored value being overtaken again.
+    // Two seconds, not 100 ms. The only reader of this value is the diagnostic report's
+    // "spell selected in the game" line and one debug line; nothing on the input path consumes it.
+    // At 100 ms it was re-reading a pointer chase ~36 times a second to keep a number fresh that
+    // gets printed once every few minutes.
     static LAST: AtomicU32 = AtomicU32::new(0);
-    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < 100 {
+    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < SAMPLE_MS {
         return;
     }
     LAST.store(now, Ordering::Relaxed);
