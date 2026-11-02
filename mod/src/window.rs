@@ -825,6 +825,14 @@ impl App {
     }
 
     fn set_open(&mut self, open: bool) {
+        // A guided run measures the game with the panel out of the way: it owns the input, the
+        // cursor and a D3D11 device, and one report showed the panel reopening 25 times inside a
+        // six-minute run - which meant the run measured a game that had a window in front of it for
+        // a large share of the phases. The panel does not open while a run is going, and it says so.
+        if open && crate::bisect::is_running() {
+            crate::log("panel: not opening - a bundle run is in progress (it measures the game without it)");
+            return;
+        }
         if open && !self.init_gfx() {
             crate::log("panel: no panel graphics; staying closed");
             return;
@@ -1476,6 +1484,13 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         if settled {
                             app.last_toggle = Some(Instant::now());
                             let open = !app.shown;
+                            // Named, because one report showed the panel flapping open and shut
+                            // through a whole guided run and the log could not say who asked.
+                            crate::log(&format!(
+                                "panel: hotkey says {} (it is {})",
+                                if open { "open" } else { "close" },
+                                if app.shown { "open" } else { "closed" }
+                            ));
                             app.set_open(open);
                         }
                         return Some(LRESULT(0));
