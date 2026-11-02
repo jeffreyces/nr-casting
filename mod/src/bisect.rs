@@ -1,4 +1,4 @@
-//! A guided bisect: one button, six one-minute phases, one report.
+//! A guided bisect: one button, nine one-minute phases, one report.
 //!
 //! A reporter's question - "does it stutter without subsystem X" - used to need a different build and
 //! a different session each time, which is four round trips through somebody else's evening. This
@@ -27,17 +27,25 @@ pub mod bit {
 /// Seconds each phase runs.
 pub const PHASE_SECONDS: u32 = 60;
 
-/// The phases, in order: a baseline first, each subsystem alone, then everything off.
+/// The phases, in order: a baseline, each subsystem on its own, the combinations, then back on.
 ///
 /// `pad` costs casting for a minute and is in the list anyway: it is the hook the game calls most
 /// often, and a comparison that skipped it would be missing the prime suspect.
-const PLAN: [(&str, u32); 6] = [
+///
+/// The last two phases are both "everything on" on purpose. A run measures a moving system - one
+/// report had phases 1-4 in a slow block and 5-6 in a fast one, which made the phase that switches
+/// *everything back on* look like the fastest of the six. Two closing baselines make that drift
+/// visible as drift, because nothing changed between them.
+const PLAN: [(&str, u32); 9] = [
     ("everything on", 0),
     ("raw input hooks off", bit::RAW),
     ("cursor hooks taken out", bit::POINTER),
     ("pad casting off (the hook still times)", bit::PAD),
+    ("housekeeping thread off", bit::THREADS),
+    ("pad only (raw, cursor and thread off)", bit::RAW | bit::POINTER | bit::THREADS),
     ("every hook group off", bit::PAD | bit::RAW | bit::POINTER | bit::THREADS),
     ("everything back on", 0),
+    ("everything still on (drift check)", 0),
 ];
 
 /// The most samples one phase can hold.
@@ -64,7 +72,7 @@ static SERIES: [AtomicU32; PLAN.len() * SLOTS] =
 static HITCHES: [AtomicU32; PLAN.len() * SLOTS] =
     [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
 
-/// Total wall time a run needs, in seconds (six minutes).
+/// Total wall time a run needs, in seconds (nine minutes).
 pub fn total_seconds() -> u32 {
     PHASE_SECONDS * PLAN.len() as u32
 }
@@ -237,7 +245,7 @@ pub fn section() -> String {
             .to_string();
     }
     let mut out = String::from(
-        "# six phases of 60 s, switched by the mod, nothing for the player to change\n\
+        "# nine phases of 60 s, switched by the mod, nothing for the player to change\n\
          # worst gap per second is what one second's slowest frame cost; 32 ms is two frames at 60 Hz\n",
     );
     let kind = CLOCK_KIND.lock().map(|k| *k).unwrap_or("none");
