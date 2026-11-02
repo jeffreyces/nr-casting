@@ -1,54 +1,46 @@
-# v0.2.16 — measure the read, and stop making it
+# v0.2.17 — the last periodic read of game memory, gone
 
-0.2.15 cut our per-poll work by removing two caches that never hit. A report on 0.2.15 showed it was
-not enough: 1054.9 us mean and 81946 us worst per poll, with the selection sample still running on
-12041 of 15751 polls - and the log explained why. The panel had reopened **25 times inside a
-six-minute guided run**, so the run measured a game with a window, a D3D11 device and the cursor in
-front of it for much of every phase, and kept a per-poll memory read alive while it did.
+0.2.16 shipped counters instead of a worst case, and the first report back read like this:
+
+    adjust_inner:     18095 calls, mean 250.7 us, worst 67542 us, 153 over 250 us
+    idle path:        18095 calls, mean   0.1 us, worst    38 us, 0 over 250 us
+    selection sample: 18095 calls, mean 250.0 us, worst 67541 us, 153 over 250 us
+    idle passes that touched game memory: 0 of 18095
+
+153 slow polls out of 18,095 carried every microsecond of that mean: about 29 ms each, 4.4 seconds
+of stall in 7.4 minutes - one hitch every couple of seconds. The selection sample accounted for all
+of it, case for case (its worst, 67541 us, against adjust_inner's 67542 us). Everything the idle
+path does is now free and provably reads nothing.
 
 **Upgrade is the DLL.** Nothing else changes; no new keys.
 
 ## Fixed
 
-- **The panel no longer opens while a guided run is going**, and says so in the log when something
-  asks. The run exists to measure the game without the panel; a flapping window both contaminates
-  the phases and keeps our own reads running.
-- **The stance debug line read the player's structure on every poll** to feed a line that is only
-  written when `debug_log = on`. Behind that flag now. That single change took the idle path's
-  worst case from 69 us to 11 us on a machine where every page is resident, and it is the same read
-  that costs milliseconds where pages are not.
-- **The player's selected spell was re-read every 100 ms.** Its only readers are the report's
-  "spell selected in the game" line and one debug line - nothing on the input path consumes it. It
-  is now re-read every two seconds, and the throttled path is one atomic load.
+- **The player's selected spell is no longer read on the input path at all.** It is read when a
+  report is built and not before, after re-checking the pointer, because a report can be asked for
+  at any moment including while the world is going away. That number feeds one line of a report;
+  paying for it on the pad poll was paying a page fault on the frame thread every two seconds.
+- The pad path's `selection sample` row is gone from the report, because there is nothing left to
+  time. A zero row is worse than no row.
 
-## Added
+## Why this matters only on some machines
 
-- **`N over 250 us` on every pad-path line.** A worst case cannot tell one unlucky read from a
-  machine where most reads are slow. 250 us is about a page fault's price and far above any
-  arithmetic in these functions, so the count separates "occasional stall" from "the pages are not
-  in RAM" - which are different bugs with different fixes.
-- **`idle passes that touched game memory: N of M`.** The idle path is supposed to read nothing at
-  all; this makes that a measurement instead of a claim. A non-zero count means a borrow is being
-  held longer than it should.
-- The hotkey logs which way it asked, so a log can name the source of a panel toggle.
+The same read costs microseconds where the game's pages are resident, and tens of milliseconds where
+they are not: touching a page that has been paged out forces the operating system to bring it back,
+and the cost lands on the thread that touched it. One report showed the game with 17.5 GiB of
+private commit against 5.7 GiB resident - most of what it has booked is not in RAM - while the same
+mod on a machine with everything resident measured 3 slow reads in 15,265 polls.
+
+The conclusion that follows is a rule rather than a tuning: **nothing periodic reads the game's
+memory from the input thread.** Reading less often only shrinks the tail; not reading removes it.
 
 ## Verified
 
-62 unit tests green; `cargo xwin check --target x86_64-pc-windows-msvc` clean. On a local machine
-with resident memory, after the change:
-
-    adjust_inner:     15265 calls, mean 2.0 us, worst 370 us, 3 over 250 us
-    idle path:        15263 calls, mean 0.0 us, worst  11 us, 0 over 250 us
-    selection sample: 15263 calls, mean 1.3 us, worst 369 us, 3 over 250 us
-    idle passes that touched game memory: 0 of 15263
-
-Three reads over 250 us in fifteen thousand polls, and a six-phase bundle ran at p50 19.07-19.38 ms
-across all six with 0-3 seconds over 32 ms per phase.
-
-Two honest notes from that run: phase 1 ticked at 121/s against 60/s in the later phases, and the
-report says so rather than presenting it as a comparison - the pad clock settles after the panel
-closes. And on a machine without resident memory these numbers are the baseline to compare against,
-not a result: the read count is what will say whether the remaining cost there is paging.
+62 unit tests green; `cargo xwin check --target x86_64-pc-windows-msvc` clean. Nothing periodic
+touches game memory from the poll thread now: the stance read is behind `debug_log`, and the
+selection read belongs to report generation. The `idle passes that touched game memory` counter and
+`over 250 us` column are what a report should be checked against - both should be at or near zero
+while playing.
 
 ## On the Present clock
 
