@@ -274,17 +274,31 @@ pub(crate) fn select_spell(spell: i32) -> bool {
 /// `VirtualQuery` calls down a pointer chain. 100 ms is far below what the panel's "selected"
 /// line can show.
 /// value (binding).
-/// Read the player's selected spell once, for a report about to be written.
+/// Ask for the selected spell to be read on the next poll.
 ///
-/// Called when a report is built rather than from the input path: on a machine whose pages are not
-/// resident this read can cost tens of milliseconds, and paying that once per report is invisible
-/// where paying it on the pad poll is a stutter. The pointer is re-checked first, because a report
-/// can be asked for at any moment, including while the world is going away.
-pub(crate) fn sample_player_selection_now() {
+/// Requested rather than performed by the caller, because this read belongs to the game's thread:
+/// it can cost tens of milliseconds where pages are not resident, and reading it from the panel
+/// thread races a teardown that the rest of this module refuses to race for writes. The poll thread
+/// serves the request, so the value is at most one poll old - and the report prints how old.
+pub(crate) fn request_selection_sample() {
+    WANT_SELECTION.store(true, Ordering::Relaxed);
+}
+
+/// When the selected spell was last read, on the caller's millisecond clock. Zero means never.
+pub(crate) static PLAYER_SPELL_AT: AtomicU32 = AtomicU32::new(0);
+
+/// Serve a pending request. Called from the poll path: one atomic load when nobody asked.
+pub(crate) fn serve_selection_request(now: u32) {
+    if !WANT_SELECTION.swap(false, Ordering::Relaxed) {
+        return;
+    }
     if magic_data_verified().is_some() {
         sample_now();
+        PLAYER_SPELL_AT.store(now, Ordering::Relaxed);
     }
 }
+
+static WANT_SELECTION: AtomicBool = AtomicBool::new(false);
 
 /// Read the selected spell once. For binding, where the spell captured must be the one selected at
 /// the moment the gesture completes, and for a report about to be written.
@@ -318,7 +332,13 @@ pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
     // Either the character changed or the periodic sanity check is due. This is the whole point
     // of the cache: a `VirtualQuery` per second instead of one per read, on the thread the game
     // polls the pad from.
-    if !probe::readable(raw as *const u8, std::mem::size_of::<eldenring::cs::PlayerIns>()) {
+    // Timed, because it is the one periodic read that was never measured: once a second, on the
+    // thread whose stalls a player feels, asking the OS whether the character's block is still there.
+    let readable = {
+        let _t = crate::padcost::Timer::start(crate::padcost::RECHECK);
+        probe::readable(raw as *const u8, std::mem::size_of::<eldenring::cs::PlayerIns>())
+    };
+    if !readable {
         forget_pointers();
         return None;
     }
@@ -339,7 +359,8 @@ pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
 /// times per pad poll on the game's own input thread — up to 250 syscalls a second for a clock
 /// nobody needs to be wall-precise.
 pub(crate) fn now_ms() -> u32 {
-    unsafe { crate::win32::GetTickCount64() as u32 }
+    // One clock for the whole crate: see `crate::millis`.
+    crate::millis()
 }
 
 /// The character the game currently considers the player, without validating the object.

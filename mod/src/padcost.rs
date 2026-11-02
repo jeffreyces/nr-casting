@@ -15,11 +15,16 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 pub const TOTAL: usize = 0;
 pub const IDLE: usize = 1;
 pub const CHORD: usize = 2;
-const N: usize = 3;
+pub const RECHECK: usize = 3;
+const N: usize = 4;
 
 // The selection sample used to have a slot here. It is no longer read from the poll thread at all,
 // so there is nothing left to time: a zero row in a report is worse than no row.
-const NAMES: [&str; N] = ["adjust_inner", "idle path", "chord path"];
+//
+// `pointer recheck` is the other periodic read that was never measured: once a second `player()`
+// asks the OS whether the character's block is still readable, and on a machine whose pages are not
+// resident that is exactly the kind of work this report exists to count.
+const NAMES: [&str; N] = ["adjust_inner", "idle path", "chord path", "pointer recheck"];
 
 static CALLS: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
 /// How often a part cost more than 250 us - about a fresh page fault's price, and far more than
@@ -93,10 +98,10 @@ pub fn report() -> String {
         let max = MAX_US[slot].load(Ordering::Relaxed);
         let mean = sum as f64 / calls as f64;
         let slow = SLOW[slot].load(Ordering::Relaxed);
-        out.push_str(&format!(
-            "  {}: {} calls, mean {:.1} us, worst {} us, {} over {} us\n",
-            NAMES[slot], calls, mean, max, slow, SLOW_US
+        out.push_str(&nr_casting_core::pad_cost_line(
+            NAMES[slot], calls, mean, max, slow, SLOW_US,
         ));
+        out.push('\n');
     }
     let idle_reads = IDLE_READS.load(Ordering::Relaxed);
     let idle_calls = CALLS[IDLE].load(Ordering::Relaxed);

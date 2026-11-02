@@ -468,13 +468,15 @@ pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
     Some(foreign)
 }
 
-/// Milliseconds since the epoch, low 32 bits. Interval tests use wrapping subtraction, so the
-/// truncation is harmless and the whole call is one `clock_gettime` (vDSO).
+/// The one millisecond clock for intervals: `GetTickCount64`, low 32 bits.
+///
+/// Every interval test in the crate uses wrapping subtraction, which wants a monotonic counter, not
+/// a wall clock - and the counter is a shared page read rather than a `clock_gettime`. This used to
+/// be `SystemTime::now()` while `game::now_ms` used `GetTickCount64`: two clocks measuring the same
+/// thing, and one of them twice the cost for no gain. Wall-clock stamps still come from
+/// `logging::epoch_millis`, which is a different quantity and is named as one.
 pub(crate) fn millis() -> u32 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u32)
-        .unwrap_or(0)
+    unsafe { crate::win32::GetTickCount64() as u32 }
 }
 
 /// Whether another native mod that owns the Y+bumper chords is loaded.

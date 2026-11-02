@@ -394,15 +394,17 @@ fn state() -> String {
             let _ = writeln!(out, "stats: unavailable");
         }
     }
-    let _ = writeln!(
-        out,
-        "spell selected in the game: {}",
-        {
-            // One read, on demand: the number below is only ever printed here.
-            crate::game::sample_player_selection_now();
-            crate::PLAYER_SPELL.load(std::sync::atomic::Ordering::Relaxed)
-        }
-    );
+    // The value is read on the game's thread when the panel asks for it (opening the panel is the
+    // request), so it can be a little stale - say how stale rather than implying it is current.
+    let spell = crate::PLAYER_SPELL.load(std::sync::atomic::Ordering::Relaxed);
+    let read_at = crate::game::PLAYER_SPELL_AT.load(std::sync::atomic::Ordering::Relaxed);
+    let age = if read_at == 0 {
+        "never read this session".to_string()
+    } else {
+        let now = crate::millis();
+        format!("read {} s ago", now.wrapping_sub(read_at) / 1000)
+    };
+    let _ = writeln!(out, "spell selected in the game: {spell} ({age})");
     // One counter, one meaning. This used to claim "N with no controller, 0 unplugged" from a
     // single value plus a hardcoded zero, so a wireless pad that dropped nine times in a session
     // looked like a probe that had never seen a controller — and the real "unplugged" figure was

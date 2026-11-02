@@ -1324,10 +1324,11 @@ fn adjust_inner(state: &mut XInputState) {
     // Only the panel reads this, and only while it is open. Sampling it with the panel closed cost a
     // reporter 501 us of pad-path mean and 46 ms worst per sample, on a pointer chase that exists to
     // keep one line of a window fresh that nobody had open.
-    // Deliberately nothing here. The player's selected spell is read on demand, when a report is
-    // being written (see `game::sample_player_selection_now`). Reading it on the poll thread cost
-    // one report 153 stalls of about 29 ms each across seven minutes, and its only reader is a
-    // single line of a file written once in a while.
+    // The player's selected spell is only read when somebody asked for it - the panel opening, so
+    // the report has something to print. Serving that request here keeps the read on the game's
+    // thread: reading it every poll cost one machine 153 stalls of about 29 ms each across seven
+    // minutes, and its only reader is one line of a file written once in a while.
+    crate::game::serve_selection_request(now);
 
     // Debug: log the pad on change, not on every pass — a held button at 125 passes a second
     // would fill the 4 MiB log in half a minute.
@@ -1488,25 +1489,31 @@ fn idle(pad: &mut XInputGamepad, now: u32) {
     if release_borrowed() {
         crate::padcost::note_idle_read();
     }
-    if UI_OPEN.load(Ordering::Relaxed) {
-        return;
-    }
-    // The mirror is opt-in (`hud_mirror = on` in the ini): forcing the selection every 33 ms
-    // fights the player's own wheel and hands a cast the wrong spell. See `config::Config`.
-    if !crate::config::load().hud_mirror {
+    hud_mirror_tick(pad, now);
+}
+
+/// Keep the HUD's "selected spell" showing what R1 will cast. Opt-in, and the only HUD job here.
+///
+/// Separate from the idle path because it is a different concern with a different cost: this is a
+/// weapon read, a selection compare and possibly a steering write - game memory on the poll thread,
+/// which is the thread whose stalls a player feels. The idle path itself reads nothing.
+fn hud_mirror_tick(pad: &mut XInputGamepad, now: u32) {
+    if UI_OPEN.load(Ordering::Relaxed) || !crate::config::load().hud_mirror {
         return;
     }
     // Get out of the way while the player is cycling the wheel. The mirror forces the game's
     // selection back to slot 1, so holding a D-pad direction means the game advances the wheel
-    // and the mirror yanks it back — dozens of times a second, which reads as the selection
+    // and the mirror yanks it back - dozens of times a second, which reads as the selection
     // flickering through every spell instead of scrolling. The mirror exists to show what R1 will
     // cast when nobody is choosing; when somebody *is* choosing, they win.
     if pad.buttons & XINPUT_GAMEPAD_DPAD != 0 {
         return;
     }
-    // Mirroring is a HUD convenience, not an input path: 30 Hz is plenty, and each pass is a
-    // weapon read plus a selection compare (three `VirtualQuery` calls each) on the poll thread.
-    if now.wrapping_sub(LAST_MIRROR_MS.load(Ordering::Relaxed)) < 33 {
+    // 10 Hz is plenty for a number in a corner: the value only changes when the player moves the
+    // wheel by hand, and a pass is a weapon read plus a selection compare (three `VirtualQuery`
+    // calls) and possibly a write. It ran at 30 Hz for exactly this comparison, at three times the
+    // cost, for a number that was not changing.
+    if now.wrapping_sub(LAST_MIRROR_MS.load(Ordering::Relaxed)) < 100 {
         return;
     }
     LAST_MIRROR_MS.store(now, Ordering::Relaxed);

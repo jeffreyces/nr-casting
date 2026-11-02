@@ -16,12 +16,14 @@ use std::sync::Mutex;
 
 use nr_casting_core::{gap_stats, PhaseClock, PhaseTick};
 
-/// The subsystems a phase can switch off.
+/// The subsystems a phase can switch off, and the plan itself, live in the pure crate: the plan has
+/// a shape worth asserting (a baseline at each end, every subsystem measured alone, one phase with
+/// everything off) and assertions only run where the tests do.
 pub mod bit {
-    pub const PAD: u32 = 1;
-    pub const RAW: u32 = 2;
-    pub const POINTER: u32 = 4;
-    pub const THREADS: u32 = 8;
+    pub const PAD: u32 = nr_casting_core::PAD;
+    pub const RAW: u32 = nr_casting_core::RAW;
+    pub const POINTER: u32 = nr_casting_core::POINTER;
+    pub const THREADS: u32 = nr_casting_core::THREADS;
 }
 
 /// Seconds each phase runs.
@@ -36,17 +38,7 @@ pub const PHASE_SECONDS: u32 = 60;
 /// report had phases 1-4 in a slow block and 5-6 in a fast one, which made the phase that switches
 /// *everything back on* look like the fastest of the six. Two closing baselines make that drift
 /// visible as drift, because nothing changed between them.
-const PLAN: [(&str, u32); 9] = [
-    ("everything on", 0),
-    ("raw input hooks off", bit::RAW),
-    ("cursor hooks taken out", bit::POINTER),
-    ("pad casting off (the hook still times)", bit::PAD),
-    ("housekeeping thread off", bit::THREADS),
-    ("pad only (raw, cursor and thread off)", bit::RAW | bit::POINTER | bit::THREADS),
-    ("every hook group off", bit::PAD | bit::RAW | bit::POINTER | bit::THREADS),
-    ("everything back on", 0),
-    ("everything still on (drift check)", 0),
-];
+const PLAN: [(&str, u32); 9] = nr_casting_core::PHASES;
 
 /// The most samples one phase can hold.
 const SLOTS: usize = 90;
@@ -210,6 +202,13 @@ pub fn on_second(second: crate::perf::Second) -> bool {
 /// pad and raw-input detours stay installed and short-circuit (a hook cannot be removed safely
 /// while the game may be inside it), which is why those phases separate "what our code does" from
 /// "the fact that we are loaded".
+/// Switch the groups in `bits` off, everything else on.
+///
+/// Only the cursor group needs code here, and only because it is a *patch* rather than a flag: it
+/// is installed and removed. Every other group is open for extension for free - a consumer asks
+/// `disabled(bit)` at its own call site, so a new group is a constant plus the place it is read, not
+/// an edit to this function. A table mapping bit to closure would be one more structure to keep in
+/// step with the same two lines, which is why there isn't one.
 fn apply_bits(bits: u32) {
     DISABLED.store(bits, Ordering::Relaxed);
     crate::pointer::engage_cursor(bits & bit::POINTER == 0);

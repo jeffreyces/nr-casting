@@ -924,9 +924,77 @@ fn path_start(line: &str) -> Option<usize> {
         .filter(|at| !line[..*at].ends_with('.'))
 }
 
+/// The guided run's phases, as data: (label, subsystems switched off).
+///
+/// This lives here rather than beside the code that applies it because the plan has a shape worth
+/// asserting, and the assertions are what stop it drifting: a baseline at each end (so a machine
+/// that changes speed mid-run shows up as drift instead of as a phase result), every subsystem
+/// measured alone, and one phase with everything off.
+pub const PHASES: [(&str, u32); 9] = [
+    ("everything on", 0),
+    ("raw input hooks off", RAW),
+    ("cursor hooks taken out", POINTER),
+    ("pad casting off (the hook still times)", PAD),
+    ("housekeeping thread off", THREADS),
+    ("pad only (raw, cursor and thread off)", RAW | POINTER | THREADS),
+    ("every hook group off", PAD | RAW | POINTER | THREADS),
+    ("everything back on", 0),
+    ("everything still on (drift check)", 0),
+];
+
+/// The subsystems a phase can switch off.
+pub const PAD: u32 = 1;
+pub const RAW: u32 = 2;
+pub const POINTER: u32 = 4;
+pub const THREADS: u32 = 8;
+
+/// One line of the pad-path section: where our pad work spends its time.
+///
+/// Five figures in one format string, so it is assembled here where a test can read it - the last
+/// line of this shape printed the wrong count for weeks because nothing asserted its text.
+pub fn pad_cost_line(name: &str, calls: u32, mean_us: f64, worst_us: u32, slow: u32, slow_us: u64) -> String {
+    format!(
+        "  {name}: {calls} calls, mean {mean_us:.1} us, worst {worst_us} us, {slow} over {slow_us} us"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_plan_brackets_itself_with_baselines() {
+        // First and last are the same settings: a run measures a moving system, and without this a
+        // machine that sped up halfway turned "everything back on" into the fastest phase of all.
+        assert_eq!(PHASES[0].1, 0);
+        assert_eq!(PHASES[PHASES.len() - 1].1, 0);
+        assert_eq!(PHASES[PHASES.len() - 2].1, 0);
+    }
+
+    #[test]
+    fn the_plan_measures_every_subsystem_alone() {
+        for bit in [PAD, RAW, POINTER, THREADS] {
+            assert!(
+                PHASES.iter().any(|(_, off)| *off == bit),
+                "no phase switches off only {bit:#x}"
+            );
+        }
+        assert!(
+            PHASES
+                .iter()
+                .any(|(_, off)| *off == PAD | RAW | POINTER | THREADS),
+            "no phase switches everything off"
+        );
+    }
+
+    #[test]
+    fn the_pad_cost_line_carries_all_five_figures() {
+        let line = pad_cost_line("adjust_inner", 25439, 0.6, 427, 23, 250);
+        assert_eq!(
+            line,
+            "  adjust_inner: 25439 calls, mean 0.6 us, worst 427 us, 23 over 250 us"
+        );
+    }
 
     fn held(buttons: u16, right: bool, left: bool, rb: bool, lb: bool) -> Held {
         Held {

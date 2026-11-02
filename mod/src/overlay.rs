@@ -319,6 +319,11 @@ impl Panel {
         }
         self.visible = visible;
         crate::UI_OPEN.store(visible, std::sync::atomic::Ordering::Relaxed);
+        if visible {
+            // The report prints the game's selected spell; opening the panel is the moment to ask
+            // for it, and the poll thread does the reading.
+            crate::game::request_selection_sample();
+        }
         crate::pointer::set_open(visible);
         if visible {
             self.refresh_owned();
