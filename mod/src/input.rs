@@ -1538,6 +1538,16 @@ fn hud_mirror_tick(pad: &mut XInputGamepad, _now: u32) {
 /// Called by the dispatcher, throttled there. No clock check of its own - a handler that also
 /// timed itself would be a second throttle disagreeing with the first.
 pub(crate) fn mirror_now() {
+    // The dispatcher can serve this from the frame clock as well as the pad poll - that is the
+    // point of a central dispatcher - so the handler checks its own preconditions instead of
+    // trusting the caller. It writes game memory; a write from the wrong moment is not recoverable
+    // the way a bad read is.
+    if UI_OPEN.load(Ordering::Relaxed) || !crate::config::load().hud_mirror {
+        return;
+    }
+    if !crate::probe::validated() {
+        return;
+    }
     let Some((left_id, right_id)) = weapon_ids() else {
         return;
     };

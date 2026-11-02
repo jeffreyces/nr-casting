@@ -11,7 +11,7 @@
 
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 
 extern "system" {
@@ -394,7 +394,21 @@ fn save_ui_key(key: &str, value: &str) {
 /// A key the file does not have yet is added at the end of the `[ui]` section rather than at the end
 /// of the file: an install shipped before the key existed gains it in the section a reader would
 /// look in, not under `[logging]`.
+/// When we last wrote the ini ourselves, so the watcher can tell our edit from the player's.
+///
+/// The panel saves geometry, scale and `show_all` into this file, and the watcher is watching it:
+/// every panel resize would otherwise reload the config mid-frame, which is churn nobody asked for
+/// and a second reason for the panel thread and the watcher to touch the same file at once.
+static SELF_WRITE_MS: AtomicU32 = AtomicU32::new(0);
+
+/// Whether a change was our own write, and should not be treated as an edit.
+fn is_self_write(now: u32) -> bool {
+    let at = SELF_WRITE_MS.load(Ordering::Relaxed);
+    at != 0 && now.wrapping_sub(at) < 5_000
+}
+
 fn save_ui_keys(section: &str, pairs: &[(&str, &str)]) {
+    SELF_WRITE_MS.store(crate::millis(), Ordering::Relaxed);
     let file = ini_file();
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     let header = format!("[{section}]");
@@ -552,6 +566,10 @@ pub fn watch() {
             // Editors write in two steps; give the second one time to land.
             std::thread::sleep(std::time::Duration::from_millis(500));
             if !ini_file().exists() {
+                continue;
+            }
+            if is_self_write(crate::millis()) {
+                // The panel wrote it (geometry, scale, show_all). Nothing for the player to see.
                 continue;
             }
             let late = reload();
