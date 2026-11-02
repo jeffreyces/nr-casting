@@ -34,10 +34,7 @@ static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
 /// input thread and must never queue behind the panel thread's lock.
 static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Whether a steered entry is still borrowed, i.e. whether releasing it would touch game memory.
-pub(crate) fn borrow_active() -> bool {
-    BORROW_ACTIVE.load(Ordering::Relaxed)
-}
+
 /// Lock-free mirror of `Borrow::steered`: the spell the borrowed entry currently holds.
 ///
 /// Steering is a write to game memory behind two `VirtualQuery` checks and two locks. Doing that
@@ -132,17 +129,21 @@ fn remember_steered(spell: i32) {
 /// the panel thread must never write here: the character can be freed by a load, a warp or a
 /// death the moment the world goes away, and a write into that freed block corrupts the heap
 /// and crashes the game somewhere unrelated later. Teardown uses `forget_borrowed` instead.
-pub(crate) fn release_borrowed() {
+/// Returns whether it touched game memory. `false` means it took one atomic load and stopped - the
+/// common case - which is what lets a report distinguish "a borrow was in flight" from "a read was
+/// performed". An earlier counter conflated the two and reported 462 idle reads where the real
+/// number is the handful of restores.
+pub(crate) fn release_borrowed() -> bool {
     // Cheap gate for the common case: no cast in flight, no need to take the lock at all. This is
     // called from every idle poll.
     if !BORROW_ACTIVE.load(Ordering::Relaxed) {
-        return;
+        return false;
     }
     // A mouse cast asked for the entry to stay a little longer (see `hold_borrowed`). Same
     // "zero means nothing armed" rule as the pad's Y suppression: an unset deadline here used to
     // look pending for half of every clock wrap, which kept the borrow from ever being released.
     if nr_casting_core::armed_until(now_ms(), BORROW_HOLD_UNTIL.load(Ordering::Relaxed)) {
-        return;
+        return false;
     }
     let snapshot = {
         let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
@@ -151,22 +152,24 @@ pub(crate) fn release_borrowed() {
     BORROW_ACTIVE.store(false, Ordering::Relaxed);
     STEERED.store(-1, Ordering::Relaxed);
     let Some(snapshot) = snapshot else {
-        return;
+        return false;
     };
-    // A restore is a write: verify the pointer now rather than trust the one-second cache.
+    // From here the borrow is gone and the pointer is about to be walked: everything below this
+    // line is game memory, whatever it returns.
     let Some(magic) = magic_data_verified() else {
-        return;
+        return true;
     };
     let Some(entry) = magic.entries.get_mut(snapshot.idx) else {
-        return;
+        return true;
     };
     // Only undo our own write. If the entry no longer holds the spell we steered, someone else
     // (the game rebuilding the wheel, another selection mod) owns the value now.
     if entry.param_id != snapshot.steered {
-        return;
+        return true;
     }
     entry.param_id = snapshot.param_id;
     entry.charges = snapshot.charges;
+    true
 }
 
 /// Drop the borrow without touching game memory. For a world that is going away: the object is

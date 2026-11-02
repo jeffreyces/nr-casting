@@ -1386,7 +1386,9 @@ fn adjust_inner(state: &mut XInputState) {
     match route {
         // Not our chord after all (a catalyst-less hand): the game owns this press — two-hand,
         // heavy attack — and nothing of ours is in flight.
-        Route::Chord { .. } if chord.is_none() => release_borrowed(),
+        Route::Chord { .. } if chord.is_none() => {
+            release_borrowed();
+        }
         Route::Chord {
             right_hand,
             slot,
@@ -1478,15 +1480,14 @@ fn held_from(pad: &XInputGamepad, chord: bool) -> Held {
 /// Mirroring forces the wheel selection every frame, which would stop the player cycling spells
 /// — so it is suppressed while the panel is open, and only writes when the selection differs.
 fn idle(pad: &mut XInputGamepad, now: u32) {
-    // Counted so the report can say "the idle path reads nothing" and mean it: releasing a borrow is
-    // the only thing here that touches the game, and it only runs while one is in flight.
-    if crate::game::borrow_active() {
-        crate::padcost::note_idle_read();
-    }
+    // Counted so the report can say "the idle path reads nothing" and mean it. Only an actual
+    // restore counts: a borrow merely being in flight is a deadline check, not a read.
     // Nothing spell-shaped is held, so any borrowed magic entry goes back now. Mouse and keyboard
     // are not polled here at all: they keep their own layer in `rawinput`, which steers the
     // selection and lets the game's own click cast (see that module).
-    release_borrowed();
+    if release_borrowed() {
+        crate::padcost::note_idle_read();
+    }
     if UI_OPEN.load(Ordering::Relaxed) {
         return;
     }
