@@ -749,7 +749,7 @@ pub(crate) fn watch_hook() {
 
         // Capturing whatever is there now keeps a third-party hook in the chain - and every
         // capture adds a frame to every poll. 26 of them, one every 500 ms, is what crashed a
-        // player's game with 0xc00000fd (stack overflow) the moment he plugged a controller in:
+        // player's game with 0xc00000fd (stack overflow) the moment a controller was plugged in:
         // the game polls from a fresh thread whose stack is not that deep. The churn budget above
         // is refilled by any poll that succeeds, so it cannot bound this; only a counter that
         // never resets can.

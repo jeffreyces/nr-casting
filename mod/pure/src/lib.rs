@@ -1667,8 +1667,8 @@ mod raw_tests {
 
     #[test]
     fn redact_paths_takes_the_whole_path_and_nothing_else() {
-        // His lines, verbatim from a report: the account segment was already replaced, and the
-        // layout of his disk was still in the file.
+        // Verbatim from a report: the account segment was already replaced, and the disk layout
+        // was still in the file.
         let line = "slots: character <character> (id 0) -> %USERPROFILE%\\AppData\\Local\\garyttierney\\me3\\config\\profiles\\eldenring-mods\\nr-casting-v0.2.7\\nr_casting\\nr_casting_slots_<character>-399e89de.txt";
         assert_eq!(
             redact_paths(line),

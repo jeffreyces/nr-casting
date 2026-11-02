@@ -1,19 +1,19 @@
 # v0.2.15 — the report named a cost, and it was ours
 
-0.2.14 added a clock inside the pad path. One reporter's first report on it read:
+0.2.14 added a clock inside the pad path. The first report on it read:
 
     adjust_inner:     14328 calls, mean 1146.8 us, worst 75693 us
     selection sample: 14328 calls, mean  501.0 us, worst 46767 us
 
 That is 1.1 ms of our code on every poll and a 76 ms stall - four and a half frames at 60 Hz, and
-exactly the shape of the stutter he had been reporting for days. This release takes both causes out.
+exactly the shape of the stutter described in the reports. This release takes both causes out.
 
 **Upgrade is the DLL.** Nothing else changes; no new keys.
 
 ## Fixed
 
 - **The weapon pair was cached for 8 ms "because that is the pad poll interval".** That is true on a
-  fast machine. His polls arrive every ~28 ms, so the cache expired before the next call and every
+  fast machine. The reported polls arrived every ~28 ms, so the cache expired before the next call and every
   poll re-walked `WorldChrMan -> main_player -> PlayerGameData`. The cache is 250 ms now: a weapon
   swap is a menu or a deliberate input, not a per-frame event, and the walks drop from ~36 a second
   to four. A **button press edge still forces a fresh read**, so swapping to a staff and pressing R1
