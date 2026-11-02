@@ -385,6 +385,16 @@ const WEAPON_CACHE_MS: u32 = 250;
 static WEAPON_PAIR: AtomicU64 = AtomicU64::new(u64::MAX);
 static WEAPON_AT: AtomicU32 = AtomicU32::new(0);
 
+/// Drop the weapon-pair cache, so the next read walks the chain again.
+///
+/// The cache is 250 ms now, which is what stops a slow machine re-walking game memory on every
+/// poll - but a weapon swap is exactly the event the cache must not hide: swapping to a staff and
+/// pressing R1 within a quarter second would decide the chord from the pair we already had. A
+/// button press is the moment that matters, and there are a handful of them a second at most.
+pub(crate) fn invalidate_weapon_cache() {
+    WEAPON_AT.store(0, Ordering::Relaxed);
+}
+
 pub(crate) fn weapon_ids() -> Option<(i32, i32)> {
     let now = now_ms();
     let cached = WEAPON_PAIR.load(Ordering::Relaxed);

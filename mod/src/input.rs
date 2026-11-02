@@ -1030,6 +1030,9 @@ pub(crate) fn game_shows_cursor() -> bool {
 /// changes on a character load, not on a poll, and `route` reads it on every poll.
 static Y_BUMPER: AtomicBool = AtomicBool::new(true);
 
+/// The button mask of the previous poll, so a press edge can be told from a held button.
+static LAST_BUTTONS: AtomicU16 = AtomicU16::new(0);
+
 pub(crate) fn y_bumper() -> bool {
     Y_BUMPER.load(Ordering::Relaxed)
 }
@@ -1168,6 +1171,15 @@ fn adjust_inner(state: &mut XInputState) {
     // off, which is what everything else here costs.
     let _total = crate::padcost::Timer::start(crate::padcost::TOTAL);
     let now = crate::millis();
+
+    // A press edge, and only a press edge, forces a fresh weapon read: the pair is cached for
+    // 250 ms so a slow machine does not re-walk game memory on every poll, and a swap followed by a
+    // cast inside that window would otherwise be decided from the weapon that was in hand before.
+    let pressed = state.gamepad.buttons;
+    let previous = LAST_BUTTONS.swap(pressed, Ordering::Relaxed);
+    if pressed & !previous != 0 {
+        crate::game::invalidate_weapon_cache();
+    }
     let due = state.packet_number != LAST_PACKET.load(Ordering::Relaxed)
         || now.wrapping_sub(LAST_RUN_MS.load(Ordering::Relaxed)) >= POLL_INTERVAL_MS;
     LAST_PACKET.store(state.packet_number, Ordering::Relaxed);
