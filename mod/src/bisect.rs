@@ -236,11 +236,11 @@ fn log_phase(index: usize) {
 
 /// The report section: one line per phase, then the phases' series side by side.
 pub fn section() -> String {
-    // Nothing was run, so there is nothing to describe: six phases of zeros are not a measurement,
+    // Nothing was run, so there is nothing to describe: nine phases of zeros are not a measurement,
     // and printing them beside a paragraph that says so is noise of the kind that makes a report
     // look broken when it is simply a plain one.
     if !EVER_RAN.load(Ordering::Relaxed) {
-        return "# no bundle run in this session: this is a plain report. The six phases exist only\n\
+        return "# no bundle run in this session: this is a plain report. The nine phases exist only\n\
                 # after the bundle button is pressed (six minutes; press it and stand still).\n"
             .to_string();
     }
