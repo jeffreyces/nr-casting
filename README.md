@@ -180,6 +180,13 @@ perf_log = on            ; a timing line when a frame is lost, or every 5 minute
 
 Malformed values are logged and the default kept.
 
+**The file is watched.** Save it while the game is running and the change is picked up within a
+second — no restart. `debug_log`, `perf_log`, `hud_mirror`, `show_all`, `ui_scale`, `bind_modifier`
+and `hotkey` all take effect live; the switches that have to be in place before a hook is installed
+(`overlay`, `hooks`, `pad_hook`, `raw_hook`, `pointer_hook`, `present_clock`) log that they will take
+effect on the next launch instead of being silently ignored. The mod's own writes to this file (panel
+size, corner, scale) are recognised and never reload it.
+
 ## Using the panel
 
 Assignments are made in the panel or with the bind gesture; both write the same per-character file.
@@ -273,19 +280,27 @@ CPU, and a per-second record of the frame gaps over the last five minutes.
   id in its slot file name become `<character>`. What is left is the game, the modules, the numbers
   and the log lines, none of which say who or where you are. Neither `debug_log` nor `perf_log` needs
   to be on; the report collects what it needs at the moment you press it.
-- **`bundle diagnostics & report`** is the one for a stutter. It does the comparing for you: press it,
-  load a character, stand somewhere quiet and still, and start. The mod records six one-minute
-  phases — everything on, then the pointer detours off, the raw-input hooks off, the pad hooks off
-  (casting stops for that minute, which is expected), the housekeeping thread off, and finally all of
-  them off — and writes a report whose first section puts the six phases side by side: for each one,
-  the per-second worst gap (p50/p90/max), how many seconds lost a frame, **how many individual
-  hitches** there were over 32 ms, and which second the worst one fell in. It needs a
+- **`extended bundle & report`** is the one for a stutter. It does the comparing for you: press it,
+  load a character, stand somewhere quiet and still, and start. The mod records nine one-minute
+  phases — everything on, then the raw-input hooks off, the cursor detours taken out, pad casting off
+  (casting stops for that minute, which is expected), the housekeeping thread off, pad-only, every
+  group off, and then **two phases with everything back on**. Those two closing baselines are the
+  point: a run measures a machine that can change speed halfway through, and with one closing phase
+  the phase that switched everything back on tends to look like the fastest of the run. Two identical
+  phases make drift visible as drift. The report's first section puts the phases side by side: for
+  each one, the per-second worst gap (p50/p90/max), how many seconds lost a frame, **how many
+  individual hitches** there were over 32 ms, and which second the worst one fell in. It needs a
   frame clock, and takes the best one available: the pad poll when a controller is attached,
   otherwise the game's own message pump (`PeekMessageW`), which runs once a frame in the world and in
   every menu. The state section of the report says which clock was live. That is the
   difference between "it stutters" and "it stutters with our hooks loaded", which is usually the
   question worth answering. The panel closes itself when the run starts, because an open panel owns
   the input and the GPU it is meant to be measuring.
+- **The report says which numbers cover what.** The per-second series is always the last five
+  minutes; the pad-path and dispatch sections are counts since load, and say so with the session's
+  length. `character recheck` is per check, not per frame. `spell selected in the game` carries the
+  age of the reading, because it is read when the panel opens rather than polled. And the header
+  carries `(built ...)` beside the version, so two builds of the same version can be told apart.
 - **`perf_log = on`** additionally writes a timing line to the log — when a frame was lost, or every
   five minutes when nothing was. It is on in the shipped ini; it is quiet enough to leave there, and
   it is the only setting that records stutters as they happen.

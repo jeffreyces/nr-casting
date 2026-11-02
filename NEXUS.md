@@ -29,8 +29,14 @@ settle on are remembered, and [b]reset layout[/b] puts it back if a monitor chan
 config, modules, GPU, per-second frame gaps) with your user name and character name redacted, opens the
 issue page with the numbers prefilled, and selects the file so it can be dragged in. It waits for five
 minutes of the current character first, and says how long is left. [b]bundle diagnostics &amp; report[/b]
-does the comparing itself: six one-minute phases with each part of the mod switched off in turn, so a
-stutter report says which part it follows.[/*]
+does the comparing itself: nine one-minute phases — each part of the mod switched off on its own, the
+combinations, and two identical phases at the end so drift shows up as drift instead of looking like a
+result — so a stutter report says which part it follows. Every report carries the build time as well as
+the version, so a report can be matched to the build that produced it.[/*]
+[*][b]Edit the ini without restarting[/b] — the file is watched: [b]debug_log[/b], [b]perf_log[/b],
+[b]hud_mirror[/b], [b]show_all[/b], the UI scale, the bind modifier and the hotkey take effect within a
+second of saving. The switches that have to exist before a hook is installed (the panel itself, the hook
+groups, the present clock) say so in the log rather than being silently ignored.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
