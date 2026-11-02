@@ -422,12 +422,13 @@ fn game_data() -> Option<&'static mut eldenring::cs::PlayerGameData> {
 /// deliberate input, not a per-frame event - and turns ~36 walks a second into four.
 /// How long the weapon pair is trusted without being re-read.
 ///
-/// Also a net: a press edge forces a fresh read, `set_one_handed` drops the cache, and the character
-/// changing drops it too. The equipment only changes when the player equips something, and that
-/// arrives as one of those edges - the timer exists so a path nobody thought of cannot show a stale
-/// pair forever. It was 250 ms, which re-walked `WorldChrMan -> main_player -> PlayerGameData` four
-/// times a second to learn that the player had not touched their equipment.
-const WEAPON_CACHE_MS: u32 = 1000;
+/// Only a net, now that every input is an edge: a press (button or trigger) forces a fresh read,
+/// `set_one_handed` drops the cache, and a new character drops it too. Equipment can only change
+/// when the player equips something, and equipping means input - including in the inventory menu,
+/// where every swap is D-pad and A presses. So the read happens on the event, and the timer exists
+/// for one purpose only: a path nobody has thought of must not be able to serve a stale pair
+/// forever. Ten seconds is long enough to be invisible and short enough to self-heal.
+const WEAPON_CACHE_MS: u32 = 10_000;
 static WEAPON_PAIR: AtomicU64 = AtomicU64::new(u64::MAX);
 static WEAPON_AT: AtomicU32 = AtomicU32::new(0);
 
