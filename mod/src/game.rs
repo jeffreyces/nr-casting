@@ -374,9 +374,14 @@ fn game_data() -> Option<&'static mut eldenring::cs::PlayerGameData> {
 /// `weapon_ids` is asked several times per poll (is this slot bound, which chord is this, the HUD
 /// mirror) and each answer used to walk `WorldChrMan -> main_player -> PlayerGameData` *and* take a
 /// clock reading, because `player()` checks its revalidation timer on every call. Answering from a
-/// cached pair collapses that to one walk per pass. 8 ms is the pass interval itself, so a weapon
-/// swap is still seen on the pass it happens in: this is de-duplication, not staleness.
-const WEAPON_CACHE_MS: u32 = 8;
+/// cached pair collapses that to one walk per pass.
+///
+/// 8 ms was chosen because it is the pad poll interval - on a fast machine. A poll interval is not
+/// a constant: a reporter's polls arrive every ~28 ms, so an 8 ms cache expired before the next
+/// call and *every* poll re-walked the chain, with tail latencies up to 76 ms measured inside our
+/// own pad path. 250 ms still sees a weapon swap within a quarter second - a swap is a menu or a
+/// deliberate input, not a per-frame event - and turns ~36 walks a second into four.
+const WEAPON_CACHE_MS: u32 = 250;
 static WEAPON_PAIR: AtomicU64 = AtomicU64::new(u64::MAX);
 static WEAPON_AT: AtomicU32 = AtomicU32::new(0);
 

@@ -1304,7 +1304,10 @@ fn adjust_inner(state: &mut XInputState) {
 
     // Keeps the panel's "selected" line fresh. Throttled to 100 ms inside, because this runs on
     // every XInput poll and the read is a several-syscall pointer chase.
-    {
+    // Only the panel reads this, and only while it is open. Sampling it with the panel closed cost a
+    // reporter 501 us of pad-path mean and 46 ms worst per sample, on a pointer chase that exists to
+    // keep one line of a window fresh that nobody had open.
+    if UI_OPEN.load(Ordering::Relaxed) {
         let _t = crate::padcost::Timer::start(crate::padcost::SAMPLE);
         sample_player_selection(now);
     }
