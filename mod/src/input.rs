@@ -1421,7 +1421,18 @@ fn adjust_inner(state: &mut XInputState) {
             label,
         } => {
             if matches!(chord, Some(press) if press.spell <= 0) {
-                // An owned chord with no spell behind it: swallowed above, nothing to cast.
+                // An owned chord with no spell behind it: swallowed above, nothing to cast. This is
+                // the "I pressed it and literally nothing happened" case - no gesture, no failed
+                // cast - so it has to say which weapon and slot it decided were unbound.
+                if crate::config::load().debug_log {
+                    let hand = if right_hand { "right" } else { "left" };
+                    let weapon = crate::game::weapon_ids()
+                        .map(|(l, r)| if right_hand { r } else { l })
+                        .unwrap_or(0);
+                    debug!(
+                        "swallow: {label} is ours but {hand} weapon {weapon} has nothing bound in slot {slot}"
+                    );
+                }
                 release_borrowed();
             } else if !cast_slot(right_hand, slot, label, pad, now) {
                 // Nothing bound: a plain input was never rewritten (so the game does its own

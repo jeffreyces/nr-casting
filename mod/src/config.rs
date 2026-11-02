@@ -605,6 +605,7 @@ pub fn watch() {
                 continue;
             }
             let late = reload();
+            crate::apply_runtime_config();
             if late.is_empty() {
                 crate::log("config: reloaded from the ini");
             } else {

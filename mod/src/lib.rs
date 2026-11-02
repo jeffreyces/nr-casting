@@ -43,6 +43,17 @@
 
 mod bisect;
 mod dispatch;
+
+/// Push the parts of the config that are cached into their caches.
+///
+/// `debug!` reads one atomic, not the config, because it is called on every input poll and the check
+/// has to come before the `format!`. That cache is why the ini reload has to call this: without it,
+/// `debug_log = on` would apply everywhere except the macro that writes debug lines - which is the
+/// one place it was turned on for.
+pub(crate) fn apply_runtime_config() {
+    let cfg = config::load();
+    DEBUG_LOG.store(cfg.debug_log, std::sync::atomic::Ordering::Relaxed);
+}
 mod config;
 mod crash;
 mod game;
@@ -238,7 +249,7 @@ fn run() {
         cfg.bind_modifier_kb_name,
         config::dir().display()
     ));
-    DEBUG_LOG.store(cfg.debug_log, Ordering::Relaxed);
+    apply_runtime_config();
     if build_changed {
         log("build: executable changed — cleared the cached catalogue and previous log");
     }
