@@ -17,7 +17,8 @@ cd "$ROOT/mod"
 if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
     cargo build --release --target "$TRIPLE"
 else
-    cargo xwin build --release --target "$TRIPLE"
+    # Stamped into the report: two builds can share a version while a fix is under test.
+    NR_BUILD="$(date -u +%Y-%m-%dT%H:%M:%SZ)" cargo xwin build --release --target "$TRIPLE"
 fi
 
 mkdir -p "$OUT"

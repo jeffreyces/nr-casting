@@ -152,8 +152,11 @@ fn section(out: &mut String, name: &str, body: &str) {
 /// garyttierney\me3\...` names no user, but it is their machine and it does not need to travel.
 fn report_header(reason: &str) -> String {
     format!(
-        "mod: nr_casting {}\nexe: {}\nreason: {reason}\nuptime: {} ms",
+        "mod: nr_casting {} (built {})\nexe: {}\nreason: {reason}\nuptime: {} ms",
         env!("CARGO_PKG_VERSION"),
+        // Two builds can carry the same version while a fix is being tested; the stamp tells the
+        // reader which one produced the numbers, which is the first question a report invites.
+        option_env!("NR_BUILD").unwrap_or("development copy"),
         crate::probe::exe_version(),
         crate::logging::uptime_ms(),
     )

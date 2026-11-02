@@ -9,7 +9,9 @@
 //! `nr_casting_offsets.txt`, `nr_casting_probe.log`. Files read: the same names, falling back
 //! to the DLL's own folder so a hand-placed ini or table override keeps working.
 
+use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
 
 extern "system" {
@@ -155,7 +157,6 @@ impl Default for Config {
     }
 }
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
 static DIR: OnceLock<PathBuf> = OnceLock::new();
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
@@ -450,8 +451,124 @@ fn save_ui_keys(section: &str, pairs: &[(&str, &str)]) {
     }
 }
 
+static CONFIG: std::sync::atomic::AtomicPtr<Config> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+/// The ini is read once, and again whenever the file changes (see `watch`).
+///
+/// A pointer rather than a `OnceLock` because the file is event-driven now: a watcher notices the
+/// write, re-parses, and publishes. Readers keep whatever pointer they loaded, so a reload can never
+/// pull the ground out from under a call in flight; the superseded config is leaked on purpose
+/// (a few hundred bytes, only on a hand edit, never in a loop).
 pub fn load() -> &'static Config {
-    CONFIG.get_or_init(|| {
+    let published = CONFIG.load(Ordering::Acquire);
+    if !published.is_null() {
+        // SAFETY: only ever set to a leaked `Config` that lives for the process.
+        return unsafe { &*published };
+    }
+    let fresh: &'static Config = Box::leak(Box::new(read()));
+    match CONFIG.compare_exchange(
+        std::ptr::null_mut(),
+        fresh as *const Config as *mut Config,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => fresh,
+        // Lost a race with another first caller: theirs is published, use it.
+        Err(existing) => unsafe { &*existing },
+    }
+}
+
+/// Re-read the ini and publish the result. Returns the keys that only take effect next launch.
+pub fn reload() -> Vec<&'static str> {
+    let fresh: &'static Config = Box::leak(Box::new(read()));
+    let previous = CONFIG.swap(
+        fresh as *const Config as *mut Config,
+        Ordering::AcqRel,
+    );
+    if previous.is_null() {
+        return Vec::new();
+    }
+    // SAFETY: every published pointer is a leaked `Config`.
+    let old = unsafe { &*previous };
+    let mut late = Vec::new();
+    if old.overlay != fresh.overlay {
+        late.push("overlay");
+    }
+    if old.hooks != fresh.hooks || old.raw_hook != fresh.raw_hook
+        || old.pointer_hook != fresh.pointer_hook || old.pad_hook != fresh.pad_hook
+    {
+        late.push("the hook switches");
+    }
+    if old.present_clock != fresh.present_clock {
+        late.push("present_clock");
+    }
+    if old.hotkey != fresh.hotkey {
+        late.push("hotkey");
+    }
+    late
+}
+
+/// Watch the ini's folder and reload when the file changes.
+///
+/// An event, not a timer: `FindFirstChangeNotificationW` puts the thread to sleep until somebody
+/// writes, and the common case for the rest of the session costs one blocked thread. The debounce is
+/// for editors that write in two steps (truncate, then content) - reloading on the first write would
+/// read an empty file.
+pub fn watch() {
+    const FILE_NOTIFY_CHANGE_LAST_WRITE: u32 = 0x0000_0010;
+    const WAIT_OBJECT_0: u32 = 0;
+    extern "system" {
+        fn FindFirstChangeNotificationW(path: *const u16, subtree: i32, filter: u32) -> isize;
+        fn FindNextChangeNotification(handle: isize) -> i32;
+        fn WaitForSingleObject(handle: isize, millis: u32) -> u32;
+    }
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    std::thread::spawn(|| {
+        // The folder, not the file: a file handle follows the inode, and editors replace the file.
+        let folder: Vec<u16> = dir()
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let handle = unsafe { FindFirstChangeNotificationW(folder.as_ptr(), 0, FILE_NOTIFY_CHANGE_LAST_WRITE) };
+        if handle == isize::MAX || handle == 0 {
+            crate::log("config: cannot watch the folder - the ini is read at launch only");
+            return;
+        }
+        // The first load has to happen before a reload can be compared against it.
+        let _ = load();
+        loop {
+            let hit = unsafe { WaitForSingleObject(handle, 60_000) };
+            if hit != WAIT_OBJECT_0 {
+                continue;
+            }
+            unsafe {
+                FindNextChangeNotification(handle);
+            }
+            // Editors write in two steps; give the second one time to land.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if !ini_file().exists() {
+                continue;
+            }
+            let late = reload();
+            if late.is_empty() {
+                crate::log("config: reloaded from the ini");
+            } else {
+                crate::log(&format!(
+                    "config: reloaded from the ini ({} take effect next launch)",
+                    late.join(", ")
+                ));
+            }
+        }
+    });
+}
+
+fn read() -> Config {
+    {
         // The ini ships with the package beside the DLL; a copy in the data folder is only
         // used if that one is missing, so editing the shipped file always takes effect.
         let file = ini_file();
@@ -645,5 +762,5 @@ perf_log = off
             }
         }
         config
-    })
+    }
 }

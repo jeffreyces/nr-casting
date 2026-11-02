@@ -205,6 +205,10 @@ fn run() {
     // Perf lines are written off the game's thread: formatting and flushing a file inside a
     // per-frame hook measured at up to 17 ms, which is a stutter of our own making.
     perf::start_writer();
+    // The ini is watched, not polled: a write to the file is the event, and `debug_log`/`perf_log`/
+    // `hud_mirror`/`show_all` change without restarting the game. The startup-only switches are
+    // named in the log line rather than silently ignored.
+    config::watch();
     log(&format!(
         "=== nr_casting loaded ({} opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)",
         cfg.hotkey_name

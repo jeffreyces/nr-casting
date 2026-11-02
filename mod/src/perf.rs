@@ -133,14 +133,48 @@ static PENDING: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 static PENDING_OPEN: AtomicBool = AtomicBool::new(false);
 static HAS_PENDING: AtomicBool = AtomicBool::new(false);
 
+// A window closing is an event, so the writer waits for one instead of asking twice a second
+// whether anything happened. Two wakeups a second is not measurable, but it is a thread the
+// scheduler has to keep in its round; a wait is free until somebody signals.
+extern "system" {
+    fn CreateEventW(attributes: *mut core::ffi::c_void, manual_reset: i32, initial: i32, name: *const u16) -> isize;
+    fn SetEvent(handle: isize) -> i32;
+    fn WaitForSingleObject(handle: isize, millis: u32) -> u32;
+}
+
+/// The writer's wake-up handle, or 0 before the thread exists. Signal-only: a handle that is not
+/// there yet just means the writer will pick the numbers up on its next timeout.
+static WAKE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+fn wake_writer() {
+    let handle = WAKE.load(Ordering::Acquire);
+    if handle != 0 {
+        unsafe {
+            SetEvent(handle);
+        }
+    }
+}
+
 /// Start the thread that writes perf lines, once, at load.
 pub fn start_writer() {
     static STARTED: AtomicBool = AtomicBool::new(false);
     if STARTED.swap(true, Ordering::Relaxed) {
         return;
     }
-    std::thread::spawn(|| loop {
-        std::thread::sleep(std::time::Duration::from_millis(500));
+    // Created before the thread starts: a window can close while the thread is still starting, and
+    // a missed signal would only be noticed on the timeout.
+    let handle = unsafe { CreateEventW(std::ptr::null_mut(), 0, 0, std::ptr::null()) };
+    WAKE.store(handle, Ordering::Release);
+    std::thread::spawn(move || loop {
+        // The timeout is a net, not a poll: if a signal is ever missed the numbers are late, not
+        // lost. WAIT_OBJECT_0 (0) means the handle fired; 258 is the timeout.
+        if handle != 0 {
+            unsafe {
+                WaitForSingleObject(handle, 60_000);
+            }
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
         if !HAS_PENDING.swap(false, Ordering::Acquire) {
             continue;
         }
@@ -552,4 +586,7 @@ fn record(now: u64, cost: u32) {
     PENDING_OPEN.store(open, Ordering::Relaxed);
     let _ = mean;
     HAS_PENDING.store(true, Ordering::Release);
+    // One `SetEvent` per closed window (every ten seconds), on the game's thread. A no-op before
+    // the writer has created its handle.
+    wake_writer();
 }

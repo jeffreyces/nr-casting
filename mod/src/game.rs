@@ -78,7 +78,16 @@ static MAGIC: AtomicUsize = AtomicUsize::new(0);
 /// When the cached pointers were last checked for readability.
 static CHAR_CHECKED: AtomicU32 = AtomicU32::new(0);
 /// How often to re-verify the cached pointers even when nothing changed.
-const RECHECK_MS: u32 = 1000;
+/// How long the character block is trusted without being re-examined.
+///
+/// This is a *net*, not a trigger: the pointer changing is the event that re-arms it, and that
+/// covers loading, dying and warping, which is when the block actually moves. What the net is for is
+/// the case the event cannot see - the block freed and something else allocated at the same address.
+/// It was 1000 ms, which paid a `VirtualQuery` over the whole character struct once a second
+/// (175 us mean, 633 us worst here; milliseconds on a machine whose pages are not resident) to catch
+/// a case that every write already re-checks for itself (`magic_data_verified`, `image_range`).
+/// Five seconds keeps the safety property and costs a fifth as much.
+const RECHECK_MS: u32 = 5000;
 /// Steer the game's selection at `spell` through a spare magic entry.
 /// Point the game's *selected* entry at `spell`, remembering what was there so it can be
 /// restored as soon as the input is released.
@@ -411,7 +420,14 @@ fn game_data() -> Option<&'static mut eldenring::cs::PlayerGameData> {
 /// call and *every* poll re-walked the chain, with tail latencies up to 76 ms measured inside our
 /// own pad path. 250 ms still sees a weapon swap within a quarter second - a swap is a menu or a
 /// deliberate input, not a per-frame event - and turns ~36 walks a second into four.
-const WEAPON_CACHE_MS: u32 = 250;
+/// How long the weapon pair is trusted without being re-read.
+///
+/// Also a net: a press edge forces a fresh read, `set_one_handed` drops the cache, and the character
+/// changing drops it too. The equipment only changes when the player equips something, and that
+/// arrives as one of those edges - the timer exists so a path nobody thought of cannot show a stale
+/// pair forever. It was 250 ms, which re-walked `WorldChrMan -> main_player -> PlayerGameData` four
+/// times a second to learn that the player had not touched their equipment.
+const WEAPON_CACHE_MS: u32 = 1000;
 static WEAPON_PAIR: AtomicU64 = AtomicU64::new(u64::MAX);
 static WEAPON_AT: AtomicU32 = AtomicU32::new(0);
 
