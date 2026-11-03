@@ -968,6 +968,168 @@ pub fn pad_cost_line(name: &str, calls: u32, mean_us: f64, worst_us: u32, slow: 
     )
 }
 
+
+/// Whether assignments are limited to the character's memorised spells.
+///
+/// `Attuned` is the reviewer-requested gate: vanilla caps a caster's library at the number of
+/// memory slots, while this mod stores four spells per catalyst, so capacity used to scale with
+/// the number of catalysts owned. Balanced mode makes the mod a better way to *use* your attuned
+/// spells, not a way around attunement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Balance {
+    /// Every spell the catalogue offers: today's behaviour, and the default.
+    Free,
+    /// Only the spells the character has attuned at a grace.
+    Attuned,
+}
+
+impl Balance {
+    /// The word written to the ini and printed in the report.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Balance::Free => "free",
+            Balance::Attuned => "attuned",
+        }
+    }
+}
+
+/// The `balance` ini value. Only the two names are accepted; anything else is `None` so the caller
+/// keeps its current mode and logs the line rather than silently switching a player's gate.
+pub fn parse_balance(text: &str) -> Option<Balance> {
+    unimplemented!()
+}
+
+/// What a spell is, from the catalogue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum School {
+    Sorcery,
+    Incantation,
+    /// Not classified: `Other` catalysts and odd rows. Never treated as a mismatch.
+    Unknown,
+}
+
+/// What a hand's catalyst can cast.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatalystSchool {
+    /// A glintstone staff: sorceries only.
+    Staff,
+    /// A sacred seal: incantations only.
+    Seal,
+    /// No catalyst, or one we cannot classify: nothing is filtered, because guessing wrong would
+    /// grey out a row the player can actually cast.
+    Any,
+}
+
+impl CatalystSchool {
+    fn wants(self, spell: School) -> bool {
+        match (self, spell) {
+            (CatalystSchool::Staff, School::Incantation) => false,
+            (CatalystSchool::Seal, School::Sorcery) => false,
+            _ => true,
+        }
+    }
+}
+
+/// How one assigned row should be drawn, and whether it will cast.
+///
+/// Three states, deliberately: a fourth would need a reason nobody has asked for, and
+/// "attuned but the game will refuse it" is a catalogue concern (stat requirements), not a gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowState {
+    /// Nothing assigned: the input belongs to the game.
+    Empty,
+    /// Assigned, attuned, right school: casts.
+    Attuned,
+    /// Assigned, but the spell is no longer in the memorised set. Greyed, kept, castable never.
+    NotAttuned,
+    /// Assigned, attuned, but this catalyst cannot cast that school. Greyed with its own reason,
+    /// because the fix is a different spell, not a grace visit.
+    WrongSchool,
+}
+
+impl RowState {
+    /// Whether the row is drawn greyed and passes the press through to the game.
+    pub fn dormant(self) -> bool {
+        matches!(self, RowState::NotAttuned | RowState::WrongSchool)
+    }
+
+    /// The marker drawn beside the row, empty for the two states that need no explanation.
+    pub fn label(self) -> &'static str {
+        match self {
+            RowState::Empty => "",
+            RowState::Attuned => "attuned",
+            RowState::NotAttuned => "not attuned",
+            RowState::WrongSchool => "wrong school for this catalyst",
+        }
+    }
+}
+
+/// Classify one row of the panel.
+///
+/// Order matters and is the whole rule: an empty row is empty whatever the memory holds; a school
+/// mismatch is reported as a mismatch even when the spell is attuned (the player could attune it
+/// correctly and still not cast it from this catalyst); only then does attunement decide.
+pub fn classify(
+    assigned: i32,
+    spell: School,
+    catalyst: CatalystSchool,
+    attuned: &[i32],
+) -> RowState {
+    unimplemented!()
+}
+
+/// What one catalyst's four rows add up to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    /// Rows with a spell in them.
+    pub assigned: u32,
+    /// Rows that will cast.
+    pub live: u32,
+    /// Rows greyed for either reason.
+    pub stale: u32,
+}
+
+/// Count the rows of one catalyst. `assigned == live + stale` always, which is what makes the
+/// report line checkable against the panel by eye.
+pub fn counts(rows: &[RowState]) -> Counts {
+    unimplemented!()
+}
+
+/// The four spells to use for a catalyst, preferring this exact item over the type's default.
+///
+/// Rows are filed on the full param id when a player customises one copy, and on the base id as
+/// the default for the weapon type. Upgrading a staff changes its full id, so without the fallback
+/// an upgrade at a smith would look like a different weapon and lose its assignments; two copies at
+/// different upgrade levels keep separate overrides. Identical copies still share - no key can tell
+/// them apart, and the inventory handle changes on upgrade, so it is the wrong fix.
+pub fn resolve_row(base: i32, full: i32, rows: &[(i32, Category)]) -> Option<Category> {
+    unimplemented!()
+}
+
+/// The report's balance line: five figures in one string, so it is assembled where a test reads it.
+///
+/// `attuned` is of `slots` (the character's memory capacity), `assigned` and `stale` are this
+/// catalyst's rows, and `reachable` is how many distinct attuned spells the equipped pair can
+/// actually cast - the number that answers "why is my row grey" without opening the panel.
+pub fn balance_line(
+    mode: Balance,
+    attuned: u32,
+    slots: u32,
+    assigned: u32,
+    reachable: u32,
+    stale: u32,
+) -> String {
+    unimplemented!()
+}
+
+/// The sentence shown when the gate leaves a hand with nothing to offer, empty when it is fine.
+pub const ATTUNE_FIRST: &str = "attune spells in the game's spell menu, then come back";
+
+/// Why this hand's pickers are empty, if they are.
+pub fn balance_notice(catalyst: CatalystSchool, attuned: &[School]) -> Option<&'static str> {
+    unimplemented!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1899,3 +2061,281 @@ mod raw_tests {
         assert_eq!(fit_scale(-5.0, 3.0, f32::NAN), MIN_UI_SCALE);
     }
 }
+
+
+#[cfg(test)]
+mod balance_tests {
+    use super::*;
+
+    // ---- parse_balance -------------------------------------------------------------------
+
+    #[test]
+    fn balance_accepts_its_two_names() {
+        assert_eq!(parse_balance("free"), Some(Balance::Free));
+        assert_eq!(parse_balance("attuned"), Some(Balance::Attuned));
+    }
+
+    #[test]
+    fn balance_ignores_case_and_surrounding_space() {
+        // The ini is hand-edited, so " Attuned " is a player being tidy, not an error.
+        assert_eq!(parse_balance("  ATTUNED "), Some(Balance::Attuned));
+        assert_eq!(parse_balance("\tFree\r"), Some(Balance::Free));
+    }
+
+    #[test]
+    fn balance_rejects_booleans() {
+        // on/off reads like a switch, but this key has two named modes; accepting a boolean would
+        // leave the ini saying "on" about a value that is not either mode's name.
+        for value in ["on", "off", "true", "false", "1", "0"] {
+            assert_eq!(parse_balance(value), None, "{value}");
+        }
+    }
+
+    #[test]
+    fn balance_rejects_anything_else() {
+        for value in ["", "balanced", "attune", "free ", "attuned;"] {
+            assert_eq!(parse_balance(value), None, "{value}");
+        }
+    }
+
+    // ---- classify ------------------------------------------------------------------------
+
+    #[test]
+    fn an_empty_row_is_empty_whatever_the_memory_holds() {
+        let attuned = [10, 11];
+        assert_eq!(classify(-1, School::Sorcery, CatalystSchool::Staff, &attuned), RowState::Empty);
+        assert_eq!(classify(0, School::Unknown, CatalystSchool::Any, &attuned), RowState::Empty);
+        assert_eq!(classify(-1, School::Unknown, CatalystSchool::Any, &[]), RowState::Empty);
+    }
+
+    #[test]
+    fn an_attuned_spell_of_the_right_school_casts() {
+        assert_eq!(
+            classify(11, School::Sorcery, CatalystSchool::Staff, &[10, 11]),
+            RowState::Attuned
+        );
+        assert_eq!(
+            classify(40, School::Incantation, CatalystSchool::Seal, &[40]),
+            RowState::Attuned
+        );
+    }
+
+    #[test]
+    fn a_school_mismatch_outranks_attunement() {
+        // The spell is attuned and still cannot be cast from this catalyst: the fix is a different
+        // spell, not a grace visit, so it must not read as "not attuned".
+        assert_eq!(
+            classify(40, School::Incantation, CatalystSchool::Staff, &[40]),
+            RowState::WrongSchool
+        );
+        assert_eq!(
+            classify(11, School::Sorcery, CatalystSchool::Seal, &[11]),
+            RowState::WrongSchool
+        );
+    }
+
+    #[test]
+    fn an_unattuned_spell_is_not_attuned() {
+        assert_eq!(
+            classify(99, School::Sorcery, CatalystSchool::Staff, &[10, 11]),
+            RowState::NotAttuned
+        );
+        assert_eq!(
+            classify(99, School::Sorcery, CatalystSchool::Staff, &[]),
+            RowState::NotAttuned
+        );
+    }
+
+    #[test]
+    fn an_unclassified_spell_is_never_a_mismatch() {
+        // A class port can put an odd row in a staff: without a school there is nothing to compare,
+        // and greying a spell that casts would be worse than not filtering it.
+        assert_eq!(
+            classify(7, School::Unknown, CatalystSchool::Staff, &[7]),
+            RowState::Attuned
+        );
+        assert_eq!(
+            classify(7, School::Unknown, CatalystSchool::Staff, &[8]),
+            RowState::NotAttuned
+        );
+    }
+
+    #[test]
+    fn an_unclassified_catalyst_never_filters() {
+        assert_eq!(
+            classify(40, School::Incantation, CatalystSchool::Any, &[40]),
+            RowState::Attuned
+        );
+        assert_eq!(
+            classify(11, School::Sorcery, CatalystSchool::Any, &[11]),
+            RowState::Attuned
+        );
+    }
+
+    #[test]
+    fn only_the_two_dormant_states_are_dormant() {
+        assert!(!RowState::Empty.dormant());
+        assert!(!RowState::Attuned.dormant());
+        assert!(RowState::NotAttuned.dormant());
+        assert!(RowState::WrongSchool.dormant());
+        assert_eq!(RowState::Attuned.label(), "attuned");
+        assert_eq!(RowState::NotAttuned.label(), "not attuned");
+        assert_eq!(RowState::WrongSchool.label(), "wrong school for this catalyst");
+        assert_eq!(RowState::Empty.label(), "");
+    }
+
+    // ---- counts --------------------------------------------------------------------------
+
+    #[test]
+    fn a_full_attuned_catalyst_counts_four_live() {
+        let rows = [RowState::Attuned; 4];
+        assert_eq!(counts(&rows), Counts { assigned: 4, live: 4, stale: 0 });
+    }
+
+    #[test]
+    fn a_mixed_catalyst_splits_live_and_stale() {
+        let rows = [RowState::Attuned, RowState::Empty, RowState::NotAttuned, RowState::WrongSchool];
+        assert_eq!(counts(&rows), Counts { assigned: 3, live: 1, stale: 2 });
+    }
+
+    #[test]
+    fn all_stale_is_all_stale() {
+        let rows = [RowState::NotAttuned; 4];
+        assert_eq!(counts(&rows), Counts { assigned: 4, live: 0, stale: 4 });
+    }
+
+    #[test]
+    fn an_empty_catalyst_counts_nothing() {
+        assert_eq!(counts(&[RowState::Empty; 4]), Counts::default());
+        assert_eq!(counts(&[]), Counts::default());
+    }
+
+    #[test]
+    fn assigned_is_always_live_plus_stale() {
+        // This identity is what lets a reader check the report against the panel by eye.
+        for a in 0..4 {
+            for live in 0..=a {
+                for stale in 0..=(a - live) {
+                    let mut rows = Vec::new();
+                    rows.extend(std::iter::repeat(RowState::Attuned).take(live as usize));
+                    rows.extend(std::iter::repeat(RowState::NotAttuned).take(stale as usize));
+                    rows.extend(std::iter::repeat(RowState::Empty).take(4 - a as usize));
+                    let c = counts(&rows);
+                    assert_eq!(c.assigned, live + stale, "{rows:?}");
+                    assert_eq!(c.assigned, c.live + c.stale);
+                }
+            }
+        }
+    }
+
+    // ---- resolve_row ---------------------------------------------------------------------
+
+    const BASE: i32 = 33_090_000;
+    const PLUS_TEN: i32 = 33_090_010;
+
+    #[test]
+    fn an_override_on_this_copy_wins() {
+        let rows = vec![
+            (BASE, [1, 2, 3, 4]),
+            (PLUS_TEN, [9, 8, 7, 6]),
+        ];
+        assert_eq!(resolve_row(BASE, PLUS_TEN, &rows), Some([9, 8, 7, 6]));
+    }
+
+    #[test]
+    fn an_upgraded_weapon_falls_back_to_the_types_default() {
+        // The whole point: upgrading at a smith changes the full id, and the layout must survive.
+        let rows = vec![(BASE, [1, 2, 3, 4])];
+        assert_eq!(resolve_row(BASE, PLUS_TEN, &rows), Some([1, 2, 3, 4]));
+        // A second upgrade level reads the same default.
+        assert_eq!(resolve_row(BASE, 33_090_025, &rows), Some([1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn an_unknown_weapon_resolves_to_nothing() {
+        assert_eq!(resolve_row(BASE, PLUS_TEN, &[]), None);
+        assert_eq!(resolve_row(BASE, PLUS_TEN, &[(12_345_678, [1, 2, 3, 4])]), None);
+    }
+
+    #[test]
+    fn a_row_on_the_full_id_alone_is_found() {
+        // Files can hold an override without a default (the default was reset): it must still work.
+        let rows = vec![(PLUS_TEN, [9, 8, 7, 6])];
+        assert_eq!(resolve_row(BASE, PLUS_TEN, &rows), Some([9, 8, 7, 6]));
+    }
+
+    #[test]
+    fn an_unbound_default_is_returned_as_it_is() {
+        // A default of all -1 is a real answer, not a miss: the caller must not fall through to
+        // some other row on the strength of it being empty.
+        let rows = vec![(BASE, [-1; 4]), (PLUS_TEN, [9, 8, 7, 6])];
+        assert_eq!(resolve_row(BASE, PLUS_TEN, &rows), Some([9, 8, 7, 6]));
+        assert_eq!(resolve_row(BASE, 33_090_001, &rows), Some([-1; 4]));
+    }
+
+    // ---- balance_line --------------------------------------------------------------------
+
+    #[test]
+    fn the_line_prints_five_figures_in_attuned_mode() {
+        assert_eq!(
+            balance_line(Balance::Attuned, 9, 12, 8, 4, 1),
+            "balance=attuned attuned=9/12 assigned=8 reachable=4 stale=1"
+        );
+    }
+
+    #[test]
+    fn the_line_says_only_free_in_free_mode() {
+        // Free mode has no gate to report; printing zeroes would read as a broken count.
+        assert_eq!(balance_line(Balance::Free, 0, 0, 0, 0, 0), "balance=free");
+        assert_eq!(balance_line(Balance::Free, 9, 12, 8, 4, 1), "balance=free");
+    }
+
+    // ---- balance_notice ------------------------------------------------------------------
+
+    #[test]
+    fn nothing_attuned_asks_for_a_grace_visit() {
+        assert_eq!(
+            balance_notice(CatalystSchool::Staff, &[]),
+            Some(ATTUNE_FIRST)
+        );
+        assert_eq!(balance_notice(CatalystSchool::Any, &[]), Some(ATTUNE_FIRST));
+    }
+
+    #[test]
+    fn a_staff_needs_a_sorcery() {
+        assert_eq!(
+            balance_notice(CatalystSchool::Staff, &[School::Incantation, School::Incantation]),
+            Some("no attuned sorcery left for this staff")
+        );
+        assert_eq!(balance_notice(CatalystSchool::Staff, &[School::Sorcery]), None);
+    }
+
+    #[test]
+    fn a_seal_needs_an_incantation() {
+        assert_eq!(
+            balance_notice(CatalystSchool::Seal, &[School::Sorcery]),
+            Some("no attuned incantation left for this seal")
+        );
+        assert_eq!(balance_notice(CatalystSchool::Seal, &[School::Incantation]), None);
+    }
+
+    #[test]
+    fn an_unclassified_catalyst_is_never_told_why() {
+        assert_eq!(balance_notice(CatalystSchool::Any, &[School::Unknown]), None);
+        assert_eq!(balance_notice(CatalystSchool::Any, &[School::Sorcery]), None);
+    }
+
+    #[test]
+    fn the_notices_are_plain_ascii() {
+        // ProggyClean covers 0x20-0xFF; a smart quote renders as a box in the panel.
+        for text in [
+            ATTUNE_FIRST,
+            "no attuned sorcery left for this staff",
+            "no attuned incantation left for this seal",
+        ] {
+            assert!(text.is_ascii(), "{text}");
+            assert!(!text.contains('\u{2019}'));
+        }
+    }
+}
+
