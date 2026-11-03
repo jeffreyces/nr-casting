@@ -38,6 +38,12 @@ extern "system" {
     fn GetModuleHandleExW(flags: u32, address: *const u16, module: *mut *mut u8) -> i32;
     fn GetModuleFileNameW(module: *mut u8, buffer: *mut u16, size: u32) -> u32;
     fn GetCurrentThreadId() -> u32;
+    fn RtlCaptureStackBackTrace(
+        frames_to_skip: u32,
+        frames_to_capture: u32,
+        back_trace: *mut *mut core::ffi::c_void,
+        back_trace_hash: *mut u32,
+    ) -> u16;
 }
 
 const FROM_ADDRESS: u32 = 0x4;
@@ -47,6 +53,57 @@ const ACCESS_VIOLATION: u32 = 0xC000_0005;
 const MAX_LOGGED: u32 = 8;
 
 static LOGGED: AtomicU32 = AtomicU32::new(0);
+
+/// Walk the faulting thread's stack and name each frame's module.
+///
+/// "It faulted inside MSVCP140" is where the CPU was, not who asked. The caller chain is what says
+/// whether a mod's own startup called a C++ routine that the runtime could not serve, and that is
+/// the difference between a mod bug and a runtime gap - the question every crash report has to
+/// answer before it can be fixed. Bounded, allocation-free, and it stops at the first frame whose
+/// module cannot be named.
+fn log_stack() {
+    /// Frames to record, including the ones inside the runtime.
+    const FRAMES: usize = 8;
+    let mut frames = [std::ptr::null_mut::<core::ffi::c_void>(); FRAMES];
+    // Skip this function and the handler; start at whoever faulted.
+    let count = unsafe {
+        RtlCaptureStackBackTrace(0, FRAMES as u32, frames.as_mut_ptr(), std::ptr::null_mut())
+    } as usize;
+    for (index, frame) in frames.iter().take(count).enumerate() {
+        if frame.is_null() {
+            break;
+        }
+        let address = *frame as usize;
+        let Some((base, name)) = module_of(address) else {
+            break;
+        };
+        if index == 0 && base == 0 {
+            break;
+        }
+        crate::logging::log(&format!(
+            "crash:   frame {index}: {name}+0x{:x}",
+            address - base
+        ));
+    }
+}
+
+/// The module that owns an address, as (base, file name).
+fn module_of(address: usize) -> Option<(usize, String)> {
+    let mut handle: *mut u8 = std::ptr::null_mut();
+    // SAFETY: `FROM_ADDRESS` asks the loader which module contains an address; it does not read it.
+    unsafe {
+        if GetModuleHandleExW(FROM_ADDRESS | UNCHANGED_REFCOUNT, address as *const u16, &mut handle) == 0
+            || handle.is_null()
+        {
+            return None;
+        }
+    }
+    let mut wide = [0u16; 260];
+    let len = unsafe { GetModuleFileNameW(handle, wide.as_mut_ptr(), wide.len() as u32) } as usize;
+    let path = String::from_utf16_lossy(&wide[..len.min(wide.len())]);
+    let name = path.rsplit(['\\', '/']).next().unwrap_or("?").to_string();
+    Some((handle as usize, name))
+}
 
 /// The last (code, address) seen, to recognise the second sighting of an unhandled fault.
 static LAST_SIGHTING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -150,6 +207,7 @@ unsafe extern "system" fn exception_handler(info: *mut ExceptionPointers) -> i32
         name,
         access,
     );
+    log_stack();
     if unhandled {
         // Same fault, second sighting: nothing in the process handled it and Windows is about to
         // end it. This is the line that separates "a DLL probed and caught" from "the game died
