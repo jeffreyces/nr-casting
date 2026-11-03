@@ -48,6 +48,9 @@ const MAX_LOGGED: u32 = 8;
 
 static LOGGED: AtomicU32 = AtomicU32::new(0);
 
+/// The last (code, address) seen, to recognise the second sighting of an unhandled fault.
+static LAST_SIGHTING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Install the observer. Cheap, idempotent enough for a single call at startup.
 pub fn install() {
     // SAFETY: a process-lifetime handler; the pointer is a plain function address.
@@ -84,6 +87,12 @@ unsafe extern "system" fn exception_handler(info: *mut ExceptionPointers) -> i32
     }
 
     let address = (*record).address as usize;
+    // A fault we see twice is one nothing handled: Windows calls every vectored handler again with
+    // the same record before it ends the process, so the second sighting is the fatal one. Without
+    // this the log cannot tell "something looked" from "something died", and a first-chance probe in
+    // another DLL reads exactly like a crash - which is the wrong conclusion to hand a reporter.
+    let key = ((code as u64) << 32) ^ address as u64;
+    let unhandled = LAST_SIGHTING.swap(key, Ordering::Relaxed) == key;
     let mut module = [0u16; 96];
     let mut base = 0usize;
     let mut module_len = 0usize;
@@ -141,5 +150,13 @@ unsafe extern "system" fn exception_handler(info: *mut ExceptionPointers) -> i32
         name,
         access,
     );
+    if unhandled {
+        // Same fault, second sighting: nothing in the process handled it and Windows is about to
+        // end it. This is the line that separates "a DLL probed and caught" from "the game died
+        // here", and it is the difference between blaming a mod and clearing it.
+        crate::logging::log(
+            "crash: unhandled - Windows called us with this fault a second time, so nothing handled it",
+        );
+    }
     EXCEPTION_CONTINUE_SEARCH
 }
