@@ -1643,10 +1643,12 @@ fn hand_column(
         // The fourth slot is Recluse's on a Recluse character: show the row, grey it out, and say
         // why, so nobody spends time wondering why Y+R1 does nothing.
         let off_for_recluse = !y_bumper && slot.weapon_slot == 3;
-        // A dormant row keeps its spell and its dropdown - the player can always reselect - but it
-        // is drawn greyed with the reason, and the press it belongs to is the game's again.
+        // A dormant row keeps its spell *and its dropdown*: the reason is printed beside it, but
+        // the control is never disabled, because the whole point of greying rather than clearing is
+        // that the player can immediately pick a spell that is attuned. Only the press is ignored
+        // (see `bound_spell`), and only an unattuned pick is refused at assignment time.
         let dormant = state.dormant();
-        ui.disabled(off_for_recluse || dormant, || {
+        ui.disabled(off_for_recluse, || {
             if off_for_recluse {
                 // Not "off": the chords still work on a Recluse, they just belong to the class
                 // port, which binds them to its own 4 and 5 keys.
@@ -1664,6 +1666,8 @@ fn hand_column(
         });
         if dormant && !off_for_recluse {
             ui.same_line();
+            // The marker, not a lock: the row is still editable, and the label is what explains why
+            // the input currently does nothing.
             ui.text_disabled(state.label());
         }
     }
