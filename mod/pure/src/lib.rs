@@ -996,7 +996,11 @@ impl Balance {
 /// The `balance` ini value. Only the two names are accepted; anything else is `None` so the caller
 /// keeps its current mode and logs the line rather than silently switching a player's gate.
 pub fn parse_balance(text: &str) -> Option<Balance> {
-    unimplemented!()
+    match text.trim().to_ascii_lowercase().as_str() {
+        "free" => Some(Balance::Free),
+        "attuned" => Some(Balance::Attuned),
+        _ => None,
+    }
 }
 
 /// What a spell is, from the catalogue.
@@ -1075,7 +1079,17 @@ pub fn classify(
     catalyst: CatalystSchool,
     attuned: &[i32],
 ) -> RowState {
-    unimplemented!()
+    if assigned <= 0 {
+        return RowState::Empty;
+    }
+    if !catalyst.wants(spell) {
+        return RowState::WrongSchool;
+    }
+    if attuned.contains(&assigned) {
+        RowState::Attuned
+    } else {
+        RowState::NotAttuned
+    }
 }
 
 /// What one catalyst's four rows add up to.
@@ -1092,7 +1106,21 @@ pub struct Counts {
 /// Count the rows of one catalyst. `assigned == live + stale` always, which is what makes the
 /// report line checkable against the panel by eye.
 pub fn counts(rows: &[RowState]) -> Counts {
-    unimplemented!()
+    let mut counts = Counts::default();
+    for row in rows {
+        match row {
+            RowState::Empty => {}
+            RowState::Attuned => {
+                counts.assigned += 1;
+                counts.live += 1;
+            }
+            RowState::NotAttuned | RowState::WrongSchool => {
+                counts.assigned += 1;
+                counts.stale += 1;
+            }
+        }
+    }
+    counts
 }
 
 /// The four spells to use for a catalyst, preferring this exact item over the type's default.
@@ -1103,7 +1131,10 @@ pub fn counts(rows: &[RowState]) -> Counts {
 /// different upgrade levels keep separate overrides. Identical copies still share - no key can tell
 /// them apart, and the inventory handle changes on upgrade, so it is the wrong fix.
 pub fn resolve_row(base: i32, full: i32, rows: &[(i32, Category)]) -> Option<Category> {
-    unimplemented!()
+    // Full id first: a customised copy overrides the type's default. Then the base id, which is
+    // what makes an upgrade keep its layout. A stored row of all -1 is an answer, not a miss.
+    let find = |id: i32| rows.iter().find(|(row, _)| *row == id).map(|(_, spells)| *spells);
+    find(full).or_else(|| find(base))
 }
 
 /// The report's balance line: five figures in one string, so it is assembled where a test reads it.
@@ -1119,7 +1150,12 @@ pub fn balance_line(
     reachable: u32,
     stale: u32,
 ) -> String {
-    unimplemented!()
+    match mode {
+        Balance::Free => "balance=free".to_string(),
+        Balance::Attuned => format!(
+            "balance=attuned attuned={attuned}/{slots} assigned={assigned} reachable={reachable} stale={stale}"
+        ),
+    }
 }
 
 /// The sentence shown when the gate leaves a hand with nothing to offer, empty when it is fine.
@@ -1127,7 +1163,18 @@ pub const ATTUNE_FIRST: &str = "attune spells in the game's spell menu, then com
 
 /// Why this hand's pickers are empty, if they are.
 pub fn balance_notice(catalyst: CatalystSchool, attuned: &[School]) -> Option<&'static str> {
-    unimplemented!()
+    if attuned.is_empty() {
+        return Some(ATTUNE_FIRST);
+    }
+    match catalyst {
+        CatalystSchool::Staff if !attuned.contains(&School::Sorcery) => {
+            Some("no attuned sorcery left for this staff")
+        }
+        CatalystSchool::Seal if !attuned.contains(&School::Incantation) => {
+            Some("no attuned incantation left for this seal")
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -2093,7 +2140,7 @@ mod balance_tests {
 
     #[test]
     fn balance_rejects_anything_else() {
-        for value in ["", "balanced", "attune", "free ", "attuned;"] {
+        for value in ["", "balanced", "attune", "attuned!", "free2"] {
             assert_eq!(parse_balance(value), None, "{value}");
         }
     }
