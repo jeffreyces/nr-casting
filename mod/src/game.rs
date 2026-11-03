@@ -610,6 +610,110 @@ fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
     Some(unsafe { &mut *ptr })
 }
 
+
+/// How long the memorised list is trusted before it is read again.
+///
+/// The list changes at a grace and when a talisman changes the slot count (Moon of Nokstella adds
+/// two), so the event that changes it is a menu this mod does not own and cannot be notified
+/// about. A one-second net on top of an explicit refresh at panel open is the same shape as the
+/// weapon cache: one verified struct walk, paid at most once a second, and only while balanced
+/// mode is actually asking.
+const ATTUNED_TTL_MS: u32 = 1000;
+
+/// The last read of the character's memorised spells.
+struct AttunedCache {
+    spells: Vec<i32>,
+    read_at: u32,
+    /// Whether the last read succeeded. A failed read must not look like "nothing is attuned",
+    /// which would grey every row on a warp.
+    ok: bool,
+}
+
+static ATTUNED: Mutex<AttunedCache> = Mutex::new(AttunedCache {
+    spells: Vec::new(),
+    read_at: 0,
+    ok: false,
+});
+
+/// The spells the character has memorised, in wheel order, with our own steer put back.
+///
+/// `select_spell` writes a spell into the selected entry, so the raw list can hold the spell we are
+/// about to cast instead of the one the player attuned; the borrowed value is substituted back
+/// here, or the gate would approve the very spell it is supposed to stop. Duplicates are dropped:
+/// the count is what the report prints, and the game does not let the same spell be attuned twice.
+pub(crate) fn attuned_spells() -> Option<Vec<i32>> {
+    let magic = magic_data_verified()?;
+    let borrowed = BORROWED
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|b| (b.idx, b.param_id)));
+    let mut spells: Vec<i32> = Vec::with_capacity(magic.entries.len());
+    for (idx, entry) in magic.entries.iter().enumerate() {
+        let mut id = entry.param_id;
+        if let Some((borrowed_idx, original)) = borrowed {
+            if borrowed_idx == idx {
+                id = original;
+            }
+        }
+        if id > 0 && !spells.contains(&id) {
+            spells.push(id);
+        }
+    }
+    Some(spells)
+}
+
+/// Re-read the memorised list and publish it: at panel open, after a character load, and on the
+/// first press after the net expires.
+pub(crate) fn refresh_attuned() {
+    let spells = attuned_spells();
+    let read_at = crate::millis();
+    if let Ok(mut cache) = ATTUNED.lock() {
+        cache.ok = spells.is_some();
+        cache.spells = spells.unwrap_or_default();
+        cache.read_at = read_at;
+    }
+}
+
+/// The published list, re-read when it is older than `ATTUNED_TTL_MS`.
+fn attuned_now() -> Option<Vec<i32>> {
+    let fresh = {
+        let now = crate::millis();
+        match ATTUNED.lock() {
+            Ok(cache) if cache.ok && now.wrapping_sub(cache.read_at) < ATTUNED_TTL_MS => {
+                Some(cache.spells.clone())
+            }
+            _ => None,
+        }
+    };
+    match fresh {
+        Some(spells) => Some(spells),
+        None => {
+            refresh_attuned();
+            ATTUNED
+                .lock()
+                .ok()
+                .and_then(|cache| cache.ok.then(|| cache.spells.clone()))
+        }
+    }
+}
+
+/// Whether balanced mode lets this spell be cast from a catalyst right now.
+///
+/// Free mode never asks: the whole path is one load of the published config pointer. In balanced
+/// mode an unreadable memorised list answers `false` — verifying is what earns a cast, and a
+/// teardown is not evidence.
+pub(crate) fn spell_attuned(spell: i32) -> bool {
+    if crate::config::load().balance == nr_casting_core::Balance::Free {
+        return true;
+    }
+    attuned_now().map(|spells| spells.contains(&spell)).unwrap_or(false)
+}
+
+/// The memorised set, for the panel and the report. Cheap: the published list when it is fresh.
+pub(crate) fn attuned_snapshot() -> Vec<i32> {
+    attuned_now().unwrap_or_default()
+}
+
 /// The magic data, re-verified immediately before it is written.
 ///
 /// Reads go through the cache; writes do not take that chance. A cast is rare, so paying the

@@ -69,6 +69,13 @@ pub struct Config {
     pub perf_log: bool,
     /// Panel planning mode: list spells the character cannot cast yet. Persisted when toggled.
     pub show_all: bool,
+    /// Whether assignments are limited to the character's memorised spells.
+    ///
+    /// `Free` is today's behaviour and the default: every spell the catalogue offers can be
+    /// assigned. `Attuned` is the balance gate — the mod then uses the player's memory slots
+    /// instead of replacing them, because capacity no longer scales with catalysts owned. Live:
+    /// the panel writes it and the watcher publishes the result.
+    pub balance: nr_casting_core::Balance,
     /// Force the game's own spell-wheel selection to slot 1 so its HUD shows what R1 will cast.
     ///
     /// Off by default: it rewrites `selected_slot` ~30 times a second, which fights the player's
@@ -143,6 +150,7 @@ impl Default for Config {
             // and the only way a stutter is recorded at the time it happens.
             perf_log: true,
             show_all: false,
+            balance: nr_casting_core::Balance::Free,
             hud_mirror: false,
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
@@ -632,7 +640,13 @@ overlay = on
 ; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
 hotkey = F8
 ; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
+; Ignored while balance = attuned: planning stays planning, but selecting an unattuned spell is
+; refused rather than assigned.
 show_all = off
+; Balanced mode. free = assign any spell the panel offers. attuned = only the spells you have
+; memorised in the game's own spell menu can be assigned, so the mod uses your memory slots
+; instead of replacing them. Saved when you toggle it in the panel.
+balance = free
 ; Panel size of text and widgets: auto follows the panel's own size, so the UI grows with the
 ; monitor it opens on and with the window when you drag its corner. Set 125 / 150% / 1.5 / 200%
 ; to pin it. Saved when you change it in the panel.
@@ -747,6 +761,13 @@ perf_log = off
                     "debug_log" => config.debug_log = truthy(value),
                     "perf_log" => config.perf_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),
+                    "balance" => match nr_casting_core::parse_balance(value) {
+                        Some(mode) => config.balance = mode,
+                        None => crate::log(&format!(
+                            "config: balance '{value}' is not recognised (free, attuned); \
+                             staying free"
+                        )),
+                    },
                     "ui_scale" => match nr_casting_core::ui_scale(value) {
                         Some((scale, spelling)) => {
                             config.ui_scale = scale;

@@ -1137,15 +1137,16 @@ pub fn resolve_row(base: i32, full: i32, rows: &[(i32, Category)]) -> Option<Cat
     find(full).or_else(|| find(base))
 }
 
-/// The report's balance line: five figures in one string, so it is assembled where a test reads it.
+/// The report's balance line: four figures in one string, so it is assembled where a test reads it.
 ///
-/// `attuned` is of `slots` (the character's memory capacity), `assigned` and `stale` are this
-/// catalyst's rows, and `reachable` is how many distinct attuned spells the equipped pair can
-/// actually cast - the number that answers "why is my row grey" without opening the panel.
+/// `attuned` is how many spells the character has memorised, with no denominator: the mod cannot
+/// read how many memory slots a character has unlocked, and printing a guessed 12 would be a lie
+/// for every character that has not collected them all. `assigned` and `stale` are this
+/// catalyst's rows; `reachable` is how many distinct attuned spells the equipped pair can cast -
+/// the number that answers "why is my row grey" without opening the panel.
 pub fn balance_line(
     mode: Balance,
     attuned: u32,
-    slots: u32,
     assigned: u32,
     reachable: u32,
     stale: u32,
@@ -1153,7 +1154,7 @@ pub fn balance_line(
     match mode {
         Balance::Free => "balance=free".to_string(),
         Balance::Attuned => format!(
-            "balance=attuned attuned={attuned}/{slots} assigned={assigned} reachable={reachable} stale={stale}"
+            "balance=attuned attuned={attuned} assigned={assigned} reachable={reachable} stale={stale}"
         ),
     }
 }
@@ -2323,18 +2324,20 @@ mod balance_tests {
     // ---- balance_line --------------------------------------------------------------------
 
     #[test]
-    fn the_line_prints_five_figures_in_attuned_mode() {
+    fn the_line_prints_four_figures_in_attuned_mode() {
+        // No denominator on `attuned`: how many memory slots a character has unlocked is not
+        // readable, and a guessed "/12" would be wrong for every character that lacks a stone.
         assert_eq!(
-            balance_line(Balance::Attuned, 9, 12, 8, 4, 1),
-            "balance=attuned attuned=9/12 assigned=8 reachable=4 stale=1"
+            balance_line(Balance::Attuned, 9, 8, 4, 1),
+            "balance=attuned attuned=9 assigned=8 reachable=4 stale=1"
         );
     }
 
     #[test]
     fn the_line_says_only_free_in_free_mode() {
         // Free mode has no gate to report; printing zeroes would read as a broken count.
-        assert_eq!(balance_line(Balance::Free, 0, 0, 0, 0, 0), "balance=free");
-        assert_eq!(balance_line(Balance::Free, 9, 12, 8, 4, 1), "balance=free");
+        assert_eq!(balance_line(Balance::Free, 0, 0, 0, 0), "balance=free");
+        assert_eq!(balance_line(Balance::Free, 9, 8, 4, 1), "balance=free");
     }
 
     // ---- balance_notice ------------------------------------------------------------------

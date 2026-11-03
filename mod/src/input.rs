@@ -1568,7 +1568,10 @@ pub(crate) fn mirror_now() {
         return;
     };
     if let Some(pair) = store_get(right_id).or_else(|| store_get(left_id)) {
-        if pair[0] > 0 && !selection_is(pair[0]) {
+        // The mirror writes the *game's* selection, so a dormant spell here would point the wheel
+        // at something the player no longer has attuned and the HUD would show a spell that cannot
+        // cast. Balanced mode simply leaves the wheel alone instead.
+        if pair[0] > 0 && crate::game::spell_attuned(pair[0]) && !selection_is(pair[0]) {
             select_spell(pair[0]);
         }
     }
@@ -1595,7 +1598,14 @@ fn bound_spell(right: bool, slot: usize) -> i32 {
     if mask & (1 << bit) == 0 {
         return -1;
     }
-    bound_on(if right { right_id } else { left_id }, slot)
+    let spell = bound_on(if right { right_id } else { left_id }, slot);
+    // Balanced mode: a spell that is no longer attuned reads as unbound, which is what makes it
+    // behave like an empty row everywhere downstream - the chord is the game's again, the plain
+    // press was never ours, and no press is rewritten for a spell that cannot come out.
+    if spell > 0 && !crate::game::spell_attuned(spell) {
+        return -1;
+    }
+    spell
 }
 
 /// The spell bound to `slot` of one weapon id, `-1` when unbound.
