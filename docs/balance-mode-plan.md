@@ -37,6 +37,11 @@ memorised set can be assigned. In `free` mode nothing about today's behaviour ch
   selecting one is refused with `attune it in the game's spell menu first`.
 - **Cast-time membership is authoritative.** The panel's cached set only draws the UI; it never
   decides whether a cast happens.
+- **The attuned column exists only in balanced mode.** In `free` mode the panel renders exactly as
+  it does today — no left column, no count line, no state markers — because a free-mode user has
+  nothing to act on and an extra column is just noise in a window that has to stay readable at
+  TV distance. The column, the count and the markers all appear together when the toggle goes on
+  and disappear together when it goes off.
 
 ## Tests first (phase 1 — write these red, before touching the mod)
 
@@ -74,9 +79,13 @@ not the number of test functions.
 5. **Config plumbing.** `balance` key: parse (test #1), default `free`, save from the panel,
    documented in the ini template. Live reload already pushes cached flags — extend it if the
    value is cached anywhere.
-6. **Panel.** Left column of attuned spells; per-row state marker and reason; refusal notices
-   (test #6); the count line (test #3, #5); the toggle next to the UI scale; `show_all` marked
-   entries. Text only, ASCII, no colour-only signals.
+6. **Panel.** The attuned column and everything that belongs to it are conditional on the toggle:
+   left column of attuned spells, per-row state marker and reason, refusal notices (test #6) and
+   the count line (test #3, #5) appear only while balanced mode is on. In free mode the panel is
+   byte-for-byte today's layout. The toggle itself sits next to the UI scale and is always
+   visible; `show_all` marked entries apply only in balanced mode. Text only, ASCII, no
+   colour-only signals. The conditional is one branch on the panel's layout, not a scattering of
+   `if balanced` through the rows.
 7. **Report.** One line in the report and one in the log when the toggle changes:
    `balance=attuned attuned=9/12 assigned=8 reachable=4 stale=1`.
 8. **Docs.** `NEXUS.md`, `README.md` (configuration + reporting sections), ini template comment.
@@ -121,8 +130,12 @@ Automated: `cargo test -p nr_casting_core` (all green, count recorded),
 
 Manual, with a real character (the user's test list):
 
-1. **Free mode is untouched** — assign anything, cast, swap weapons. Nothing new on screen.
-2. **Toggle balanced** — count line appears; rows that were fine stay fine.
+1. **Free mode is untouched** — assign anything, cast, swap weapons. Nothing new on screen: no
+   attuned column, no count line, no greyed rows. This is checked against the 0.2.19 panel, not
+   from memory.
+2. **Toggle balanced** — the attuned column and the count line appear in the same refresh; rows
+   that were fine stay fine. Toggle back off and the panel returns to exactly today's layout with
+   every assignment still live.
 3. **Un-attune at a grace** — the row greys with `not attuned`; pressing that input passes
    through (R2 swings rather than doing nothing); re-attune and the row re-arms on its own.
 4. **Moon of Nokstella** — unequip it mid-fight with rows depending on those two slots; they grey
