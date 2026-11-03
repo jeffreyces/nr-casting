@@ -86,7 +86,7 @@ pub(crate) use game::{
     forget_borrowed, forget_pointers, weapon_ids, PLAYER_SPELL,
 };
 pub(crate) use logging::{debug_enabled, log};
-pub(crate) use store::{store_get, store_set};
+pub(crate) use store::{has_override, store_customise, store_get, store_reset, store_set};
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};

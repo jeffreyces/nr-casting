@@ -303,21 +303,43 @@ pub(crate) fn describe_store() -> String {
         .join(" ")
 }
 
+/// The four spells for the weapon in hand: this copy's override if it has one, otherwise the
+/// default for the weapon type.
+///
+/// Rows are filed on the full param id only when a player customises one copy; every other row is
+/// the type's default on the base id. Reading full-then-base is what makes an upgrade at a smith
+/// keep its layout, because the game gives each upgrade level its own param row and the full id
+/// therefore changes while the weapon does not.
 pub(crate) fn store_get(weapon: i32) -> Option<Category> {
-    store_lock()
-        .get(&nr_casting_core::base_weapon_id(weapon))
-        .copied()
+    if weapon <= 0 {
+        return None;
+    }
+    let map = store_lock();
+    let base = nr_casting_core::base_weapon_id(weapon);
+    map.get(&weapon).or_else(|| map.get(&base)).copied()
+}
+
+/// Whether this exact copy has a layout of its own, rather than inheriting the type's default.
+pub(crate) fn has_override(weapon: i32) -> bool {
+    let base = nr_casting_core::base_weapon_id(weapon);
+    weapon > 0 && weapon != base && store_lock().contains_key(&weapon)
 }
 
 pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
-    // Assignments follow the weapon, not one upgrade level of it: the game gives every level
-    // its own param row, so filing them under the equipped id lost them at the smith.
-    let weapon = nr_casting_core::base_weapon_id(weapon);
+    // An edit lands on the row the panel showed: an override stays an override, and a weapon
+    // inheriting the type's default keeps editing that default. Anything else would silently
+    // change which weapons an edit applies to.
+    let base = nr_casting_core::base_weapon_id(weapon);
     // Snapshot under one lock, then write: dropping the guard first let two assignments
     // interleave and save out of order.
     let snapshot = {
         let mut map = store_lock();
-        let entry = map.entry(weapon).or_insert([-1; nr_casting_core::SLOTS]);
+        let target = if weapon > 0 && weapon != base && map.contains_key(&weapon) {
+            weapon
+        } else {
+            base
+        };
+        let entry = map.entry(target).or_insert([-1; nr_casting_core::SLOTS]);
         if slot < entry.len() {
             entry[slot] = spell;
         }
@@ -325,5 +347,49 @@ pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
     };
     save_store(&snapshot);
     bump_generation();
+}
+
+/// Give this copy a layout of its own, seeded from the type's default.
+///
+/// The only way two copies of one weapon can hold different spells: identical copies still share,
+/// because nothing in the param data separates them, but a +0 and a +10 can diverge deliberately
+/// rather than by accident.
+pub(crate) fn store_customise(weapon: i32) -> bool {
+    let base = nr_casting_core::base_weapon_id(weapon);
+    if weapon <= 0 || weapon == base {
+        return false;
+    }
+    let snapshot = {
+        let mut map = store_lock();
+        if map.contains_key(&weapon) {
+            return false;
+        }
+        let inherited = map.get(&base).copied().unwrap_or([-1; nr_casting_core::SLOTS]);
+        map.insert(weapon, inherited);
+        map.clone()
+    };
+    save_store(&snapshot);
+    bump_generation();
+    log(&format!("slots: {weapon} now has its own layout (inherited {base})"));
+    true
+}
+
+/// Drop this copy's layout and inherit the type's default again.
+pub(crate) fn store_reset(weapon: i32) -> bool {
+    let base = nr_casting_core::base_weapon_id(weapon);
+    if weapon <= 0 || weapon == base {
+        return false;
+    }
+    let snapshot = {
+        let mut map = store_lock();
+        if map.remove(&weapon).is_none() {
+            return false;
+        }
+        map.clone()
+    };
+    save_store(&snapshot);
+    bump_generation();
+    log(&format!("slots: {weapon} back to the default for {base}"));
+    true
 }
 
