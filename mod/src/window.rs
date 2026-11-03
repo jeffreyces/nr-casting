@@ -190,15 +190,18 @@ impl Model {
         if key == self.candidates_key {
             return;
         }
-        // Balanced mode keeps the whole list - planning without bypass: what the character could
-        // cast is worth seeing before a grace visit, and the gate refuses the pick instead of
-        // hiding the spell. The marker is what makes the refusal explicable.
+        // Balanced mode offers the memorised set, and nothing else. That is the whole point of the
+        // mode: the list *is* what the character can actually cast, so a spell that is not attuned
+        // has no business in it. Planning is the exception the player asks for explicitly - with
+        // "list everything" on, the rest appears marked and is refused at selection, so a build can
+        // be sketched without the gate ever being bypassed.
         let attuned = &self.attuned;
-        let mark = |list: Vec<(i32, String)>| -> Vec<(i32, String)> {
+        let limit = |list: Vec<(i32, String)>| -> Vec<(i32, String)> {
             if self.balance != Balance::Attuned {
                 return list;
             }
             list.into_iter()
+                .filter(|(id, _)| self.show_all || attuned.contains(id))
                 .map(|(id, label)| {
                     let label = if attuned.contains(&id) {
                         label
@@ -209,10 +212,10 @@ impl Model {
                 })
                 .collect()
         };
-        self.candidates = Rc::new(mark(
+        self.candidates = Rc::new(limit(
             self.panel.candidates_for(self.weapons.0, &self.search),
         ));
-        self.candidates_right = Rc::new(mark(
+        self.candidates_right = Rc::new(limit(
             self.panel.candidates_for(self.weapons.1, &self.search),
         ));
         self.candidates_key = key;
