@@ -56,34 +56,34 @@ pub(crate) fn apply_runtime_config() {
 }
 mod config;
 mod crash;
+mod diag;
 mod game;
 mod input;
-mod rawinput;
-mod msg;
-mod stats;
 mod logging;
+mod msg;
 mod overlay;
-mod params;
+mod padcost;
 mod panel_geometry;
 mod panel_report;
-mod present;
 mod panel_shell;
+mod params;
 mod perf;
-mod diag;
 mod pointer;
-mod pump;
-mod threadcpu;
-mod padcost;
-mod win32;
+mod present;
 mod probe;
+mod pump;
+mod rawinput;
+mod stats;
 mod store;
+mod threadcpu;
+mod win32;
 mod window;
 
 // The panel and the probe read these through the crate root; re-exporting keeps one obvious
 // name for each instead of a module path in every call site.
 pub(crate) use game::{
-    character_name, inventory_goods_ids, magic_slots, player, player_effective_stats, player_stats,
-    forget_borrowed, forget_pointers, weapon_ids, PLAYER_SPELL,
+    character_name, forget_borrowed, forget_pointers, inventory_goods_ids, magic_slots, player,
+    player_effective_stats, player_stats, weapon_ids, PLAYER_SPELL,
 };
 pub(crate) use logging::{debug_enabled, log};
 pub(crate) use store::{has_override, store_customise, store_get, store_reset, store_set};
@@ -129,7 +129,11 @@ struct ProcessMemoryCounters {
 }
 
 extern "system" {
-    fn K32GetProcessMemoryInfo(process: *mut u8, counters: *mut ProcessMemoryCounters, size: u32) -> i32;
+    fn K32GetProcessMemoryInfo(
+        process: *mut u8,
+        counters: *mut ProcessMemoryCounters,
+        size: u32,
+    ) -> i32;
 }
 
 /// (working set MiB, pagefile usage MiB) — logged on the heartbeat so growth over a session
@@ -183,8 +187,10 @@ fn run() {
         // whether a keyboard/mouse cast can be presented there when no controller is connected.
         rawinput::install();
     } else {
-        log("hooks: off in the ini - no input detours installed, so casting is disabled; this is \
-             the stutter comparison, not a way to play");
+        log(
+            "hooks: off in the ini - no input detours installed, so casting is disabled; this is \
+             the stutter comparison, not a way to play",
+        );
     }
     // Panics are logged too, and the previous hook still runs: another mod may have installed
     // one, and a panic must not become invisible just because we replaced its handler.
@@ -210,7 +216,6 @@ fn run() {
     }
     let _ = std::fs::write(&marker, format!("{stamp}\n"));
 
-
     // Uptime is measured from here: a report wants "how long has this run been going", and the
     // clock starts on first use otherwise - which is the report itself.
     logging::start_clock();
@@ -233,8 +238,12 @@ fn run() {
     // frames from here when it is available.
     if cfg.present_clock {
         match present::install() {
-            Ok(()) => log("clock: Present hook installed (frames timed where the game presents them)"),
-            Err(e) => log(&format!("clock: no Present clock, using the pad or the pump: {e}")),
+            Ok(()) => {
+                log("clock: Present hook installed (frames timed where the game presents them)")
+            }
+            Err(e) => log(&format!(
+                "clock: no Present clock, using the pad or the pump: {e}"
+            )),
         }
     }
     match pump::install() {
@@ -318,7 +327,11 @@ fn run() {
         // Read only while a world exists: the key walks game memory and allocates a string, and
         // on the title screen there is nothing there to read.
         let world_live = player().is_some();
-        let character = if world_live { game::character_key() } else { None };
+        let character = if world_live {
+            game::character_key()
+        } else {
+            None
+        };
         if character != last_character {
             last_character = character;
             if let Some((name, id)) = last_character.as_ref() {
@@ -377,9 +390,9 @@ fn run() {
         if last_readout.elapsed() >= READOUT_EVERY {
             last_readout = Instant::now();
             if let Some((l, r)) = weapon_ids() {
-            let memory = memory_mib()
-                .map(|(ws, pf)| format!(" | mem ws={ws}MiB pf={pf}MiB"))
-                .unwrap_or_default();
+                let memory = memory_mib()
+                    .map(|(ws, pf)| format!(" | mem ws={ws}MiB pf={pf}MiB"))
+                    .unwrap_or_default();
                 log(&format!(
                     "weapons L1={l} R1={r} | player spell {} | slots [{}]{}",
                     PLAYER_SPELL.load(Ordering::Relaxed),
@@ -401,7 +414,10 @@ fn run() {
             let polls = stats::pad_polls();
             let passes = stats::passes();
             let unplugged = stats::pad_unplugged_count();
-            let (dp, dq) = (polls.wrapping_sub(last_polls), passes.wrapping_sub(last_passes));
+            let (dp, dq) = (
+                polls.wrapping_sub(last_polls),
+                passes.wrapping_sub(last_passes),
+            );
             let du = unplugged.wrapping_sub(last_unplugged);
             last_polls = polls;
             last_passes = passes;
@@ -429,7 +445,9 @@ pub(crate) fn module_paths() -> Vec<(String, String)> {
     let mut out = Vec::new();
     for (name, base) in foreign_modules().unwrap_or_default() {
         let mut buffer = [0u16; 512];
-        let len = unsafe { win32::GetModuleFileNameW(base as *mut u8, buffer.as_mut_ptr(), buffer.len() as u32) };
+        let len = unsafe {
+            win32::GetModuleFileNameW(base as *mut u8, buffer.as_mut_ptr(), buffer.len() as u32)
+        };
         if len == 0 {
             continue;
         }
@@ -440,7 +458,6 @@ pub(crate) fn module_paths() -> Vec<(String, String)> {
 }
 
 pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
-
     let mut modules = [std::ptr::null_mut::<u8>(); 512];
     let mut needed = 0u32;
     // SAFETY: fixed buffer; `needed` gets the true byte size, which is range-checked below.
@@ -462,7 +479,8 @@ pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
     for module in modules.iter().take(count) {
         let mut buffer = [0u16; 1024];
         // SAFETY: handle from the enumeration; buffer is sized for MAX_PATH comfortably.
-        let len = unsafe { win32::GetModuleFileNameW(*module, buffer.as_mut_ptr(), buffer.len() as u32) };
+        let len =
+            unsafe { win32::GetModuleFileNameW(*module, buffer.as_mut_ptr(), buffer.len() as u32) };
         if len == 0 {
             continue;
         }
@@ -473,10 +491,7 @@ pub(crate) fn foreign_modules() -> Option<Vec<(String, usize)>> {
             continue;
         }
         if let Some(name) = path.file_name() {
-            foreign.push((
-                name.to_string_lossy().to_string(),
-                *module as usize,
-            ));
+            foreign.push((name.to_string_lossy().to_string(), *module as usize));
         }
     }
     foreign.sort();
@@ -511,8 +526,7 @@ pub(crate) fn recluse_loaded() -> bool {
 }
 
 /// The last (event id, chr id) pair we acted on, packed. Written from the watcher thread only.
-static CHARACTER_IDS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(u64::MAX);
+static CHARACTER_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 
 /// Work out who owns Y+R1 / Y+L1 for the character that is loaded right now.
 ///
@@ -535,7 +549,9 @@ pub(crate) fn refresh_y_bumper() {
     // A port ships its own catalyst, and that weapon id is missing from the vanilla table: the
     // most reliable signal available without reading the port's own data.
     let by_catalyst = game::weapon_ids()
-        .map(|(left, right)| !overlay::is_vanilla_weapon(left) || !overlay::is_vanilla_weapon(right))
+        .map(|(left, right)| {
+            !overlay::is_vanilla_weapon(left) || !overlay::is_vanilla_weapon(right)
+        })
         .unwrap_or(false);
     let is_recluse = by_id || by_catalyst;
     if let Some((event_id, chr_id)) = ids {
@@ -560,7 +576,11 @@ pub(crate) fn refresh_y_bumper() {
         log(&format!(
             "input: Y+R1 / Y+L1 {} (recluse mod: {loaded}, recluse character: {is_recluse} \
              [id: {by_id}, catalyst: {by_catalyst}], mode: {:?})",
-            if allowed { "are ours" } else { "left to Recluse" },
+            if allowed {
+                "are ours"
+            } else {
+                "left to Recluse"
+            },
             cfg.y_bumper
         ));
     }
@@ -571,8 +591,7 @@ pub(crate) fn refresh_y_bumper() {
 const READOUT_EVERY: Duration = Duration::from_secs(30);
 
 /// The last value handed to `input::set_y_bumper`, so the decision is logged on change only.
-static Y_BUMPER_ALLOWED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
+static Y_BUMPER_ALLOWED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 fn log_foreign_modules() {
     match foreign_modules() {

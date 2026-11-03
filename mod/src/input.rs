@@ -5,7 +5,7 @@
 //! live in `nr_casting_core::route` so they are tested; this module carries them out.
 
 use std::sync::atomic::{
-    AtomicBool, AtomicU8, AtomicU16, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+    AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
 };
 use std::time::Duration;
 
@@ -178,7 +178,6 @@ fn read_pad_description() -> String {
     }
 }
 
-
 extern "system" {
     fn LoadLibraryA(name: *const u8) -> *mut u8;
     fn GetProcAddress(module: *mut u8, name: *const u8) -> *mut u8;
@@ -265,7 +264,8 @@ unsafe fn note_caller() {
     // Four frames from the top of our own call, so inlining cannot hide the caller: the module that
     // shows up here is the one the rewrite has to satisfy.
     let mut frames = [std::ptr::null_mut::<core::ffi::c_void>(); 4];
-    let captured = RtlCaptureStackBackTrace(1, 4, frames.as_mut_ptr(), std::ptr::null_mut()) as usize;
+    let captured =
+        RtlCaptureStackBackTrace(1, 4, frames.as_mut_ptr(), std::ptr::null_mut()) as usize;
     if captured == 0 {
         return;
     }
@@ -329,7 +329,7 @@ static LAST_INPUT: AtomicU32 = AtomicU32::new(u32::MAX);
 /// inside the chord press, puts the catalyst back and re-sends the press — is the safety net for
 /// the misfires that remain. The cast lands either way; only the path differs.
 static CHORD_STAGED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-const CHORD_STAGE_REPORTS: u8 = 2;  // default; overridden by `chord_stage` in the ini
+const CHORD_STAGE_REPORTS: u8 = 2; // default; overridden by `chord_stage` in the ini
 
 /// One Y chord that belongs to the mod: which hand, and the spell behind it (`<= 0` = empty).
 #[derive(Clone, Copy)]
@@ -442,9 +442,13 @@ unsafe fn hook_ex(normal: *mut u8) {
                 ));
                 std::mem::forget(raw);
             }
-            Err(e) => log(&format!("XInputGetStateEx (ordinal 100): enable failed: {e:?}")),
+            Err(e) => log(&format!(
+                "XInputGetStateEx (ordinal 100): enable failed: {e:?}"
+            )),
         },
-        Err(e) => log(&format!("XInputGetStateEx (ordinal 100): detour failed: {e:?}")),
+        Err(e) => log(&format!(
+            "XInputGetStateEx (ordinal 100): detour failed: {e:?}"
+        )),
     }
 }
 
@@ -776,7 +780,9 @@ pub(crate) fn watch_hook() {
             Err(e) => {
                 attempts += 1;
                 idle_ticks = 0;
-                log(&format!("XInputGetState: re-hook failed at {target:p}: {e}"));
+                log(&format!(
+                    "XInputGetState: re-hook failed at {target:p}: {e}"
+                ));
             }
         }
     }
@@ -831,10 +837,13 @@ unsafe fn game_import_slot() -> Result<*const *mut u8, String> {
     // Data directory 1 is the import table. `mapped_as_image` = 1: the file is mapped, so the
     // loader's own fixups apply.
     let mut import_size = 0u32;
-    let import_dir =
-        unsafe { RtlImageDirectoryEntryToData(base, 1, IMAGE_DIRECTORY_ENTRY_IMPORT, &mut import_size) };
+    let import_dir = unsafe {
+        RtlImageDirectoryEntryToData(base, 1, IMAGE_DIRECTORY_ENTRY_IMPORT, &mut import_size)
+    };
     if import_dir.is_null() || import_size == 0 {
-        return Err(format!("no import directory (reported {import_size} bytes)"));
+        return Err(format!(
+            "no import directory (reported {import_size} bytes)"
+        ));
     }
     let descriptors = import_size as usize / std::mem::size_of::<ImportDescriptor>();
 
@@ -981,10 +990,9 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
                 log(&format!("pad: {}", describe_pad()));
             }
             if n == 1 || n.is_multiple_of(600) {
-                debug!(
-                    "detour: poll #{n} (user {user}, buttons={:#06x})",
-                    unsafe { (*state).gamepad.buttons }
-                );
+                debug!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe {
+                    (*state).gamepad.buttons
+                });
             }
             if CALLER_BUDGET.load(Ordering::Relaxed) > 0 {
                 CALLER_BUDGET.fetch_sub(1, Ordering::Relaxed);
@@ -1063,9 +1071,7 @@ static CATALYST_RIGHT: AtomicBool = AtomicBool::new(false);
 fn bound_mask(left: i32, right: i32) -> u16 {
     let key = (left as u32 as u64) << 32 | right as u32 as u64;
     let generation = crate::store::generation();
-    if BOUND_KEY.load(Ordering::Relaxed) == key
-        && BOUND_GEN.load(Ordering::Relaxed) == generation
-    {
+    if BOUND_KEY.load(Ordering::Relaxed) == key && BOUND_GEN.load(Ordering::Relaxed) == generation {
         return BOUND_MASK.load(Ordering::Relaxed);
     }
     let mut mask = 0u16;
@@ -1274,15 +1280,19 @@ fn adjust_inner(state: &mut XInputState) {
         // gone. Two reports, not one — the latch survives a single released frame, which is the
         // "holding Y+combo still two-hands the staff" that survived v0.2.2's single stage.
         let done = CHORD_STAGED.load(Ordering::Relaxed);
-        if y_before && done < crate::config::load().chord_stage.min(CHORD_STAGE_REPORTS + 2) {
+        if y_before
+            && done
+                < crate::config::load()
+                    .chord_stage
+                    .min(CHORD_STAGE_REPORTS + 2)
+        {
             CHORD_STAGED.store(done.saturating_add(1), Ordering::Relaxed);
             let which = chord.map(|press| press.label).unwrap_or("");
             debug!("chord: released Y for one report before pressing the shoulder ({which})");
             pad.right_trigger = 0;
             pad.left_trigger = 0;
-            pad.buttons &= !(XINPUT_GAMEPAD_Y
-                | XINPUT_GAMEPAD_LEFT_SHOULDER
-                | XINPUT_GAMEPAD_RIGHT_SHOULDER);
+            pad.buttons &=
+                !(XINPUT_GAMEPAD_Y | XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER);
             return;
         }
     } else {
@@ -1621,9 +1631,8 @@ fn bound_on(weapon: i32, slot: usize) -> i32 {
 /// a shoulder press in the same report, which is its two-hand command — and on a catalyst that is
 /// exactly what the player does not want. A keystroke that does nothing must look like nothing.
 fn swallow_chord(pad: &mut XInputGamepad) {
-    pad.buttons &= !(XINPUT_GAMEPAD_LEFT_SHOULDER
-        | XINPUT_GAMEPAD_RIGHT_SHOULDER
-        | XINPUT_GAMEPAD_Y);
+    pad.buttons &=
+        !(XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER | XINPUT_GAMEPAD_Y);
     pad.left_trigger = 0;
     pad.right_trigger = 0;
 }
@@ -1649,7 +1658,8 @@ fn rewrite_cast(pad: &mut XInputGamepad, right: bool, now: u32) {
 /// Log the report we hand over, but only when it changes: a held chord re-sends the same state every
 /// poll, and the log is 4 MiB.
 fn trace_wire(what: &str, pad: &XInputGamepad) {
-    let packed = (pad.buttons as u64) << 16 | (pad.right_trigger as u64) << 8 | pad.left_trigger as u64;
+    let packed =
+        (pad.buttons as u64) << 16 | (pad.right_trigger as u64) << 8 | pad.left_trigger as u64;
     if LAST_WIRE.swap(packed, Ordering::Relaxed) == packed {
         return;
     }
@@ -1733,9 +1743,12 @@ fn press_cast(pad: &mut XInputGamepad, right: bool, bound: i32, which: &str, now
     if LAST_INPUT.swap(key, Ordering::Relaxed) != key {
         debug!(
             "{which} -> spell {bound} ({})",
-            if steered { "already steered" } else { "steered" }
+            if steered {
+                "already steered"
+            } else {
+                "steered"
+            }
         );
     }
     true
 }
-

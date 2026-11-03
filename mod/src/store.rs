@@ -47,10 +47,12 @@ pub(crate) fn slots_path() -> std::path::PathBuf {
 /// Keep the store on the loaded character's file. Cheap enough for the 500 ms watcher: two
 /// fields of the player data and a string compare.
 pub(crate) fn sync_character() {
+    // A load replaces the memorised list wholesale; the gate's snapshot is refreshed here rather
+    // than waiting for its one-second net, so the first cast on a new character is decided from
+    // that character's spells and not the last one's.
     let Some((name, id)) = crate::game::character_key() else {
         // Once per process: a world with no readable character is worth exactly one line.
-        static WARNED: std::sync::atomic::AtomicBool =
-            std::sync::atomic::AtomicBool::new(false);
+        static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
             log("slots: character name unreadable; keeping the current file");
         }
@@ -105,7 +107,10 @@ fn adopt_previous_character_file(base: &str, target: &std::path::Path) {
             "slots: took over {} for this character",
             previous.file_name().unwrap_or_default().to_string_lossy()
         )),
-        Err(e) => log(&format!("slots: could not take over {}: {e}", previous.display())),
+        Err(e) => log(&format!(
+            "slots: could not take over {}: {e}",
+            previous.display()
+        )),
     }
 }
 
@@ -113,7 +118,9 @@ fn adopt_previous_character_file(base: &str, target: &std::path::Path) {
 pub(crate) fn set_character(name: &str, id: u32) {
     let (base, slug) = nr_casting_core::character_slug(name, id);
     {
-        let Ok(current) = ACTIVE_SLUG.lock() else { return };
+        let Ok(current) = ACTIVE_SLUG.lock() else {
+            return;
+        };
         if current.as_deref() == Some(slug.as_str()) {
             return;
         }
@@ -154,6 +161,10 @@ pub(crate) fn set_character(name: &str, id: u32) {
         Err(_) => return,
     }
     reload_store();
+    // A load replaces the memorised list wholesale, so the gate's snapshot is refreshed here rather
+    // than waiting for its one-second net: the first cast on a new character must be decided from
+    // that character's spells, not the last one's.
+    crate::game::refresh_attuned();
     prune_uncastable();
     log(&format!(
         "slots: character {name} (id {id}) -> {}",
@@ -162,7 +173,9 @@ pub(crate) fn set_character(name: &str, id: u32) {
 }
 
 pub(crate) fn file_mtime() -> Option<std::time::SystemTime> {
-    std::fs::metadata(slots_path()).ok().and_then(|m| m.modified().ok())
+    std::fs::metadata(slots_path())
+        .ok()
+        .and_then(|m| m.modified().ok())
 }
 
 pub(crate) fn seed_store() {
@@ -175,7 +188,16 @@ pub(crate) fn reload_store() {
     let mut map = HashMap::new();
     if let Ok(text) = std::fs::read_to_string(slots_path()) {
         let parsed = nr_casting_core::parse_slots(&text);
-        let folded = nr_casting_core::canonicalize(&parsed);
+        // A file with the layout marker may hold per-copy overrides, which must survive; an older
+        // file's non-base ids are upgrade levels and are folded onto their base. The marker is what
+        // makes that distinction a fact rather than a guess.
+        let folded = if nr_casting_core::per_copy_rows(&text) {
+            let mut kept = parsed.clone();
+            kept.sort_by_key(|(id, _)| *id);
+            kept
+        } else {
+            nr_casting_core::canonicalize(&parsed)
+        };
         // A file written before assignments moved onto base weapon ids holds `33090010` where
         // the store now wants `33090000`. Fold it and write the result back once, so the
         // upgrade does not look like a new weapon on every future load either.
@@ -223,7 +245,10 @@ fn bump_generation() {
 fn save_store(map: &HashMap<i32, Category>) {
     let entries: Vec<(i32, Category)> = map.iter().map(|(id, spells)| (*id, *spells)).collect();
     if let Err(e) = std::fs::write(slots_path(), nr_casting_core::format_slots(&entries)) {
-        log(&format!("slots: FAILED to write {}: {e}", slots_path().display()));
+        log(&format!(
+            "slots: FAILED to write {}: {e}",
+            slots_path().display()
+        ));
     }
 }
 
@@ -364,13 +389,18 @@ pub(crate) fn store_customise(weapon: i32) -> bool {
         if map.contains_key(&weapon) {
             return false;
         }
-        let inherited = map.get(&base).copied().unwrap_or([-1; nr_casting_core::SLOTS]);
+        let inherited = map
+            .get(&base)
+            .copied()
+            .unwrap_or([-1; nr_casting_core::SLOTS]);
         map.insert(weapon, inherited);
         map.clone()
     };
     save_store(&snapshot);
     bump_generation();
-    log(&format!("slots: {weapon} now has its own layout (inherited {base})"));
+    log(&format!(
+        "slots: {weapon} now has its own layout (inherited {base})"
+    ));
     true
 }
 
@@ -392,4 +422,3 @@ pub(crate) fn store_reset(weapon: i32) -> bool {
     log(&format!("slots: {weapon} back to the default for {base}"));
     true
 }
-

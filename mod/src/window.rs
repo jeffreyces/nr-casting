@@ -23,7 +23,7 @@ use crate::panel_shell::{open_url, reveal};
 
 // The design size and the scale bounds live in the core crate, with the fit that uses them, so
 // the formula the panel runs is the one the tests cover.
-use nr_casting_core::{fit_scale, MAX_UI_SCALE, MIN_UI_SCALE};
+use nr_casting_core::{fit_scale, Balance, RowState, MAX_UI_SCALE, MIN_UI_SCALE};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -41,35 +41,31 @@ use windows::Win32::Graphics::Direct3D11::{
     ID3D11RenderTargetView, ID3D11Texture2D, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_DESC, DXGI_RATIONAL,
-    DXGI_SAMPLE_DESC,
+    DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_DESC, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
     IDXGIAdapter, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_DISCARD,
     DXGI_USAGE_RENDER_TARGET_OUTPUT,
 };
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, LoadCursorW, IDC_ARROW, WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_POPUP, DispatchMessageW, GetClientRect, IsIconic, PeekMessageW,
-    GetForegroundWindow, RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG,
-    PM_REMOVE, SW_HIDE, SW_SHOW,
-    WNDCLASSW, WM_CHAR, WM_CLOSE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP,
-    WM_ACTIVATE, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WS_THICKFRAME, MINMAXINFO,
-    WM_PAINT, WM_HOTKEY, WM_TIMER, WM_ENTERSIZEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
-    WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WM_SIZE, GetCursorPos, GetWindowRect, SetWindowPos, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_EXITSIZEMOVE, SWP_FRAMECHANGED, GetDesktopWindow,
-};
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, HOT_KEY_MODIFIERS,
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, HOT_KEY_MODIFIERS};
+use windows::Win32::UI::WindowsAndMessaging::WaitMessage;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetCursorPos,
+    GetDesktopWindow, GetForegroundWindow, GetWindowRect, IsIconic, LoadCursorW, PeekMessageW,
+    RegisterClassW, SetForegroundWindow, SetWindowPos, ShowWindow, TranslateMessage, IDC_ARROW,
+    MINMAXINFO, MSG, PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SW_HIDE, SW_SHOW, WM_ACTIVATE, WM_CHAR, WM_CLOSE, WM_ENTERSIZEMOVE,
+    WM_EXITSIZEMOVE, WM_GETMINMAXINFO, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP, WS_THICKFRAME,
 };
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
-use windows::Win32::UI::WindowsAndMessaging::WaitMessage;
 
-use crate::overlay::Panel;
 use crate::logging::debug;
+use crate::overlay::Panel;
 
 /// Height of the draggable header band, in physical pixels.
 const TITLE_BAND: i16 = 28;
@@ -102,14 +98,54 @@ struct Slot {
 }
 
 const SLOTS: [Slot; 8] = [
-    Slot { label: "L1", mouse: "RMB", weapon_slot: 0, right_hand: false },
-    Slot { label: "L2", mouse: "Shift+RMB", weapon_slot: 1, right_hand: false },
-    Slot { label: "Y+L1", mouse: "Alt+RMB", weapon_slot: 3, right_hand: false },
-    Slot { label: "Y+L2", mouse: "Ctrl+RMB", weapon_slot: 2, right_hand: false },
-    Slot { label: "R1", mouse: "LMB", weapon_slot: 0, right_hand: true },
-    Slot { label: "R2", mouse: "Shift+LMB", weapon_slot: 1, right_hand: true },
-    Slot { label: "Y+R1", mouse: "Alt+LMB", weapon_slot: 3, right_hand: true },
-    Slot { label: "Y+R2", mouse: "Ctrl+LMB", weapon_slot: 2, right_hand: true },
+    Slot {
+        label: "L1",
+        mouse: "RMB",
+        weapon_slot: 0,
+        right_hand: false,
+    },
+    Slot {
+        label: "L2",
+        mouse: "Shift+RMB",
+        weapon_slot: 1,
+        right_hand: false,
+    },
+    Slot {
+        label: "Y+L1",
+        mouse: "Alt+RMB",
+        weapon_slot: 3,
+        right_hand: false,
+    },
+    Slot {
+        label: "Y+L2",
+        mouse: "Ctrl+RMB",
+        weapon_slot: 2,
+        right_hand: false,
+    },
+    Slot {
+        label: "R1",
+        mouse: "LMB",
+        weapon_slot: 0,
+        right_hand: true,
+    },
+    Slot {
+        label: "R2",
+        mouse: "Shift+LMB",
+        weapon_slot: 1,
+        right_hand: true,
+    },
+    Slot {
+        label: "Y+R1",
+        mouse: "Alt+LMB",
+        weapon_slot: 3,
+        right_hand: true,
+    },
+    Slot {
+        label: "Y+R2",
+        mouse: "Ctrl+LMB",
+        weapon_slot: 2,
+        right_hand: true,
+    },
 ];
 
 /// Everything the panel shows, refreshed when it opens.
@@ -127,6 +163,10 @@ struct Model {
     boost: String,
     /// How many spells the pickers are offering, against the whole table.
     listed: String,
+    /// Whether assignments are limited to the character's memorised spells, and the memorised
+    /// list itself. The column and every marker are conditional on `balance`.
+    balance: Balance,
+    attuned: Vec<i32>,
     /// Rebuilt only when the filter or the character's stats change. The panel redraws every
     /// frame, and this list is several hundred formatted strings.
     candidates: Rc<Vec<(i32, String)>>,
@@ -150,8 +190,31 @@ impl Model {
         if key == self.candidates_key {
             return;
         }
-        self.candidates = Rc::new(self.panel.candidates_for(self.weapons.0, &self.search));
-        self.candidates_right = Rc::new(self.panel.candidates_for(self.weapons.1, &self.search));
+        // Balanced mode keeps the whole list - planning without bypass: what the character could
+        // cast is worth seeing before a grace visit, and the gate refuses the pick instead of
+        // hiding the spell. The marker is what makes the refusal explicable.
+        let attuned = &self.attuned;
+        let mark = |list: Vec<(i32, String)>| -> Vec<(i32, String)> {
+            if self.balance != Balance::Attuned {
+                return list;
+            }
+            list.into_iter()
+                .map(|(id, label)| {
+                    let label = if attuned.contains(&id) {
+                        label
+                    } else {
+                        format!("{label}   (not attuned)")
+                    };
+                    (id, label)
+                })
+                .collect()
+        };
+        self.candidates = Rc::new(mark(
+            self.panel.candidates_for(self.weapons.0, &self.search),
+        ));
+        self.candidates_right = Rc::new(mark(
+            self.panel.candidates_for(self.weapons.1, &self.search),
+        ));
         self.candidates_key = key;
     }
 
@@ -161,6 +224,8 @@ impl Model {
             weapons: (0, 0),
             search: String::new(),
             show_all: config.show_all,
+            balance: config.balance,
+            attuned: Vec::new(),
             who: "waiting for the player...".to_string(),
             stats: String::new(),
             boost: String::new(),
@@ -171,9 +236,37 @@ impl Model {
         }
     }
 
+    /// How many of the eight rows the panel shows are dormant right now.
+    ///
+    /// Used for the note when the toggle flips, so the line reports what changed instead of just
+    /// announcing a setting: "4 rows went dormant" is the sentence that explains the greying.
+    fn stale_rows(&self) -> u32 {
+        let balanced = self.balance == Balance::Attuned;
+        let mut rows = Vec::with_capacity(2 * 4);
+        rows.extend_from_slice(&row_states(
+            &self.panel,
+            self.weapons.0,
+            &self.attuned,
+            balanced,
+        ));
+        rows.extend_from_slice(&row_states(
+            &self.panel,
+            self.weapons.1,
+            &self.attuned,
+            balanced,
+        ));
+        nr_casting_core::counts(&rows).stale
+    }
+
     fn reload(&mut self) {
         self.panel.reload();
         self.candidates_key.clear();
+        // The gate and its list are read on the panel thread with the panel open: the one place a
+        // game-memory read is allowed to be slow. The pad poll only ever consults the published
+        // snapshot (see `game::spell_attuned`).
+        self.balance = crate::config::load().balance;
+        crate::game::refresh_attuned();
+        self.attuned = crate::game::attuned_snapshot();
         self.weapons = crate::weapon_ids().unwrap_or((0, 0));
         self.panel.set_filter(self.search.clone());
         self.panel.set_show_all(self.show_all);
@@ -185,7 +278,11 @@ impl Model {
                 let boosted = crate::player_stats().is_some_and(|base| base != (int, fai, arc));
                 (
                     format!("INT {int}   FAI {fai}   ARC {arc}"),
-                    if boosted { "incl. rune/talisman".to_string() } else { String::new() },
+                    if boosted {
+                        "incl. rune/talisman".to_string()
+                    } else {
+                        String::new()
+                    },
                 )
             }
             None => ("stats unavailable".to_string(), String::new()),
@@ -273,12 +370,14 @@ unsafe fn build_ui(device: &ID3D11Device, scale: f32) -> Result<PanelUi, String>
             io.key_map[key as usize] = key as u32;
         }
     }
-    imgui.fonts().add_font(&[imgui::FontSource::DefaultFontData {
-        config: Some(imgui::FontConfig {
-            size_pixels: BASE_FONT_PX * scale,
-            ..Default::default()
-        }),
-    }]);
+    imgui
+        .fonts()
+        .add_font(&[imgui::FontSource::DefaultFontData {
+            config: Some(imgui::FontConfig {
+                size_pixels: BASE_FONT_PX * scale,
+                ..Default::default()
+            }),
+        }]);
     // A fresh context carries the default style, so this scales exactly once however often the
     // panel is rescaled.
     imgui.style_mut().scale_all_sizes(scale);
@@ -307,7 +406,10 @@ impl Gfx {
         // overwritten COM pointer is a leaked render target, not a freed one.
         self.view = None;
         let mut view: Option<ID3D11RenderTargetView> = None;
-        match self.device.CreateRenderTargetView(&buffer, None, Some(&mut view)) {
+        match self
+            .device
+            .CreateRenderTargetView(&buffer, None, Some(&mut view))
+        {
             Ok(()) => self.view = view,
             Err(e) => crate::log(&format!("panel: no render target: {e}")),
         }
@@ -502,7 +604,9 @@ impl App {
     /// seconds, so the timer restarts each time and one write lands at the end of the drag — not
     /// one per pixel, and not one per drag when the player resizes twice in a row.
     fn note_window_geometry(&mut self) {
-        let Some(size) = window_size(self.hwnd) else { return };
+        let Some(size) = window_size(self.hwnd) else {
+            return;
+        };
         let pos = window_pos(self.hwnd).unwrap_or(self.saved_pos);
         if size == self.saved_size && pos == self.saved_pos {
             return;
@@ -512,12 +616,16 @@ impl App {
 
     /// Write the size and corner once the player has stopped dragging for `SAVE_QUIET`.
     fn flush_pending_geometry(&mut self) {
-        let Some(since) = self.pending_save else { return };
+        let Some(since) = self.pending_save else {
+            return;
+        };
         if since.elapsed() < SAVE_QUIET {
             return;
         }
         self.pending_save = None;
-        let Some(size) = window_size(self.hwnd) else { return };
+        let Some(size) = window_size(self.hwnd) else {
+            return;
+        };
         let pos = window_pos(self.hwnd).unwrap_or(self.saved_pos);
         if size == self.saved_size && pos == self.saved_pos {
             return;
@@ -530,7 +638,6 @@ impl App {
             size.0, size.1, pos.0, pos.1
         ));
     }
-
 
     /// The scale the window's own size implies.
     ///
@@ -616,7 +723,9 @@ impl App {
         // next open creates a new one.
         if let Some(mut gfx) = self.gfx.take() {
             drop(gfx.ui.take());
-            crate::log("panel: device released after being closed for a minute (rebuilt on next open)");
+            crate::log(
+                "panel: device released after being closed for a minute (rebuilt on next open)",
+            );
         }
         self.idle_since = None;
     }
@@ -664,12 +773,18 @@ impl App {
             BufferDesc: DXGI_MODE_DESC {
                 Width: width,
                 Height: height,
-                RefreshRate: DXGI_RATIONAL { Numerator: 60, Denominator: 1 },
+                RefreshRate: DXGI_RATIONAL {
+                    Numerator: 60,
+                    Denominator: 1,
+                },
                 Format: DXGI_FORMAT_R8G8B8A8_UNORM,
                 ScanlineOrdering: Default::default(),
                 Scaling: Default::default(),
             },
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
             BufferCount: 2,
             OutputWindow: self.hwnd,
@@ -678,8 +793,11 @@ impl App {
             Flags: 0,
         };
 
-        let levels: [D3D_FEATURE_LEVEL; 3] =
-            [D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0];
+        let levels: [D3D_FEATURE_LEVEL; 3] = [
+            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_10_1,
+            D3D_FEATURE_LEVEL_10_0,
+        ];
         let mut swap_chain: Option<IDXGISwapChain> = None;
         let mut device: Option<ID3D11Device> = None;
         let mut context: Option<ID3D11DeviceContext> = None;
@@ -701,7 +819,9 @@ impl App {
             )
         };
         let (device, context, swap_chain) = match (created, device, context, swap_chain) {
-            (Ok(()), Some(device), Some(context), Some(swap_chain)) => (device, context, swap_chain),
+            (Ok(()), Some(device), Some(context), Some(swap_chain)) => {
+                (device, context, swap_chain)
+            }
             (Err(e), ..) => {
                 crate::log(&format!("panel: D3D11 device creation failed: {e}"));
                 return false;
@@ -852,9 +972,7 @@ impl App {
                 // makes it the foreground window under Wine, and then this would adopt the panel
                 // itself — which is why the subclass never ran in the last session.
                 let previous = GetForegroundWindow();
-                if !previous.0.is_null()
-                    && previous != self.hwnd
-                    && previous != GetDesktopWindow()
+                if !previous.0.is_null() && previous != self.hwnd && previous != GetDesktopWindow()
                 {
                     // The window we are about to take focus from is the game's; give it a cursor so
                     // the pointer is visible over it while the panel is open.
@@ -892,7 +1010,9 @@ impl App {
         let auto_scale = self.auto_scale();
         let current_scale = self.ui_scale;
         let model = &mut self.model;
-        let mut assign: Option<(usize, i32)> = None;
+        let mut hand_action: Option<HandAction> = None;
+        let mut balance_toggle: Option<Balance> = None;
+        let mut close_clicked = false;
         let mut scale_choice: Option<Option<f32>> = None;
         let mut reset_layout = false;
         let mut diagnostics = false;
@@ -911,7 +1031,10 @@ impl App {
         // panel was dragged small.
         let display = ui.io().display_size;
         let inset = border_width(ui);
-        let size = [(display[0] - 2.0 * inset).max(1.0), (display[1] - 2.0 * inset).max(1.0)];
+        let size = [
+            (display[0] - 2.0 * inset).max(1.0),
+            (display[1] - 2.0 * inset).max(1.0),
+        ];
         imgui::Window::new("nr-casting")
             // No scrollbars: a panel that scrolls in two directions while its text rescales is
             // unreadable, and the scroll state is what the content overflow was doing to the frame.
@@ -927,10 +1050,29 @@ impl App {
             .build(ui, || {
                 ui.text("nr-casting");
                 ui.separator();
-                ui.columns(3, "layout", false);
+                // The attuned column exists only in balanced mode: in free mode there is nothing
+                // for it to act on, and the width it would take is width the two hands need. One
+                // branch on the layout, not a condition sprinkled through the rows.
+                let balanced = model.balance == Balance::Attuned;
+                ui.columns(if balanced { 4 } else { 3 }, "layout", false);
+
+                if balanced {
+                    // ---- attuned -----------------------------------------------------------
+                    // The notice is about the hand that can cast: the right hand unless it holds
+                    // nothing, because a seal in the left can still use the spells listed.
+                    let right_kind = model.panel.catalyst_school(model.weapons.1);
+                    let kind = if right_kind != nr_casting_core::CatalystSchool::Any {
+                        right_kind
+                    } else {
+                        model.panel.catalyst_school(model.weapons.0)
+                    };
+                    attuned_column(ui, &model.panel, &model.attuned, kind);
+                    ui.next_column();
+                }
 
                 // ---- left hand -------------------------------------------------------------
-                if let Some(choice) = hand_column(
+                let left_states = row_states(&model.panel, model.weapons.0, &model.attuned, balanced);
+                if let Some(action) = hand_column(
                     ui,
                     "LEFT HAND",
                     model.weapons.0,
@@ -939,8 +1081,9 @@ impl App {
                     &model.panel,
                     &candidates,
                     crate::input::y_bumper(),
+                    &left_states,
                 ) {
-                    assign = Some(choice);
+                    hand_action = Some(action);
                 }
 
                 ui.next_column();
@@ -964,6 +1107,16 @@ impl App {
                     .build();
                 vspace(ui, 5.0);
                 ui.text_disabled(&model.listed);
+                if balanced {
+                    // Three figures, each naming its scope: what the memory holds, what these two
+                    // catalysts assign, and how much of that will not cast.
+                    vspace(ui, 5.0);
+                    ui.text_disabled(balance_summary(
+                        &model.panel,
+                        model.weapons,
+                        &model.attuned,
+                    ));
+                }
                 let mut show = model.show_all;
                 if ui.checkbox("list everything", &mut show) {
                     model.show_all = show;
@@ -975,7 +1128,9 @@ impl App {
                 ui.next_column();
 
                 // ---- right hand ------------------------------------------------------------
-                if let Some(choice) = hand_column(
+                let right_states =
+                    row_states(&model.panel, model.weapons.1, &model.attuned, balanced);
+                if let Some(action) = hand_column(
                     ui,
                     "RIGHT HAND",
                     model.weapons.1,
@@ -984,8 +1139,9 @@ impl App {
                     &model.panel,
                     &candidates_right,
                     crate::input::y_bumper(),
+                    &right_states,
                 ) {
-                    assign = Some(choice);
+                    hand_action = Some(action);
                 }
 
                 ui.columns(1, "footer", false);
@@ -1016,7 +1172,19 @@ impl App {
                 ui.same_line();
                 if ui.button("close") {
                     // Handled after the frame: closing mid-frame would drop the state.
-                    assign = assign.or(Some((usize::MAX, 0)));
+                    close_clicked = true;
+                }
+                ui.same_line();
+                // The mode switch, beside the other panel setting that changes what the panel
+                // shows. Always visible: hiding the switch that gets you out of the mode would be
+                // a trap. Flipping it applies immediately, in both directions.
+                let mut balanced_box = model.balance == Balance::Attuned;
+                if ui.checkbox("balanced", &mut balanced_box) {
+                    balance_toggle = Some(if balanced_box {
+                        Balance::Attuned
+                    } else {
+                        Balance::Free
+                    });
                 }
                 ui.same_line();
                 ui.text("UI scale");
@@ -1134,14 +1302,58 @@ impl App {
             crate::log("panel: layout reset (size and position back to the first-open defaults)");
         }
 
-        if let Some((index, spell_id)) = assign {
-            if index == usize::MAX {
-                self.set_open(false);
-            } else {
-                let slot = SLOTS[index];
-                let weapon = self.model.weapon_of(slot);
-                self.model.panel.assign(weapon, slot.weapon_slot, spell_id);
+        if close_clicked {
+            self.set_open(false);
+        }
+        if let Some(action) = hand_action {
+            let performed = match action {
+                HandAction::Customise(weapon) => {
+                    crate::store_customise(weapon).then_some("this copy now has its own layout")
+                }
+                HandAction::ResetCopy(weapon) => {
+                    crate::store_reset(weapon).then_some("back to the default for this weapon type")
+                }
+                HandAction::Assign(index, spell_id) => {
+                    let slot = SLOTS[index];
+                    let weapon = self.model.weapon_of(slot);
+                    if self.model.balance == Balance::Attuned
+                        && !self.model.attuned.contains(&spell_id)
+                    {
+                        self.note = format!(
+                            "{} is not attuned - attune it in the game's spell menu first",
+                            self.model.panel.spell_name(spell_id)
+                        );
+                        None
+                    } else {
+                        self.model.panel.assign(weapon, slot.weapon_slot, spell_id);
+                        Some("")
+                    }
+                }
+            };
+            if let Some(note) = performed {
+                if !note.is_empty() {
+                    self.note = note.to_string();
+                }
+                self.model.reload();
+                self.remeasure = true;
             }
+        }
+        if let Some(mode) = balance_toggle {
+            crate::config::save_balance(mode);
+            // Publish it now rather than waiting for the ini watcher's debounce: the gate is read
+            // by the input thread, and "applies immediately" has to mean the next press.
+            crate::config::reload();
+            self.model.balance = mode;
+            self.model.reload();
+            self.remeasure = true;
+            let stale = self.model.stale_rows();
+            self.note = match mode {
+                Balance::Attuned => format!(
+                    "balanced mode on: only attuned spells can be assigned ({stale} row(s) went dormant)"
+                ),
+                Balance::Free => "balanced mode off: every assignment is live again".to_string(),
+            };
+            crate::log(&format!("panel: {}", self.note));
         }
         if let Some(choice) = scale_choice {
             self.set_ui_scale(choice);
@@ -1284,7 +1496,6 @@ impl App {
 
         self.gfx = Some(gfx);
     }
-
 }
 
 /// A greyed line of help text that wraps at the window's right edge.
@@ -1308,6 +1519,85 @@ pub(crate) fn vspace(ui: &Ui, px: f32) {
 
 /// One hand's column: the equipped catalyst, then a row per slot (label, its mouse binding, and
 /// the spell picker). Returns the pick the user made, if any.
+/// One thing a hand column can ask for: an assignment, or a change to which row the hand edits.
+enum HandAction {
+    Assign(usize, i32),
+    /// Give this copy its own layout, seeded from the type's default.
+    Customise(i32),
+    /// Drop this copy's layout and inherit the type's default again.
+    ResetCopy(i32),
+}
+
+/// The balance state of a hand's four rows, all `Empty` in free mode.
+///
+/// Computed from the published memorised list, the catalogue's school and the store - the same three
+/// inputs the cast path uses, through the same pure `classify`, so the panel cannot disagree with
+/// what a press will do.
+fn row_states(panel: &Panel, weapon: i32, attuned: &[i32], balanced: bool) -> [RowState; 4] {
+    let mut states = [RowState::Empty; 4];
+    if !balanced || weapon <= 0 {
+        return states;
+    }
+    let catalyst = panel.catalyst_school(weapon);
+    for (slot, state) in states.iter_mut().enumerate() {
+        let spell = panel.slot_value(weapon, slot);
+        if spell > 0 {
+            *state = nr_casting_core::classify(spell, panel.spell_school(spell), catalyst, attuned);
+        }
+    }
+    states
+}
+
+/// The left column: what the game currently has memorised, in wheel order.
+///
+/// Information only - nothing here is clickable, because the only place a spell can be attuned is
+/// the game's own memory menu at a grace.
+fn attuned_column(
+    ui: &Ui,
+    panel: &Panel,
+    attuned: &[i32],
+    catalyst: nr_casting_core::CatalystSchool,
+) {
+    ui.text("ATTUNED");
+    ui.text_disabled("from the game's spell menu");
+    vspace(ui, 5.0);
+    let notice = nr_casting_core::balance_notice(catalyst, &schools(panel, attuned));
+    if attuned.is_empty() {
+        ui.text_disabled("nothing attuned yet");
+        if let Some(text) = notice {
+            vspace(ui, 5.0);
+            help_line(ui, text);
+        }
+        return;
+    }
+    for (index, id) in attuned.iter().enumerate() {
+        ui.text_disabled(format!("{}. {}", index + 1, panel.spell_name(*id)));
+    }
+    if let Some(text) = notice {
+        vspace(ui, 5.0);
+        help_line(ui, text);
+    }
+}
+
+/// The catalogue's school for each id, in the same order.
+fn schools(panel: &Panel, ids: &[i32]) -> Vec<nr_casting_core::School> {
+    ids.iter().map(|id| panel.spell_school(*id)).collect()
+}
+
+/// `9 attuned | 8 assigned | 1 stale` - three figures that each name what they count.
+fn balance_summary(panel: &Panel, weapons: (i32, i32), attuned: &[i32]) -> String {
+    let mut rows = Vec::with_capacity(2 * 4);
+    rows.extend_from_slice(&row_states(panel, weapons.0, attuned, true));
+    rows.extend_from_slice(&row_states(panel, weapons.1, attuned, true));
+    let counts = nr_casting_core::counts(&rows);
+    format!(
+        "{} attuned | {} assigned | {} stale",
+        attuned.len(),
+        counts.assigned,
+        counts.stale
+    )
+}
+
 fn hand_column(
     ui: &Ui,
     heading: &str,
@@ -1317,7 +1607,8 @@ fn hand_column(
     panel: &Panel,
     candidates: &[(i32, String)],
     y_bumper: bool,
-) -> Option<(usize, i32)> {
+    states: &[RowState; 4],
+) -> Option<HandAction> {
     ui.text(heading);
     ui.text(if weapon > 0 {
         panel.weapon_name(weapon)
@@ -1337,6 +1628,10 @@ fn hand_column(
         } else {
             -1
         };
+        let state = states
+            .get(slot.weapon_slot)
+            .copied()
+            .unwrap_or(RowState::Empty);
         let preview = if current > 0 {
             format!("{} [{}]", panel.spell_name(current), current)
         } else {
@@ -1348,18 +1643,46 @@ fn hand_column(
         // The fourth slot is Recluse's on a Recluse character: show the row, grey it out, and say
         // why, so nobody spends time wondering why Y+R1 does nothing.
         let off_for_recluse = !y_bumper && slot.weapon_slot == 3;
-        ui.disabled(off_for_recluse, || {
+        // A dormant row keeps its spell and its dropdown - the player can always reselect - but it
+        // is drawn greyed with the reason, and the press it belongs to is the game's again.
+        let dormant = state.dormant();
+        ui.disabled(off_for_recluse || dormant, || {
             if off_for_recluse {
                 // Not "off": the chords still work on a Recluse, they just belong to the class
                 // port, which binds them to its own 4 and 5 keys.
                 let key = if slot.right_hand { "4" } else { "5" };
                 ui.text_disabled(format!("(Recluse class: passthrough to its {key} key)"));
-            } else if let Some(picked) =
-                slot_combo(ui, &format!("##{prefix}{index}"), preview, current, candidates)
-            {
-                chosen = Some((index, picked));
+            } else if let Some(picked) = slot_combo(
+                ui,
+                &format!("##{prefix}{index}"),
+                preview,
+                current,
+                candidates,
+            ) {
+                chosen = Some(HandAction::Assign(index, picked));
             }
         });
+        if dormant && !off_for_recluse {
+            ui.same_line();
+            ui.text_disabled(state.label());
+        }
+    }
+    // Which row this hand edits: the type's default, or a layout that belongs to this copy. Without
+    // this line a player cannot tell whether an edit applies to every staff of this type or to the
+    // one in hand - and the difference is the whole point of the override.
+    if weapon > 0 && nr_casting_core::base_weapon_id(weapon) != weapon {
+        vspace(ui, 5.0);
+        if crate::has_override(weapon) {
+            ui.text_disabled("customised for this copy");
+            if ui.button(format!("use the type default##{prefix}_reset")) {
+                chosen = Some(HandAction::ResetCopy(weapon));
+            }
+        } else {
+            ui.text_disabled("using the default for this weapon type");
+            if ui.button(format!("customise this copy##{prefix}_own")) {
+                chosen = Some(HandAction::Customise(weapon));
+            }
+        }
     }
     chosen
 }
@@ -1451,7 +1774,12 @@ fn map_key(vk: u16) -> Option<usize> {
     })
 }
 
-unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     // A panic must never unwind into the game: crossing this FFI boundary aborts the process.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         APP.with(|cell| {
@@ -1531,7 +1859,9 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         // Bounded: a stuck focus can deliver auto-repeat for as long as nobody
                         // builds a frame, and this vector is only drained by one.
                         if app.input.keys.len() < 256 {
-                            app.input.keys.push((key, msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN));
+                            app.input
+                                .keys
+                                .push((key, msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN));
                         }
                     }
                     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && vk == 0x1B {
@@ -1790,7 +2120,12 @@ pub fn start() {
         // second to notice one key was the cheapest-looking and most expensive option.
         let hotkey = config.hotkey;
         let registered = unsafe {
-            RegisterHotKey(Some(hwnd), HOTKEY_ID, HOT_KEY_MODIFIERS(MOD_NOREPEAT), hotkey as u32)
+            RegisterHotKey(
+                Some(hwnd),
+                HOTKEY_ID,
+                HOT_KEY_MODIFIERS(MOD_NOREPEAT),
+                hotkey as u32,
+            )
         }
         .is_ok();
         APP.with(|cell| {

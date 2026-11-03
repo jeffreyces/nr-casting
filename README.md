@@ -159,6 +159,7 @@ Two Manager behaviours are worth knowing:
 overlay = on             ; on | off — the panel window (casting works either way)
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 show_all = off           ; list spells the character cannot cast yet (planning mode)
+balance = free           ; free | attuned — attuned = only memorised spells can be assigned
 ui_scale = auto          ; auto | 125 | 150% | 1.5 | 200% — panel text and widget size (100%-300%)
 panel_size = auto        ; auto | 1800x1240 — panel window size, saved when you resize it
 panel_pos = auto         ; auto | 1140,431 — panel corner, saved when you move it
@@ -181,8 +182,8 @@ perf_log = on            ; a timing line when a frame is lost, or every 5 minute
 Malformed values are logged and the default kept.
 
 **The file is watched.** Save it while the game is running and the change is picked up within a
-second — no restart. `debug_log`, `perf_log`, `hud_mirror`, `show_all`, `ui_scale`, `bind_modifier`
-and `hotkey` all take effect live; the switches that have to be in place before a hook is installed
+second — no restart. `debug_log`, `perf_log`, `hud_mirror`, `show_all`, `balance`, `ui_scale`,
+`bind_modifier` and `hotkey` all take effect live; the switches that have to be in place before a hook is installed
 (`overlay`, `hooks`, `pad_hook`, `raw_hook`, `pointer_hook`, `present_clock`) log that they will take
 effect on the next launch instead of being silently ignored. The mod's own writes to this file (panel
 size, corner, scale) are recognised and never reload it.

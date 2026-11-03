@@ -34,7 +34,6 @@ static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
 /// input thread and must never queue behind the panel thread's lock.
 static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-
 /// Lock-free mirror of `Borrow::steered`: the spell the borrowed entry currently holds.
 ///
 /// Steering is a write to game memory behind two `VirtualQuery` checks and two locks. Doing that
@@ -259,8 +258,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
         && magic.selected_slot == idx as i32;
     if !took {
         STEER_REFUSED.fetch_add(1, Ordering::Relaxed);
-        static WARNED: std::sync::atomic::AtomicBool =
-            std::sync::atomic::AtomicBool::new(false);
+        static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
             crate::log(
                 "steering: the write did not take (offset or page is not what we think) — \
@@ -345,7 +343,10 @@ pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
     // thread whose stalls a player feels, asking the OS whether the character's block is still there.
     let readable = {
         let _t = crate::padcost::Timer::start(crate::padcost::RECHECK);
-        probe::readable(raw as *const u8, std::mem::size_of::<eldenring::cs::PlayerIns>())
+        probe::readable(
+            raw as *const u8,
+            std::mem::size_of::<eldenring::cs::PlayerIns>(),
+        )
     };
     if !readable {
         forget_pointers();
@@ -400,7 +401,10 @@ fn game_data() -> Option<&'static mut eldenring::cs::PlayerGameData> {
         return Some(unsafe { &mut *(cached as *mut eldenring::cs::PlayerGameData) });
     }
     let ptr = player.player_game_data.as_ptr();
-    if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::PlayerGameData>()) {
+    if !probe::readable(
+        ptr as *const u8,
+        std::mem::size_of::<eldenring::cs::PlayerGameData>(),
+    ) {
         return None;
     }
     PGD.store(ptr as usize, Ordering::Relaxed);
@@ -602,14 +606,16 @@ fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
     let ptr = pgd.equipment.equip_magic_data.as_ptr();
     // OwnedPtr derefs without a check; during a teardown this is exactly the pointer that can be
     // released while it still looks valid.
-    if !probe::readable(ptr as *const u8, std::mem::size_of::<eldenring::cs::EquipMagicData>()) {
+    if !probe::readable(
+        ptr as *const u8,
+        std::mem::size_of::<eldenring::cs::EquipMagicData>(),
+    ) {
         return None;
     }
     MAGIC.store(ptr as usize, Ordering::Relaxed);
     // SAFETY: readable, owned by the player's game data.
     Some(unsafe { &mut *ptr })
 }
-
 
 /// How long the memorised list is trusted before it is read again.
 ///
@@ -706,7 +712,9 @@ pub(crate) fn spell_attuned(spell: i32) -> bool {
     if crate::config::load().balance == nr_casting_core::Balance::Free {
         return true;
     }
-    attuned_now().map(|spells| spells.contains(&spell)).unwrap_or(false)
+    attuned_now()
+        .map(|spells| spells.contains(&spell))
+        .unwrap_or(false)
 }
 
 /// The memorised set, for the panel and the report. Cheap: the published list when it is fresh.
@@ -730,4 +738,3 @@ fn magic_data_verified() -> Option<&'static mut eldenring::cs::EquipMagicData> {
     }
     Some(magic)
 }
-

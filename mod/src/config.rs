@@ -155,7 +155,7 @@ impl Default for Config {
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
             recluse_ids: vec![8131],
-            bind_modifier: 0x0040, // L3
+            bind_modifier: 0x0040,  // L3
             bind_modifier_kb: 0x5B, // Super (VK_LWIN)
             bind_modifier_kb_name: "Super".to_string(),
             chord_stage: 2,
@@ -266,7 +266,10 @@ pub fn migrate_from_game_dir() {
             }
             if target.exists() || std::fs::copy(&source, &target).is_ok() {
                 let _ = std::fs::remove_file(&source);
-                crate::log(&format!("config: moved {name} into {}", data_dir().display()));
+                crate::log(&format!(
+                    "config: moved {name} into {}",
+                    data_dir().display()
+                ));
             }
         }
     }
@@ -358,6 +361,14 @@ fn ini_file() -> PathBuf {
 /// `Config`; everything else about the file (comments, other keys) is preserved.
 pub fn save_show_all(show: bool) {
     save_ui_key("show_all", if show { "on" } else { "off" });
+}
+
+/// Remember the balanced-mode switch across sessions.
+///
+/// Written as its own word rather than a boolean: the key has two named modes, and an ini reading
+/// `balance = on` would be a value neither mode is called.
+pub fn save_balance(mode: nr_casting_core::Balance) {
+    save_ui_key("balance", mode.as_str());
 }
 
 /// Remember the panel window's size and corner in one ini write.
@@ -529,10 +540,7 @@ pub fn load() -> &'static Config {
 /// Re-read the ini and publish the result. Returns the keys that only take effect next launch.
 pub fn reload() -> Vec<&'static str> {
     let fresh: &'static Config = Box::leak(Box::new(read()));
-    let previous = CONFIG.swap(
-        fresh as *const Config as *mut Config,
-        Ordering::AcqRel,
-    );
+    let previous = CONFIG.swap(fresh as *const Config as *mut Config, Ordering::AcqRel);
     if previous.is_null() {
         return Vec::new();
     }
@@ -542,8 +550,10 @@ pub fn reload() -> Vec<&'static str> {
     if old.overlay != fresh.overlay {
         late.push("overlay");
     }
-    if old.hooks != fresh.hooks || old.raw_hook != fresh.raw_hook
-        || old.pointer_hook != fresh.pointer_hook || old.pad_hook != fresh.pad_hook
+    if old.hooks != fresh.hooks
+        || old.raw_hook != fresh.raw_hook
+        || old.pointer_hook != fresh.pointer_hook
+        || old.pad_hook != fresh.pad_hook
     {
         late.push("the hook switches");
     }
@@ -581,7 +591,9 @@ pub fn watch() {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        let handle = unsafe { FindFirstChangeNotificationW(folder.as_ptr(), 0, FILE_NOTIFY_CHANGE_LAST_WRITE) };
+        let handle = unsafe {
+            FindFirstChangeNotificationW(folder.as_ptr(), 0, FILE_NOTIFY_CHANGE_LAST_WRITE)
+        };
         if handle == isize::MAX || handle == 0 {
             crate::log("config: cannot watch the folder - the ini is read at launch only");
             return;

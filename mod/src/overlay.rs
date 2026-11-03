@@ -47,8 +47,6 @@ fn catalogue_is_current(text: &str, stamp: &str) -> bool {
     lines.next() == Some(CATALOGUE_VERSION) && lines.next() == Some(stamp)
 }
 
-
-
 /// What a hand's catalyst can cast, which decides what its pickers offer.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Catalyst {
@@ -333,7 +331,6 @@ impl Panel {
         // character (a warp, a death, a load) and corrupt the heap.
     }
 
-
     /// Everything the window needs to fill a slot's list, already filtered.
     ///
     /// Requirements are checked against the character's *effective* stats (base plus active
@@ -390,6 +387,30 @@ impl Panel {
         }
     }
 
+    /// The catalogue's school for a spell id, for the balance gate.
+    ///
+    /// The catalogue already carries the string the game uses; this maps it onto the three values
+    /// the policy understands, with `Unknown` for anything it cannot classify so an odd port row is
+    /// never greyed for a mismatch we invented.
+    pub fn spell_school(&self, id: i32) -> nr_casting_core::School {
+        match self.spells.iter().find(|spell| spell.id == id) {
+            Some(spell) if spell.school.contains("Sorcery") => nr_casting_core::School::Sorcery,
+            Some(spell) if spell.school.contains("Incantation") => {
+                nr_casting_core::School::Incantation
+            }
+            _ => nr_casting_core::School::Unknown,
+        }
+    }
+
+    /// What this weapon's hand can cast, in the policy's terms.
+    pub fn catalyst_school(&self, weapon: i32) -> nr_casting_core::CatalystSchool {
+        match self.catalyst_kind(weapon) {
+            Catalyst::Staff => nr_casting_core::CatalystSchool::Staff,
+            Catalyst::Seal => nr_casting_core::CatalystSchool::Seal,
+            Catalyst::Other => nr_casting_core::CatalystSchool::Any,
+        }
+    }
+
     pub fn assign(&self, weapon: i32, slot: usize, id: i32) {
         if weapon <= 0 {
             return;
@@ -402,7 +423,9 @@ impl Panel {
     }
 
     pub fn slot_value(&self, weapon: i32, slot: usize) -> i32 {
-        crate::store_get(weapon).map(|pair| pair[slot]).unwrap_or(-1)
+        crate::store_get(weapon)
+            .map(|pair| pair[slot])
+            .unwrap_or(-1)
     }
 
     /// Re-read everything that changes while the game runs.
@@ -495,9 +518,7 @@ pub(crate) fn weapon_name_base(id: i32) -> Option<String> {
         }
         map
     });
-    names
-        .get(&nr_casting_core::base_weapon_id(id))
-        .cloned()
+    names.get(&nr_casting_core::base_weapon_id(id)).cloned()
 }
 
 fn load_weapon_names() -> std::collections::HashMap<i32, String> {
@@ -537,7 +558,8 @@ pub(crate) fn ensure_catalogue() -> Option<String> {
     // reused, so a swapped `regulation.bin` cannot leave a mod's added spells missing.
     let cache = crate::config::path("nr_casting_catalogue.txt");
     let stamp = catalogue_stamp();
-    if let Ok(text) = std::fs::read_to_string(crate::config::read_path("nr_casting_catalogue.txt")) {
+    if let Ok(text) = std::fs::read_to_string(crate::config::read_path("nr_casting_catalogue.txt"))
+    {
         if catalogue_is_current(&text, &stamp) {
             return Some(text);
         }
@@ -596,7 +618,10 @@ pub(crate) fn ensure_catalogue() -> Option<String> {
         ));
     }
     if let Err(e) = std::fs::write(&cache, &out) {
-        crate::log(&format!("catalogue: could not write {}: {e}", cache.display()));
+        crate::log(&format!(
+            "catalogue: could not write {}: {e}",
+            cache.display()
+        ));
     }
     crate::log(&format!(
         "params: {} live spell rows applied ({added} not in the table), catalogue cached",
@@ -670,7 +695,10 @@ pub(crate) fn warm_names() -> (usize, usize) {
         return (0, 0);
     }
     let weapons = crate::params::live_weapon_ids();
-    let spells: Vec<i32> = crate::params::live_spells().into_iter().map(|s| s.id).collect();
+    let spells: Vec<i32> = crate::params::live_spells()
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
     let named_weapons = crate::msg::names(11, &weapons).len();
     let named_spells = crate::msg::names(10, &spells).len();
     (named_weapons, named_spells)
@@ -744,6 +772,9 @@ fn parse_spells(text: &str) -> Vec<Spell> {
 fn load_spells() -> Vec<Spell> {
     let (text, source) = table_text("nr_casting_spells.txt", SPELLS_TABLE);
     let out = parse_spells(&text);
-    crate::log(&format!("table: {} spells from the {source} copy", out.len()));
+    crate::log(&format!(
+        "table: {} spells from the {source} copy",
+        out.len()
+    ));
     out
 }

@@ -38,7 +38,11 @@ pub fn issue_url() -> String {
         crate::probe::exe_version(),
         crate::perf::summary(),
         crate::foreign_modules()
-            .map(|m| m.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", "))
+            .map(|m| m
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", "))
             .unwrap_or_else(|| "unknown".to_string()),
     );
     // The title too: an empty one is a field the reporter has to think about, and the version is
@@ -87,7 +91,9 @@ pub fn write_bundle(reason: &str) -> Result<(PathBuf, usize), String> {
 /// Keep the folder tidy: one report is useful, a pile of them is clutter. Newest five survive.
 fn prune_old(keep: usize) {
     let folder = crate::config::data_dir();
-    let Ok(entries) = std::fs::read_dir(&folder) else { return };
+    let Ok(entries) = std::fs::read_dir(&folder) else {
+        return;
+    };
     let mut reports: Vec<std::path::PathBuf> = entries
         .flatten()
         .map(|entry| entry.path())
@@ -100,11 +106,7 @@ fn prune_old(keep: usize) {
     if reports.len() <= keep {
         return;
     }
-    reports.sort_by_key(|path| {
-        std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .ok()
-    });
+    reports.sort_by_key(|path| std::fs::metadata(path).and_then(|m| m.modified()).ok());
     for path in reports.iter().take(reports.len() - keep) {
         let _ = std::fs::remove_file(path);
     }
@@ -177,7 +179,11 @@ fn system_info() -> String {
     } else {
         let _ = writeln!(out, "os: unknown");
     }
-    let _ = writeln!(out, "cpu: {}", std::env::var("PROCESSOR_IDENTIFIER").unwrap_or_default());
+    let _ = writeln!(
+        out,
+        "cpu: {}",
+        std::env::var("PROCESSOR_IDENTIFIER").unwrap_or_default()
+    );
     let _ = writeln!(
         out,
         "arch: {}",
@@ -199,7 +205,10 @@ fn system_info() -> String {
         );
     }
     if let Some((working, private)) = crate::memory_mib() {
-        let _ = writeln!(out, "process: {working} MiB working set, {private} MiB private");
+        let _ = writeln!(
+            out,
+            "process: {working} MiB working set, {private} MiB private"
+        );
     }
     out
 }
@@ -215,7 +224,9 @@ fn gpu_info() -> String {
             Ok(adapter) => adapter,
             Err(_) => break,
         };
-        let Ok(desc) = (unsafe { adapter.GetDesc() }) else { continue };
+        let Ok(desc) = (unsafe { adapter.GetDesc() }) else {
+            continue;
+        };
         let name = String::from_utf16_lossy(
             &desc.Description[..desc.Description.iter().position(|c| *c == 0).unwrap_or(128)],
         );
@@ -296,7 +307,9 @@ fn graphics(modules: &[(String, String)]) -> String {
         }
         // The size from the file, not the bytes we read: the read is capped at 8 MiB for speed and
         // reporting the cap as the size was nonsense (six 8 MiB files on a 220 MiB exe).
-        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(bytes.len() as u64);
+        let size = std::fs::metadata(&path)
+            .map(|m| m.len())
+            .unwrap_or(bytes.len() as u64);
         let markers = nr_casting_core::wrapper_markers(&bytes);
         let built = nr_casting_core::pe_build_timestamp(&bytes)
             .map(nr_casting_core::civil_date)
@@ -342,9 +355,6 @@ fn game_directory(modules: &[(String, String)]) -> Option<String> {
         })
 }
 
-
-
-
 /// The module list, formatted: name and load base, which is what a `crash:` line quotes.
 fn module_lines(loaded: &[(String, String)]) -> String {
     if loaded.is_empty() {
@@ -360,6 +370,58 @@ fn module_lines(loaded: &[(String, String)]) -> String {
 /// The live picture a bug report needs, and that the debug log would otherwise have to be turned on
 /// to provide: what is equipped, what the mod thinks of it, and where the input path stands.
 ///
+/// The balance line, in the report rather than only in the panel.
+///
+/// Four figures, each naming its own scope, so the next "the panel says 9 and I have 12" arrives as
+/// arithmetic instead of a screenshot: how many spells the character has memorised, how many rows
+/// the two catalysts assign, how many distinct attuned spells those rows can actually cast, and how
+/// many rows are dormant.
+fn balance_report() -> Option<String> {
+    let mode = crate::config::load().balance;
+    if mode != nr_casting_core::Balance::Attuned {
+        return Some(nr_casting_core::balance_line(
+            nr_casting_core::Balance::Free,
+            0,
+            0,
+            0,
+            0,
+        ));
+    }
+    crate::game::refresh_attuned();
+    let attuned = crate::game::attuned_snapshot();
+    let (left, right) = crate::weapon_ids()?;
+    let (mut assigned, mut stale) = (0u32, 0u32);
+    let mut reachable: Vec<i32> = Vec::new();
+    for weapon in [left, right] {
+        if weapon <= 0 {
+            continue;
+        }
+        let Some(pair) = crate::store_get(weapon) else {
+            continue;
+        };
+        for spell in pair {
+            if spell <= 0 {
+                continue;
+            }
+            assigned += 1;
+            if attuned.contains(&spell) {
+                if !reachable.contains(&spell) {
+                    reachable.push(spell);
+                }
+            } else {
+                stale += 1;
+            }
+        }
+    }
+    Some(nr_casting_core::balance_line(
+        nr_casting_core::Balance::Attuned,
+        attuned.len() as u32,
+        assigned,
+        reachable.len() as u32,
+        stale,
+    ))
+}
+
 /// The counters underneath always run — `debug_log` only decides whether they are *printed* — so
 /// this section is complete with the ini untouched.
 fn state() -> String {
@@ -381,6 +443,9 @@ fn state() -> String {
         cfg.bind_modifier_name,
         cfg.chord_stage
     );
+    if let Some(line) = balance_report() {
+        let _ = writeln!(out, "{line}");
+    }
     match crate::weapon_ids() {
         Some((left, right)) => {
             let _ = writeln!(out, "weapons in hand: left={left} right={right}");
@@ -460,10 +525,26 @@ fn state() -> String {
     let _ = writeln!(
         out,
         "chords: {} | panel {} | cursor hooks {} | player cursor {} | frame clock {}",
-        if crate::input::y_bumper() { "ours" } else { "Recluse's" },
-        if crate::UI_OPEN.load(std::sync::atomic::Ordering::Relaxed) { "open" } else { "closed" },
-        if crate::pointer::cursor_engaged() { "in" } else { "out" },
-        if crate::input::game_shows_cursor() { "shown" } else { "hidden" },
+        if crate::input::y_bumper() {
+            "ours"
+        } else {
+            "Recluse's"
+        },
+        if crate::UI_OPEN.load(std::sync::atomic::Ordering::Relaxed) {
+            "open"
+        } else {
+            "closed"
+        },
+        if crate::pointer::cursor_engaged() {
+            "in"
+        } else {
+            "out"
+        },
+        if crate::input::game_shows_cursor() {
+            "shown"
+        } else {
+            "hidden"
+        },
         // Which hook is providing the frame clock: Present when the pass-through timer is in place
         // (frames, by definition), otherwise the pad poll when a controller is in use, otherwise
         // the message pump. "none" means a report would have no frame data at all.
@@ -499,7 +580,9 @@ fn performance() -> String {
             out.push('\n');
         }
     } else {
-        out.push_str("frame thread CPU: not sampled (no frame loop seen - panel closed before a frame?)\n");
+        out.push_str(
+            "frame thread CPU: not sampled (no frame loop seen - panel closed before a frame?)\n",
+        );
     }
     out
 }

@@ -302,6 +302,20 @@ pub fn parse_slots(text: &str) -> Vec<(i32, Category)> {
     out
 }
 
+/// Marker line written into files that may hold per-copy rows.
+///
+/// A row on a non-base id means two different things depending on the file's age: before overrides
+/// existed it was an upgrade level (`33090010`, folded onto `33090000` on load), and now it is a
+/// layout that belongs to that one copy. The marker is what tells the two apart without guessing,
+/// because guessing wrong either loses a customised layout or resurrects one.
+pub const LAYOUT_MARKER: &str = "# layout 2: a row on the full param id overrides that copy only";
+
+/// Whether a slot file was written by a version that understands per-copy rows.
+pub fn per_copy_rows(text: &str) -> bool {
+    text.lines()
+        .any(|line| line.trim_start().starts_with("# layout 2"))
+}
+
 /// Render a slot file: sorted by weapon id, with the header explaining the format.
 pub fn format_slots(entries: &[(i32, Category)]) -> String {
     let mut out = String::from(
@@ -311,6 +325,8 @@ pub fn format_slots(entries: &[(i32, Category)]) -> String {
          # Y+R1 and Y+L1, which are only ours when the Recluse mod is absent or the character\n\
          # is not a Recluse. Two- and three-entry lines from older versions are still accepted.\n",
     );
+    out.push_str(LAYOUT_MARKER);
+    out.push('\n');
     let mut sorted: Vec<&(i32, Category)> = entries.iter().collect();
     sorted.sort_by_key(|(id, _)| *id);
     for (id, spells) in sorted {
@@ -2274,6 +2290,35 @@ mod balance_tests {
                 }
             }
         }
+    }
+
+
+    // ---- layout marker -------------------------------------------------------------------
+
+    #[test]
+    fn a_written_file_says_it_understands_per_copy_rows() {
+        let text = format_slots(&[(33_090_000, [1, 2, 3, 4])]);
+        assert!(per_copy_rows(&text));
+        // And the marker is a comment, so an older version parsing it still reads the same rows.
+        assert_eq!(parse_slots(&text), vec![(33_090_000, [1, 2, 3, 4])]);
+    }
+
+    #[test]
+    fn a_file_from_before_overrides_is_folded_instead() {
+        // No marker: a row on 33090010 is an upgraded id to be folded onto its base, not a layout.
+        let legacy = "33090010 = 1, 2, 3, 4\n";
+        assert!(!per_copy_rows(legacy));
+        assert_eq!(canonicalize(&parse_slots(legacy)), vec![(33_090_000, [1, 2, 3, 4])]);
+        // With the marker the same row survives as an override.
+        let current = format!("{LAYOUT_MARKER}\n33090010 = 1, 2, 3, 4\n");
+        assert!(per_copy_rows(&current));
+    }
+
+    #[test]
+    fn a_roundtrip_keeps_an_override_row() {
+        let rows = [(33_090_000, [1, 2, 3, 4]), (33_090_010, [5, 6, 7, 8])];
+        let text = format_slots(&rows);
+        assert_eq!(parse_slots(&text), rows);
     }
 
     // ---- resolve_row ---------------------------------------------------------------------

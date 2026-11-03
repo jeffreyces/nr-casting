@@ -38,6 +38,11 @@ overlay = on
 hotkey = F8
 ; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
 show_all = off
+; Balanced mode. free = assign any spell the panel offers. attuned = only the spells you have
+; memorised in the game's own spell menu can be assigned, so the mod uses your memory slots instead
+; of replacing them; a row whose spell is no longer attuned is greyed, kept, and its input belongs
+; to the game again. Saved when you toggle it in the panel.
+balance = free
 ; Panel font size: auto picks the largest scale that fits the window, so dragging the corner grows
 ; the text with it; 100 / 125 / 150 / 175 / 200% pins it instead (the ini accepts up to 300%).
 ; Saved when you change it in the panel.

@@ -109,6 +109,7 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 overlay = on
 hotkey = F8
 show_all = off
+balance = free
 ui_scale = auto
 panel_size = auto
 panel_pos = auto
@@ -124,6 +125,13 @@ recluse_chr_ids = 8131
 hooks = on
 debug_log = off
 perf_log = on[/code]
+
+[code]balance = attuned[/code]
+is the balance mode: only spells the character has memorised in the game's own spell menu can be
+assigned, so the mod uses your memory slots instead of replacing them. The panel grows an attuned
+column, and a row whose spell you no longer have attuned is greyed and keeps its dropdown — never
+cleared. Its input belongs to the game again until you reassign it. Off by default
+([code]balance = free[/code]), switchable in the panel, and it applies immediately either way.
 
 [code]ui_scale[/code]
 sizes the panel's text and widgets:
