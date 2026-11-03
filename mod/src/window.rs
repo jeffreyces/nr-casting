@@ -441,6 +441,8 @@ struct App {
     /// game window is restored explicitly on close.
     previous_foreground: Option<HWND>,
     model: Model,
+    /// When the memorised list was last re-read while the panel is open.
+    attuned_at: Instant,
     input: Input,
     gfx: Option<Gfx>,
     shown: bool,
@@ -566,6 +568,7 @@ impl App {
         App {
             hwnd,
             model: Model::new(config),
+            attuned_at: Instant::now(),
             input: Input::default(),
             gfx: None,
             shown: false,
@@ -1008,7 +1011,32 @@ impl App {
         crate::log(if open { "panel: open" } else { "panel: closed" });
     }
 
+    /// Re-read the memorised list once a second while the panel is open.
+    ///
+    /// The list changes at a grace and when a talisman changes the slot count, and both happen while
+    /// this window can be up. Without this the rows would describe the set the panel opened with,
+    /// which is exactly the "the panel says attuned and it is not" report. One verified struct walk
+    /// per second, on the panel thread, only while the panel is open - and no redraw of the lists
+    /// unless the set actually changed.
+    fn poll_attuned(&mut self) {
+        if self.model.balance != Balance::Attuned {
+            return;
+        }
+        if self.attuned_at.elapsed().as_millis() < 1000 {
+            return;
+        }
+        self.attuned_at = Instant::now();
+        crate::game::refresh_attuned();
+        let fresh = crate::game::attuned_snapshot();
+        if fresh != self.model.attuned {
+            self.model.attuned = fresh;
+            // Both hands' pickers are built from this set, so they are rebuilt, not just redrawn.
+            self.model.candidates_key.clear();
+        }
+    }
+
     fn draw(&mut self, ui: &Ui) {
+        self.poll_attuned();
         // Read before the model borrow: the combo shows the scale auto picks for this window.
         let auto_scale = self.auto_scale();
         let current_scale = self.ui_scale;
