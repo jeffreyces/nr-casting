@@ -1206,6 +1206,21 @@ pub fn balance_line(
     }
 }
 
+/// Why a hand's chords are not ours on a class character, and what it costs.
+///
+/// `auto` yields Y+R1 / Y+L1 to the class port, whose defaults are Y+RB / Y+LB - the same chords -
+/// and which hides those buttons from the game while it uses them. So the mod keeps three spells on
+/// that hand, not four. The note names the class, the chord and the trade, because the alternative is
+/// a player editing `y_bumper = on` and rebinding in the game's own menu without ever being told why.
+/// Two lines: the panel draws them as they are, so neither can be clipped by a narrow window.
+pub fn passthrough_note(class: &str, right_hand: bool) -> [String; 2] {
+    let chord = if right_hand { "Y+R1" } else { "Y+L1" };
+    [
+        format!("{class} class: {chord} is its skill - 3 slots here"),
+        format!("y_bumper = on for 4 (move its skills off {chord})"),
+    ]
+}
+
 /// The sentence shown when the gate leaves a hand with nothing to offer, empty when it is fine.
 pub const ATTUNE_FIRST: &str = "attune spells in the game's spell menu, then come back";
 
@@ -1310,6 +1325,29 @@ pub fn schools_from_flags(bits_105: u8, bits_106: u8) -> CatalystSchools {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn passthrough_note_names_the_class_and_its_own_chord() {
+        let right = crate::passthrough_note("Duchess", true).join("\n");
+        let left = crate::passthrough_note("Duchess", false).join("\n");
+        assert!(right.contains("Duchess class"), "{right}");
+        assert!(right.contains("Y+R1"), "{right}");
+        assert!(!right.contains("Y+L1"), "{right}");
+        assert!(left.contains("Y+L1"), "{left}");
+        assert!(!left.contains("Y+R1"), "{left}");
+    }
+
+    #[test]
+    fn passthrough_note_states_the_cost_and_the_way_to_four() {
+        let note = crate::passthrough_note("Recluse", true).join("\n");
+        // The cost: three, not four. The remedy: the ini key and the rebind, both named.
+        assert!(note.contains("3 slots"), "{note}");
+        assert!(note.contains("y_bumper = on"), "{note}");
+        assert!(note.contains("for 4"), "{note}");
+        // Never the port's keyboard fallback: on the pad the chord goes to its own Y+RB / Y+LB.
+        assert!(!note.contains("4 key"), "{note}");
+        assert!(note.is_ascii(), "{note}");
+    }
+
     use super::*;
 
     #[test]

@@ -129,12 +129,19 @@ no longer have attuned is greyed rather than cleared — reassign it from its ow
 the spell and it comes back by itself.
 
 [code]y_bumper = auto[/code]
-takes [b]Y+R1[/b] / [b]Y+L1[/b] unless the Recluse mod is loaded and the character is a Recluse: there
-the chord goes to the class port's own [b]4[/b] / [b]5[/b] keys.
+takes [b]Y+R1[/b] / [b]Y+L1[/b] unless a class port is loaded and the character is one of its classes:
+there the chord goes to the port instead, which uses [b]Y+RB[/b] / [b]Y+LB[/b] by default and hides
+those buttons from the game while it does. Both mods want the same chord, so [code]auto[/code] yields
+and that hand keeps three spells rather than four.
 [code]on[/code]
 always takes them,
 [code]off[/code]
 gives vanilla two-handing back.
+
+To get the fourth slot on a class character, set [code]y_bumper = on[/code] and move the class skills
+off the chord in [b]Options > Button Settings > Origin Skills[/b] ([b]X+RB[/b] / [b]X+LB[/b] is the
+usual choice). The port reads that menu, so it follows you. The mod cannot make this choice for you:
+where you put Origin Skills lives in the game's own button settings and cannot be read.
 
 [code]hooks = off[/code]
 installs nothing and casting stops; it exists only to measure the game with the DLL loaded and idle.

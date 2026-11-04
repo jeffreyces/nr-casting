@@ -1719,11 +1719,12 @@ fn hand_column(
         let dormant = state.dormant();
         ui.disabled(off_for_recluse || !can_cast, || {
             if off_for_recluse {
-                // Not "off": the chords still work on the class character, they just belong to the
-                // class port, which binds them to its own 4 and 5 keys. The class is named from the
-                // port weapon in hand, because the character's ids read 0 on this build.
-                let key = if slot.right_hand { "4" } else { "5" };
-                ui.text_disabled(format!("({class_name} class: passthrough to its {key} key)"));
+                // Not "off": the chord still works on the class character, it belongs to the class
+                // port (default Y+RB / Y+LB, which it hides from the game while used). The class is
+                // named from the port weapon in hand, because the character's ids read 0 here.
+                let [why, how] = nr_casting_core::passthrough_note(class_name, slot.right_hand);
+                ui.text_disabled(format!("({why})"));
+                ui.text_disabled(format!("({how})"));
             } else if let Some(picked) = slot_combo(
                 ui,
                 &format!("##{prefix}{index}"),

@@ -12,10 +12,17 @@ dropped from the report and the game sees a plain cast — while **any other wea
 press entirely, so two-handing works exactly as it always did**, mid-fight, without opening a menu.
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which
-uses Y+R1 / Y+L1 itself. `y_bumper = auto` (the default) takes those chords **unless** the Recluse
-mod is loaded *and* the character is a Recluse, so you get eight spells everywhere else and the
-class port keeps its own chords on its own character. `on` claims them regardless, `off` leaves
-them to the game.
+uses Y+R1 / Y+L1 itself. `y_bumper = auto` (the default) takes those chords **unless** the class port
+is loaded *and* the character is one of its classes, so you get eight spells everywhere else and the
+class port keeps its own chords on its own character. `on` claims them regardless, `off` leaves them
+to the game.
+
+**Why `auto` costs the fourth slot on a class character.** The port's default chords are `Y+RB` /
+`Y+LB` — the same two — and it hides those buttons from the game while it uses them, so only one mod
+can own them. `auto` yields: three spells on that hand, class skills untouched. To get four, set
+`y_bumper = on` and move the class skills off the chord in `Options > Button Settings > Origin
+Skills` (`X+RB` / `X+LB` is the usual choice). The mod cannot decide this for you: where you put
+Origin Skills lives in the game's own button settings and cannot be read.
 
 Assignment happens in game, two ways: press the panel hotkey and pick a slot, or hold **L3** (or
 **Super**, on mouse and keyboard) and press the input you want to bind. Nothing in the game's data
@@ -64,9 +71,10 @@ the right-hand weapon and Y + L1/L2 the left, exactly as without the mod, even i
 sits on its slots.
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which uses
-Y+R1 / Y+L1 itself. `y_bumper = auto` takes those chords **unless** the Recluse mod is loaded and
-the character is a Recluse, where they pass straight through to the class port instead — eight
-spells everywhere else, its own chords on its own character.
+Y+R1 / Y+L1 itself. `y_bumper = auto` takes those chords **unless** the class port is loaded and
+the character is one of its classes, where they pass straight through to the class port instead —
+eight spells everywhere else, its own chords on its own character, and three rather than four on
+that hand. Four needs `y_bumper = on` plus a rebind of the class skills; see above.
 
 The mouse uses the same eight slots with no separate configuration, and it *always* uses its own
 layer: the mod steers the selected spell and the game's own click performs the cast, with or without
