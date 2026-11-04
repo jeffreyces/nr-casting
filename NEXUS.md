@@ -22,21 +22,9 @@ not either.
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
 either slot from the spells your character actually owns and can cast. A staff offers sorceries and a
 seal offers incantations, so the list is the one you can actually cast.[/*]
-[*][b]Readable on a TV[/b] — the panel's text and widgets scale with the screen and the window: drag
-the corner and the whole panel grows with it, or pin it from 100% to 300%. The size and the corner you
-settle on are remembered, and [b]reset layout[/b] puts it back if a monitor change strands it.[/*]
-[*][b]Diagnostics in one click[/b] — [b]diagnostics &amp; report[/b] writes a single file (log, offsets,
-config, modules, GPU, per-second frame gaps) with your user name and character name redacted, opens the
-issue page with the numbers prefilled, and selects the file so it can be dragged in. It waits for five
-minutes of the current character first, and says how long is left. [b]bundle diagnostics &amp; report[/b]
-does the comparing itself: nine one-minute phases — each part of the mod switched off on its own, the
-combinations, and two identical phases at the end so drift shows up as drift instead of looking like a
-result — so a stutter report says which part it follows. Every report carries the build time as well as
-the version, so a report can be matched to the build that produced it.[/*]
-[*][b]Edit the ini without restarting[/b] — the file is watched: [b]debug_log[/b], [b]perf_log[/b],
-[b]hud_mirror[/b], [b]show_all[/b], the UI scale, the bind modifier and the hotkey take effect within a
-second of saving. The switches that have to exist before a hook is installed (the panel itself, the hook
-groups, the present clock) say so in the log rather than being silently ignored.[/*]
+[*][b]Balanced mode, if you want it[/b] — optional: only the spells you have memorised in the game's
+own spell menu can be assigned, so the mod works within your memory slots instead of replacing
+them.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
@@ -127,25 +115,15 @@ debug_log = off
 perf_log = on[/code]
 
 [code]balance = attuned[/code]
-is the balance mode: only spells the character has memorised in the game's own spell menu can be
-assigned, so the mod uses your memory slots instead of replacing them. The panel grows an attuned
-column, and a row whose spell you no longer have attuned is greyed and keeps its dropdown — never
-cleared. Its input belongs to the game again until you reassign it. Off by default
-([code]balance = free[/code]), switchable in the panel, and it applies immediately either way.
+is optional and off by default: only spells you have memorised in the game's own spell menu can be
+assigned. A slot whose spell you no longer have attuned is greyed rather than cleared — reassign it
+from its own dropdown, or re-attune the spell and it comes back by itself.
 
 [code]ui_scale[/code]
 sizes the panel's text and widgets:
 [code]auto[/code]
-follows the window — the panel picks the largest scale that still fits, so dragging the corner
-makes the whole panel grow with it —
-[code]125[/code]
-,
-[code]150%[/code]
-,
-[code]1.5[/code]
-or
-[code]200[/code]
-pins it between 100% and 300%.
+follows the window, so dragging the corner grows the text with it; a number pins it between 100% and
+300%.
 [code]panel_size[/code]
 and
 [code]panel_pos[/code]
