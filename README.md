@@ -485,7 +485,7 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 | class ports with their own HUD (`ERNativeUI.dll` and friends) | no conflict: the panel is its own window, so their HUD keeps drawing |
 | Mod Engine 2 | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special |
 | other overlay mods | no swap-chain conflict at all — the panel owns no swap chain, it presents through a DIB; both drive the pointer while their window is open, so expect contention there |
-| [ERD Tools](https://www.nexusmods.com/eldenring/mods/9531) | supported. Earlier builds crashed inside ERD when the panel opened; measured cause was the panel's own swap chain and `Present`, and the panel no longer has one (see "ERD Tools" under Troubleshooting for how that was found) |
+| [ERD Tools](https://www.nexusmods.com/eldenring/mods/9531) | supported — the panel owns no swap chain, so it cannot disturb ERD's present hooks (see "ERD Tools" under Troubleshooting) |
 | spells/selection mods | direct conflict: both write the magic selection |
 | regulation mods | no conflict today (no param edits shipped) |
 | online / EAC | not supported by design |
