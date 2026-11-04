@@ -172,7 +172,6 @@ chord_stage = 2          ; reports a chord spends with Y released before casting
 
 [recluse]
 y_bumper = auto          ; auto | on | off — who gets Y+R1 / Y+L1
-recluse_chr_ids = 8131   ; character ids that count as a Recluse
 
 [logging]
 debug_log = off          ; log every cast, not just captures and errors
@@ -352,14 +351,14 @@ perform a plain attack. Instead the click is removed from the report and the por
 its place. With a controller there is nothing to translate — the port reads the pad itself.
 
 A character counts as a Recluse when the `recluse_input.dll` / `recluse_ui.dll` modules are loaded
-**and** either the character id matches `recluse_chr_ids` (default `8131`) or an equipped catalyst
-is missing from the vanilla weapon table, which is how the class port's own catalysts are
-recognised.
+**and** a catalyst is equipped that is missing from the vanilla weapon table — which is how a class
+port's own catalysts are recognised. There is no id list to fill in: the older `recluse_chr_ids`
+setting was removed because `ChrIns.character_id` reads 0 on current builds, so the test could never
+match, and the catalyst signal is what actually recognised the character.
 
 ```ini
 [recluse]
 y_bumper = auto          ; auto | on | off
-recluse_chr_ids = 8131
 ```
 
 `auto` is the table above; `on` claims the chords even on a Recluse character (the class port then

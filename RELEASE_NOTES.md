@@ -1,41 +1,40 @@
-# v0.2.21 — the correctness pass over balanced mode
+# v0.2.22 — catalysts that cast both schools, and a Recluse setting that never worked
 
-Everything here is a defect in 0.2.20's balanced mode, found by holding that code to the same
-review the rest of the mod gets. Free mode is untouched, and no setting changes meaning.
+Two things a player ran into, both in how the mod decides what a catalyst can do.
 
-**Upgrade is the DLL.** Nothing new in the ini.
+**Upgrade is the DLL.** One ini key is gone, and nothing needs replacing it.
 
 ## Fixed
 
-- **A spell attuned a moment ago was refused for up to a second.** The memorised set is cached, and
-  the cached "not attuned" was believed without a second look — so after attuning a spell at a grace
-  the next press could do nothing at all. A positive answer from a slightly old snapshot is harmless
-  (the game refuses a spell it can no longer cast), but a negative one costs the player an input, so
-  the negative is now re-read before it is believed: wrong for at most a quarter second, at four
-  reads a second rather than one per poll.
-- **A weapon whose assignments were all dormant still claimed its Y-chords.** The mask that decides
-  whether Y+R1 / Y+L1 belong to the mod was built from the store alone, so a row that could never
-  cast still counted as bound and the chord was swallowed instead of two-handing. The mask now
-  applies the same gate the press does, through the same helper.
-- **The panel kept its own copy of the mode.** Edit `balance` in the ini with the panel open and the
-  checkbox, the attuned column and the candidate list stayed on the old mode while casting obeyed
-  the new one. The panel now takes the mode in force every frame, whichever way it changed.
-- **Switching modes leaked a configuration per click.** The toggle re-read the whole ini, and a
-  re-read publishes a new `Config` that is never freed. The mode is now published as one value, so a
-  click costs nothing and applies on the next input.
-- **The report's fifth figure was named for something it did not measure.** `stale=` counted rows
-  whose spell is not attuned, while the panel's "stale" also counts a spell the catalyst cannot cast
-  — two different numbers sharing one word. The report's figure is now `not_attuned=`.
+- **A staff that casts incantations had its incantations hidden.** The mod inferred a catalyst's
+  schools from the vanilla id band — a glintstone staff casts sorceries, a sacred seal casts
+  incantations — which is right for the base game's 42 catalysts and wrong for the ones built to
+  cast both. The Staff of the Great Beyond is vanilla and casts both, and a class port's staff does
+  too, so its incantations simply never appeared in the picker. A catalyst's schools are now a pair
+  rather than a single kind, and three sources decide it, in order: a shipped exception table (the
+  Staff of the Great Beyond), then "this weapon is not in the vanilla table, so it is a mod's and
+  gets both", then the id band. There is no field in the weapon param that names a spell school —
+  `weapon_category`, `wepmotion_category` and `behavior_variation_id` are all about how a weapon
+  swings — which is why the answer ships as data.
+- **`recluse_chr_ids` never matched anything, and is removed.** The setting was compared against
+  `ChrIns.character_id`, which reads 0 on current builds, so a class port's character was only ever
+  recognised by its own catalyst being missing from the vanilla weapon table. That signal is
+  dynamic, needs no configuration, and is what the code now uses on its own. An existing ini keeps
+  working: the key is simply ignored. The character's `NpcParam` row is logged on load instead, so a
+  measured rule can replace the guess later rather than another list nobody can fill in.
 
-## Changed internally
+## Changed
 
-- **The store's lookup calls the tested rule.** `store_get` / `store_set` carried their own copy of
-  "this copy's override first, then the type's default"; they now call the same functions the unit
-  tests cover, and the report's counts come from a tested `coverage()` instead of a private loop.
-- 105 unit tests (7 written before this pass, red first).
+- **The picker label says what the catalyst offers**: `sorceries only`, `incantations only`, or
+  `sorceries and incantations`.
+- In balanced mode, the "no attuned sorcery left for this staff" notice only appears when the
+  catalyst genuinely cannot cast that school — a both-school staff with nothing but incantations
+  attuned is a different build, not a problem.
 
 ## Verified
 
-`cargo xwin check --target x86_64-pc-windows-msvc` clean, no warnings; 105 tests green. The counts,
-the keying rule and the report line are covered by tests; the panel and the gate were re-checked on
-one character under Proton. **Not tested on Windows.**
+108 unit tests green (3 of them for the both-school case). `cargo xwin check
+--target x86_64-pc-windows-msvc` clean, no warnings. The class-port path was exercised with the
+port's own staff equipped on a port character; the vanilla both-school staff was **not** tested in
+game — the id and its capability come from the shipped table, and the filtering rule is unit-tested.
+**Not tested on Windows.**

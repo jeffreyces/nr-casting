@@ -544,6 +544,16 @@ pub(crate) fn character_ids() -> Option<(i32, u32)> {
     Some((event_id, chr_id))
 }
 
+/// The `NpcParam` row behind the player's model.
+///
+/// Logged, not decided on: `ChrIns.character_id` reads 0 on this build, so the ini's class ids
+/// never matched, and this is the next candidate for recognising a class port's character. It is
+/// recorded on every character load so the rule can be written from measurements rather than from
+/// a guess about which field means what.
+pub(crate) fn player_npc_param_id() -> Option<u32> {
+    Some(player()?.chr_ins.npc_param_id as u32)
+}
+
 /// INT, FAI, ARC of the loaded character.
 pub(crate) fn player_stats() -> Option<(u32, u32, u32)> {
     let pgd = game_data()?;

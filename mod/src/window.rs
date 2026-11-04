@@ -1103,15 +1103,15 @@ impl App {
 
                 if balanced {
                     // ---- attuned -----------------------------------------------------------
-                    // The notice is about the hand that can cast: the right hand unless it holds
-                    // nothing, because a seal in the left can still use the spells listed.
-                    let right_kind = model.panel.catalyst_school(model.weapons.1);
-                    let kind = if right_kind != nr_casting_core::CatalystSchool::Any {
-                        right_kind
+                    // The notice is about the hand that can cast: the right hand unless it is not a
+                    // catalyst at all, because a seal in the left can still use the spells listed.
+                    let right = model.panel.catalyst_schools(model.weapons.1);
+                    let schools = if right != nr_casting_core::CatalystSchools::NONE {
+                        right
                     } else {
-                        model.panel.catalyst_school(model.weapons.0)
+                        model.panel.catalyst_schools(model.weapons.0)
                     };
-                    attuned_column(ui, &model.panel, &model.attuned, kind);
+                    attuned_column(ui, &model.panel, &model.attuned, schools);
                     ui.next_column();
                 }
 
@@ -1578,7 +1578,7 @@ fn row_states(panel: &Panel, weapon: i32, attuned: &[i32], balanced: bool) -> [R
     if !balanced || weapon <= 0 {
         return states;
     }
-    let catalyst = panel.catalyst_school(weapon);
+    let catalyst = panel.catalyst_schools(weapon);
     for (slot, state) in states.iter_mut().enumerate() {
         let spell = panel.slot_value(weapon, slot);
         if spell > 0 {
@@ -1596,7 +1596,7 @@ fn attuned_column(
     ui: &Ui,
     panel: &Panel,
     attuned: &[i32],
-    catalyst: nr_casting_core::CatalystSchool,
+    catalyst: nr_casting_core::CatalystSchools,
 ) {
     ui.text("ATTUNED");
     ui.text_disabled("from the game's spell menu");
@@ -1653,9 +1653,9 @@ fn hand_column(
         "(nothing equipped)".to_string()
     });
     // Which spells this hand can actually cast, so a short list reads as a filter and not a bug.
-    let kind = panel.catalyst_kind(weapon);
-    if !kind.label().is_empty() {
-        ui.text_disabled(kind.label());
+    let schools = panel.catalyst_schools(weapon);
+    if !schools.label().is_empty() {
+        ui.text_disabled(schools.label());
     }
     let mut chosen = None;
     for index in indices {

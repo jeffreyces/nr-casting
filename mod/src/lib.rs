@@ -538,27 +538,23 @@ pub(crate) fn refresh_y_bumper() {
     let cfg = config::load();
     let loaded = recluse_loaded();
     let ids = game::character_ids();
-    let by_id = match ids {
-        Some((event_id, chr_id)) => cfg
-            .recluse_ids
-            .iter()
-            .any(|id| *id == event_id || (*id as u32) == chr_id),
-        None => false,
-    };
-    // The chr id the player reports is 0 in this build, so ids alone cannot recognise a class.
-    // A port ships its own catalyst, and that weapon id is missing from the vanilla table: the
-    // most reliable signal available without reading the port's own data.
+    // A port ships its own catalyst, and that weapon id is missing from the vanilla weapon table:
+    // that is the signal, and it needs nothing from the player. The ini's `recluse_chr_ids` used
+    // to be the other one, but `ChrIns.character_id` reads 0 on this build, so it could never
+    // match - a setting nobody could set correctly, for a test that never ran. It is gone; the
+    // character's `NpcParam` row is logged instead, so a measured rule can replace the guess.
     let by_catalyst = game::weapon_ids()
         .map(|(left, right)| {
             !overlay::is_vanilla_weapon(left) || !overlay::is_vanilla_weapon(right)
         })
         .unwrap_or(false);
-    let is_recluse = by_id || by_catalyst;
+    let is_recluse = by_catalyst;
     if let Some((event_id, chr_id)) = ids {
         let packed = (event_id as u32 as u64) << 32 | chr_id as u64;
         if CHARACTER_IDS.swap(packed, Ordering::Relaxed) != packed && cfg.debug_log {
             log(&format!(
-                "world: character ids event={event_id} chr={chr_id} (recluse mod: {loaded})"
+                "world: character ids event={event_id} chr={chr_id} npc={} (recluse mod: {loaded})",
+                game::player_npc_param_id().unwrap_or(0)
             ));
         }
     }
@@ -575,7 +571,7 @@ pub(crate) fn refresh_y_bumper() {
     if previous != allowed {
         log(&format!(
             "input: Y+R1 / Y+L1 {} (recluse mod: {loaded}, recluse character: {is_recluse} \
-             [id: {by_id}, catalyst: {by_catalyst}], mode: {:?})",
+             [catalyst: {by_catalyst}], mode: {:?})",
             if allowed {
                 "are ours"
             } else {

@@ -20,8 +20,9 @@ not either.
 [*][b]Eight spells, two catalysts[/b] — a bumper spell and a trigger spell per hand, a third on
 [b]Y+R2[/b] / [b]Y+L2[/b] and a fourth on [b]Y+R1[/b] / [b]Y+L1[/b]; two-handing a staff does nothing, so those inputs carry spells instead.[/*]
 [*][b]In-game assignment[/b] — a panel in its own window lists your equipped catalysts and lets you pick
-either slot from the spells your character actually owns and can cast. A staff offers sorceries and a
-seal offers incantations, so the list is the one you can actually cast.[/*]
+either slot from the spells your character actually owns and can cast. A staff offers sorceries, a
+seal incantations, and a catalyst built to cast both (the Staff of the Great Beyond, or a class
+port's own) offers both.[/*]
 [*][b]Balanced mode, if you want it[/b] — optional: only the spells you have memorised in the game's
 own spell menu can be assigned, so the mod works within your memory slots instead of replacing
 them.[/*]
@@ -113,7 +114,6 @@ chord_stage = 2           ; reports spent releasing Y before a cast
 
 [recluse]
 y_bumper = auto           ; who gets Y+R1 / Y+L1: auto, on or off
-recluse_chr_ids = 8131    ; character ids that count as a Recluse
 
 [logging]
 hooks = on                ; off = no input detours (comparison only)

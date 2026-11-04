@@ -1029,23 +1029,44 @@ pub enum School {
 }
 
 /// What a hand's catalyst can cast.
+///
+/// A pair rather than a kind, because "both" is a real answer in this game: the Staff of the Great
+/// Beyond casts sorceries and incantations, and a content mod's catalyst can be anything. A single
+/// kind cannot say that without a third variant meaning "everything", which is the same thing as
+/// both flags set and reads worse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CatalystSchool {
-    /// A glintstone staff: sorceries only.
-    Staff,
-    /// A sacred seal: incantations only.
-    Seal,
-    /// No catalyst, or one we cannot classify: nothing is filtered, because guessing wrong would
-    /// grey out a row the player can actually cast.
-    Any,
+pub struct CatalystSchools {
+    pub sorcery: bool,
+    pub incantation: bool,
 }
 
-impl CatalystSchool {
-    fn wants(self, spell: School) -> bool {
-        match (self, spell) {
-            (CatalystSchool::Staff, School::Incantation) => false,
-            (CatalystSchool::Seal, School::Sorcery) => false,
-            _ => true,
+impl CatalystSchools {
+    /// Casts both schools.
+    pub const BOTH: Self = CatalystSchools { sorcery: true, incantation: true };
+    /// A glintstone staff.
+    pub const SORCERY: Self = CatalystSchools { sorcery: true, incantation: false };
+    /// A sacred seal.
+    pub const INCANTATION: Self = CatalystSchools { sorcery: false, incantation: true };
+    /// A weapon that is not a catalyst at all.
+    pub const NONE: Self = CatalystSchools { sorcery: false, incantation: false };
+
+    /// Whether this catalyst offers a spell of that school. Anything unclassified is offered:
+    /// greying a spell the player can really cast is the worse error.
+    pub fn wants(self, spell: School) -> bool {
+        match spell {
+            School::Sorcery => self.sorcery,
+            School::Incantation => self.incantation,
+            School::Unknown => true,
+        }
+    }
+
+    /// The line shown under the equipped catalyst, empty when nothing is filtered.
+    pub fn label(self) -> &'static str {
+        match (self.sorcery, self.incantation) {
+            (true, true) => "sorceries and incantations",
+            (true, false) => "sorceries only",
+            (false, true) => "incantations only",
+            (false, false) => "",
         }
     }
 }
@@ -1092,7 +1113,7 @@ impl RowState {
 pub fn classify(
     assigned: i32,
     spell: School,
-    catalyst: CatalystSchool,
+    catalyst: CatalystSchools,
     attuned: &[i32],
 ) -> RowState {
     if assigned <= 0 {
@@ -1180,15 +1201,17 @@ pub fn balance_line(
 pub const ATTUNE_FIRST: &str = "attune spells in the game's spell menu, then come back";
 
 /// Why this hand's pickers are empty, if they are.
-pub fn balance_notice(catalyst: CatalystSchool, attuned: &[School]) -> Option<&'static str> {
+pub fn balance_notice(catalyst: CatalystSchools, attuned: &[School]) -> Option<&'static str> {
     if attuned.is_empty() {
         return Some(ATTUNE_FIRST);
     }
-    match catalyst {
-        CatalystSchool::Staff if !attuned.contains(&School::Sorcery) => {
+    // Only a catalyst that casts one school can be short of it: a both-school staff with nothing
+    // but incantations attuned is not short of anything, it is simply a different build.
+    match (catalyst.sorcery, catalyst.incantation) {
+        (true, false) if !attuned.contains(&School::Sorcery) => {
             Some("no attuned sorcery left for this staff")
         }
-        CatalystSchool::Seal if !attuned.contains(&School::Incantation) => {
+        (false, true) if !attuned.contains(&School::Incantation) => {
             Some("no attuned incantation left for this seal")
         }
         _ => None,
@@ -2229,21 +2252,65 @@ mod balance_tests {
     #[test]
     fn an_empty_row_is_empty_whatever_the_memory_holds() {
         let attuned = [10, 11];
-        assert_eq!(classify(-1, School::Sorcery, CatalystSchool::Staff, &attuned), RowState::Empty);
-        assert_eq!(classify(0, School::Unknown, CatalystSchool::Any, &attuned), RowState::Empty);
-        assert_eq!(classify(-1, School::Unknown, CatalystSchool::Any, &[]), RowState::Empty);
+        assert_eq!(classify(-1, School::Sorcery, CatalystSchools::SORCERY, &attuned), RowState::Empty);
+        assert_eq!(classify(0, School::Unknown, CatalystSchools::BOTH, &attuned), RowState::Empty);
+        assert_eq!(classify(-1, School::Unknown, CatalystSchools::BOTH, &[]), RowState::Empty);
     }
 
     #[test]
     fn an_attuned_spell_of_the_right_school_casts() {
         assert_eq!(
-            classify(11, School::Sorcery, CatalystSchool::Staff, &[10, 11]),
+            classify(11, School::Sorcery, CatalystSchools::SORCERY, &[10, 11]),
             RowState::Attuned
         );
         assert_eq!(
-            classify(40, School::Incantation, CatalystSchool::Seal, &[40]),
+            classify(40, School::Incantation, CatalystSchools::INCANTATION, &[40]),
             RowState::Attuned
         );
+    }
+
+    #[test]
+    fn a_catalyst_that_casts_both_accepts_either_school() {
+        // The Staff of the Great Beyond: a staff id that casts incantations too. The band rule
+        // would grey these rows, and they cast perfectly well in game.
+        assert_eq!(
+            classify(40, School::Incantation, CatalystSchools::BOTH, &[40]),
+            RowState::Attuned
+        );
+        assert_eq!(
+            classify(11, School::Sorcery, CatalystSchools::BOTH, &[11]),
+            RowState::Attuned
+        );
+        // Attunement still decides on a both-school catalyst.
+        assert_eq!(
+            classify(40, School::Incantation, CatalystSchools::BOTH, &[11]),
+            RowState::NotAttuned
+        );
+    }
+
+    #[test]
+    fn a_both_school_catalyst_is_never_out_of_one_school() {
+        // Attuned only sorceries, on a staff that also casts incantations: nothing to warn about.
+        assert_eq!(
+            balance_notice(CatalystSchools::BOTH, &[School::Sorcery]),
+            None
+        );
+        assert_eq!(
+            balance_notice(CatalystSchools::BOTH, &[School::Sorcery, School::Incantation]),
+            None
+        );
+    }
+
+    #[test]
+    fn the_label_names_what_the_catalyst_offers() {
+        assert_eq!(CatalystSchools::SORCERY.label(), "sorceries only");
+        assert_eq!(CatalystSchools::INCANTATION.label(), "incantations only");
+        assert_eq!(CatalystSchools::BOTH.label(), "sorceries and incantations");
+        assert_eq!(CatalystSchools::NONE.label(), "");
+        assert!(!CatalystSchools::NONE.wants(School::Sorcery));
+        assert!(!CatalystSchools::NONE.wants(School::Incantation));
+        // An unclassified spell is always offered.
+        assert!(CatalystSchools::SORCERY.wants(School::Unknown));
     }
 
     #[test]
@@ -2251,11 +2318,11 @@ mod balance_tests {
         // The spell is attuned and still cannot be cast from this catalyst: the fix is a different
         // spell, not a grace visit, so it must not read as "not attuned".
         assert_eq!(
-            classify(40, School::Incantation, CatalystSchool::Staff, &[40]),
+            classify(40, School::Incantation, CatalystSchools::SORCERY, &[40]),
             RowState::WrongSchool
         );
         assert_eq!(
-            classify(11, School::Sorcery, CatalystSchool::Seal, &[11]),
+            classify(11, School::Sorcery, CatalystSchools::INCANTATION, &[11]),
             RowState::WrongSchool
         );
     }
@@ -2263,11 +2330,11 @@ mod balance_tests {
     #[test]
     fn an_unattuned_spell_is_not_attuned() {
         assert_eq!(
-            classify(99, School::Sorcery, CatalystSchool::Staff, &[10, 11]),
+            classify(99, School::Sorcery, CatalystSchools::SORCERY, &[10, 11]),
             RowState::NotAttuned
         );
         assert_eq!(
-            classify(99, School::Sorcery, CatalystSchool::Staff, &[]),
+            classify(99, School::Sorcery, CatalystSchools::SORCERY, &[]),
             RowState::NotAttuned
         );
     }
@@ -2277,11 +2344,11 @@ mod balance_tests {
         // A class port can put an odd row in a staff: without a school there is nothing to compare,
         // and greying a spell that casts would be worse than not filtering it.
         assert_eq!(
-            classify(7, School::Unknown, CatalystSchool::Staff, &[7]),
+            classify(7, School::Unknown, CatalystSchools::SORCERY, &[7]),
             RowState::Attuned
         );
         assert_eq!(
-            classify(7, School::Unknown, CatalystSchool::Staff, &[8]),
+            classify(7, School::Unknown, CatalystSchools::SORCERY, &[8]),
             RowState::NotAttuned
         );
     }
@@ -2289,11 +2356,11 @@ mod balance_tests {
     #[test]
     fn an_unclassified_catalyst_never_filters() {
         assert_eq!(
-            classify(40, School::Incantation, CatalystSchool::Any, &[40]),
+            classify(40, School::Incantation, CatalystSchools::BOTH, &[40]),
             RowState::Attuned
         );
         assert_eq!(
-            classify(11, School::Sorcery, CatalystSchool::Any, &[11]),
+            classify(11, School::Sorcery, CatalystSchools::BOTH, &[11]),
             RowState::Attuned
         );
     }
@@ -2537,34 +2604,34 @@ mod balance_tests {
     #[test]
     fn nothing_attuned_asks_for_a_grace_visit() {
         assert_eq!(
-            balance_notice(CatalystSchool::Staff, &[]),
+            balance_notice(CatalystSchools::SORCERY, &[]),
             Some(ATTUNE_FIRST)
         );
-        assert_eq!(balance_notice(CatalystSchool::Any, &[]), Some(ATTUNE_FIRST));
+        assert_eq!(balance_notice(CatalystSchools::BOTH, &[]), Some(ATTUNE_FIRST));
     }
 
     #[test]
     fn a_staff_needs_a_sorcery() {
         assert_eq!(
-            balance_notice(CatalystSchool::Staff, &[School::Incantation, School::Incantation]),
+            balance_notice(CatalystSchools::SORCERY, &[School::Incantation, School::Incantation]),
             Some("no attuned sorcery left for this staff")
         );
-        assert_eq!(balance_notice(CatalystSchool::Staff, &[School::Sorcery]), None);
+        assert_eq!(balance_notice(CatalystSchools::SORCERY, &[School::Sorcery]), None);
     }
 
     #[test]
     fn a_seal_needs_an_incantation() {
         assert_eq!(
-            balance_notice(CatalystSchool::Seal, &[School::Sorcery]),
+            balance_notice(CatalystSchools::INCANTATION, &[School::Sorcery]),
             Some("no attuned incantation left for this seal")
         );
-        assert_eq!(balance_notice(CatalystSchool::Seal, &[School::Incantation]), None);
+        assert_eq!(balance_notice(CatalystSchools::INCANTATION, &[School::Incantation]), None);
     }
 
     #[test]
     fn an_unclassified_catalyst_is_never_told_why() {
-        assert_eq!(balance_notice(CatalystSchool::Any, &[School::Unknown]), None);
-        assert_eq!(balance_notice(CatalystSchool::Any, &[School::Sorcery]), None);
+        assert_eq!(balance_notice(CatalystSchools::BOTH, &[School::Unknown]), None);
+        assert_eq!(balance_notice(CatalystSchools::BOTH, &[School::Sorcery]), None);
     }
 
     #[test]

@@ -1,0 +1,16 @@
+# Catalysts that do not fit the id-band rule, and what they can cast.
+#
+# A glintstone staff (33xxxxxx) casts sorceries and a sacred seal (34xxxxxx) casts incantations
+# in vanilla, so the mod infers the school from the id band. That inference is wrong for the few
+# catalysts built to cast both, and there is nothing to read instead: EQUIP_PARAM_WEAPON_ST has no
+# field naming a spell school (weapon_category, wepmotion_category, wep_type and
+# behavior_variation_id are all about how it swings, not what it casts), so the answer ships here.
+#
+# Format: weapon_param_id = sorcery | incantation | both
+# Base ids only: the upgrade level is the low two digits and is stripped before the lookup.
+#
+# Anything not listed keeps the band rule, and a catalyst this table does not know AND the name
+# table does not name is a content mod's, which is offered both schools: guessing "sorcery only"
+# hides spells the player can really cast, while offering one it cannot costs a failed cast.
+
+33510000 = both    # Staff of the Great Beyond (Shadow of the Erdtree)

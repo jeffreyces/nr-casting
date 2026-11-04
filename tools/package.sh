@@ -76,7 +76,6 @@ chord_stage = 2
 ; off  = never ours
 y_bumper = auto
 ; Character ids that count as a Recluse: the port's character model is c8131.
-recluse_chr_ids = 8131
 
 [logging]
 ; Install the input detours at all. Leave on. off is a stutter experiment, not a way to play:

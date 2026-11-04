@@ -59,22 +59,17 @@ pub enum Catalyst {
     Other,
 }
 
-impl Catalyst {
-    fn offers(self, spell: &Spell) -> bool {
-        match self {
-            Catalyst::Staff => spell.school.contains("Sorcery"),
-            Catalyst::Seal => spell.school.contains("Incantation"),
-            Catalyst::Other => true,
-        }
-    }
-
-    /// The line shown under the equipped catalyst, empty when nothing is filtered.
-    pub fn label(self) -> &'static str {
-        match self {
-            Catalyst::Staff => "sorceries only",
-            Catalyst::Seal => "incantations only",
-            Catalyst::Other => "",
-        }
+/// Whether this catalyst offers a catalogue row, by the school the game's own text names.
+///
+/// A row whose school string is neither is offered: an unclassified spell is not evidence against
+/// the catalyst.
+fn offers(schools: nr_casting_core::CatalystSchools, spell: &Spell) -> bool {
+    if spell.school.contains("Sorcery") {
+        schools.sorcery
+    } else if spell.school.contains("Incantation") {
+        schools.incantation
+    } else {
+        true
     }
 }
 
@@ -349,10 +344,10 @@ impl Panel {
     pub fn candidates_for(&self, weapon: i32, needle: &str) -> Vec<(i32, String)> {
         let needle = needle.trim().to_ascii_lowercase();
         let stats = crate::player_effective_stats();
-        let kind = self.catalyst_kind(weapon);
+        let schools = self.catalyst_schools(weapon);
         self.spells
             .iter()
-            .filter(|spell| kind.offers(spell))
+            .filter(|spell| offers(schools, spell))
             .filter(|spell| self.offered(spell, stats))
             .filter(|spell| {
                 needle.is_empty()
@@ -403,11 +398,31 @@ impl Panel {
     }
 
     /// What this weapon's hand can cast, in the policy's terms.
-    pub fn catalyst_school(&self, weapon: i32) -> nr_casting_core::CatalystSchool {
+    ///
+    /// Three sources, in order of how much they are trusted:
+    ///
+    /// 1. the shipped exception table, for the catalysts the id band gets wrong (Staff of the
+    ///    Great Beyond casts both, and no param field says so);
+    /// 2. a catalyst the weapon table does not name — a content mod's — offered both schools,
+    ///    because the band is a guess about content we have never seen, and hiding a spell the
+    ///    player can cast is worse than offering one the game will refuse;
+    /// 3. the band rule, which is exact for the base game's 42 catalysts.
+    pub fn catalyst_schools(&self, weapon: i32) -> nr_casting_core::CatalystSchools {
+        use nr_casting_core::CatalystSchools;
+        if weapon <= 0 {
+            return CatalystSchools::BOTH;
+        }
+        let base = nr_casting_core::base_weapon_id(weapon);
+        if let Some(schools) = school_overrides().get(&base) {
+            return *schools;
+        }
+        if !is_vanilla_weapon(base) {
+            return CatalystSchools::BOTH;
+        }
         match self.catalyst_kind(weapon) {
-            Catalyst::Staff => nr_casting_core::CatalystSchool::Staff,
-            Catalyst::Seal => nr_casting_core::CatalystSchool::Seal,
-            Catalyst::Other => nr_casting_core::CatalystSchool::Any,
+            Catalyst::Staff => CatalystSchools::SORCERY,
+            Catalyst::Seal => CatalystSchools::INCANTATION,
+            Catalyst::Other => CatalystSchools::BOTH,
         }
     }
 
@@ -463,6 +478,43 @@ impl Panel {
 
 const WEAPONS_TABLE: &str = include_str!("../data/nr_casting_weapons.txt");
 const SPELLS_TABLE: &str = include_str!("../data/nr_casting_spells.txt");
+/// Catalysts that do not fit the id band. `EQUIP_PARAM_WEAPON_ST` has no field naming a spell
+/// school, so the exceptions ship as data.
+const SCHOOLS_TABLE: &str = include_str!("../data/nr_casting_catalyst_schools.txt");
+
+/// Catalysts with a capability the id band cannot express, by base weapon id.
+fn school_overrides() -> &'static std::collections::HashMap<i32, nr_casting_core::CatalystSchools> {
+    static SET: std::sync::OnceLock<
+        std::collections::HashMap<i32, nr_casting_core::CatalystSchools>,
+    > = std::sync::OnceLock::new();
+    SET.get_or_init(|| {
+        let (text, _source) = table_text("nr_casting_catalyst_schools.txt", SCHOOLS_TABLE);
+        let mut map = std::collections::HashMap::new();
+        for line in text.lines() {
+            let line = line.split('#').next().unwrap_or("").trim();
+            let Some((id, what)) = line.split_once('=') else {
+                continue;
+            };
+            let Ok(id) = id.trim().parse::<i32>() else {
+                continue;
+            };
+            let schools = match what.trim().to_ascii_lowercase().as_str() {
+                "both" => nr_casting_core::CatalystSchools::BOTH,
+                "sorcery" => nr_casting_core::CatalystSchools::SORCERY,
+                "incantation" => nr_casting_core::CatalystSchools::INCANTATION,
+                other => {
+                    crate::log(&format!(
+                        "catalyst schools: '{other}' for {id} is not sorcery, incantation or both \
+                         - keeping the band rule"
+                    ));
+                    continue;
+                }
+            };
+            map.insert(id, schools);
+        }
+        map
+    })
+}
 
 fn table_text(name: &str, embedded: &'static str) -> (String, &'static str) {
     match std::fs::read_to_string(crate::config::read_path(name)) {

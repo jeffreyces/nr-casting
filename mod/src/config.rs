@@ -87,7 +87,6 @@ pub struct Config {
     pub y_bumper_name: String,
     /// Character ids that mean "this character is a Recluse". Matched against the player's
     /// character event id and character id. 8131 is the Recluse port's character model.
-    pub recluse_ids: Vec<i32>,
     /// XInput button bit held with a spell input to bind the wheel's selected spell to that
     /// slot. `0` disables the gesture.
     pub bind_modifier: u16,
@@ -154,7 +153,6 @@ impl Default for Config {
             hud_mirror: false,
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
-            recluse_ids: vec![8131],
             bind_modifier: 0x0040,  // L3
             bind_modifier_kb: 0x5B, // Super (VK_LWIN)
             bind_modifier_kb_name: "Super".to_string(),
@@ -715,7 +713,6 @@ pad_hook = on
 ; off  = never ours
 y_bumper = auto
 ; Character ids that count as a Recluse: the port's character model is c8131.
-recluse_chr_ids = 8131
 
 [logging]
 ; Log every cast, not just captures and errors.
@@ -856,20 +853,6 @@ perf_log = off
                             config.y_bumper_name
                         )),
                     },
-                    "recluse_chr_ids" => {
-                        let ids: Vec<i32> = value
-                            .split(',')
-                            .filter_map(|part| part.trim().parse::<i32>().ok())
-                            .collect();
-                        if ids.is_empty() {
-                            crate::log(&format!(
-                                "config: recluse_chr_ids = {value:?} has no numbers; keeping {:?}",
-                                config.recluse_ids
-                            ));
-                        } else {
-                            config.recluse_ids = ids;
-                        }
-                    }
                     _ => {}
                 }
             }
