@@ -1247,6 +1247,64 @@ pub fn passthrough_note(class: &str, right_hand: bool) -> [String; 2] {
     ]
 }
 
+/// Every spell the panel already owns for this character.
+///
+/// Built from the saved rows rather than from the equipped pair: the reporter's complaint is about
+/// "my 7 main spells" spread across two staves, and a set that changed when a weapon changed would
+/// shuffle the vanilla wheel every time they swapped. Per-copy overrides are included because the
+/// cast path resolves them, and a spell it can cast from a row is a spell the wheel should not
+/// offer twice. `-1` is an empty row, not a spell.
+pub fn assigned_spells(
+    rows: &std::collections::HashMap<i32, Category>,
+) -> std::collections::HashSet<i32> {
+    rows.values()
+        .flat_map(|spells| spells.iter())
+        .copied()
+        .filter(|spell| *spell > 0)
+        .collect()
+}
+
+/// The first index at or after `current` that is free, wrapping, and `None` if none is.
+///
+/// "At or after" is deliberate: a caller whose current entry is already free gets its own index
+/// back and has nothing to do. The scan is bounded by the list length, so a corrupt or huge
+/// assignment set cannot spin.
+pub fn next_unassigned(
+    current: usize,
+    spells: &[i32],
+    assigned: &std::collections::HashSet<i32>,
+) -> Option<usize> {
+    if spells.is_empty() || current >= spells.len() {
+        return None;
+    }
+    // Bounded by the list length: `take(len)` cannot run away even if `assigned` claims
+    // everything, and the wrap is one arithmetic step rather than a modulo on the index.
+    (0..spells.len())
+        .map(|step| (current + step) % spells.len())
+        .take(spells.len())
+        // An empty entry (`-1`) is never a destination: the game does not cycle onto one either,
+        // and landing there would blank the wheel.
+        .find(|index| spells[*index] > 0 && !assigned.contains(&spells[*index]))
+}
+
+/// Where the selection should move to, or `None` to leave it alone.
+///
+/// This is the whole decision the vanilla-skip feature makes, kept here so it can be tested
+/// without a game: an empty or unreadable list, an out-of-range index and an already-free spell all
+/// mean "no move"; an assigned spell with somewhere free to go means "move there".
+pub fn skip_target(
+    current: usize,
+    spells: &[i32],
+    assigned: &std::collections::HashSet<i32>,
+) -> Option<usize> {
+    let spell = *spells.get(current)?;
+    if !assigned.contains(&spell) {
+        return None;
+    }
+    // `next_unassigned` includes the current index, so a move is only a move when it differs.
+    next_unassigned(current, spells, assigned).filter(|target| *target != current)
+}
+
 /// Copy `height` rows of `row_bytes` bytes from a mapped texture into a DIB's pixels.
 ///
 /// The two pitches differ by construction: a mapped D3D11 staging texture reports its own
@@ -1385,6 +1443,79 @@ pub fn schools_from_flags(bits_105: u8, bits_106: u8) -> CatalystSchools {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    fn assigned(ids: &[i32]) -> HashSet<i32> {
+        ids.iter().copied().collect()
+    }
+
+    #[test]
+    fn a_skipped_run_wraps_and_skips_the_whole_run() {
+        // Eight memorised spells; 100 and 300 are ours.
+        let spells = [100, 101, 102, 300, 104, 105, 106, 107];
+        let ours = assigned(&[100, 300]);
+        // Landing on 300 skips to 104.
+        assert_eq!(crate::next_unassigned(3, &spells, &ours), Some(4));
+        // Wrapping needs the tail to be ours: from the last entry, the only free spell is 100,
+        // which is at the front.
+        let tail = [100, 300, 301];
+        let ours_tail = assigned(&[300, 301]);
+        assert_eq!(crate::next_unassigned(2, &tail, &ours_tail), Some(0));
+    }
+
+    #[test]
+    fn a_free_spell_returns_its_own_index() {
+        let spells = [100, 101, 102];
+        let ours = assigned(&[100]);
+        // 101 is free, so the answer is where we already are.
+        assert_eq!(crate::next_unassigned(1, &spells, &ours), Some(1));
+    }
+
+    #[test]
+    fn everything_assigned_has_nowhere_to_go() {
+        // Paired with the mixed case on purpose: `None` is also what a function that does nothing
+        // returns, so the all-assigned assertion only means something beside one that must find a
+        // free entry.
+        let mixed = [100, 101, 102];
+        assert_eq!(crate::next_unassigned(0, &mixed, &assigned(&[100])), Some(1));
+        let spells = [100, 101];
+        let ours = assigned(&[100, 101]);
+        assert_eq!(crate::next_unassigned(0, &spells, &ours), None);
+        assert_eq!(crate::skip_target(0, &spells, &ours), None);
+    }
+
+    #[test]
+    fn an_empty_list_and_a_bad_index_do_nothing() {
+        let ours = assigned(&[100]);
+        assert_eq!(crate::next_unassigned(0, &[], &ours), None);
+        assert_eq!(crate::skip_target(9, &[100, 101], &ours), None);
+        // An empty entry is never a destination, even though it is not "ours" either.
+        assert_eq!(crate::next_unassigned(0, &[-1, 101], &ours), Some(1));
+        assert_eq!(crate::next_unassigned(0, &[-1, -1], &ours), None);
+    }
+
+    #[test]
+    fn the_decision_only_moves_off_an_assigned_spell() {
+        let spells = [100, 101, 102];
+        let ours = assigned(&[100]);
+        // On an assigned spell: move.
+        assert_eq!(crate::skip_target(0, &spells, &ours), Some(1));
+        // On a free spell: leave it alone, even though other entries are ours.
+        assert_eq!(crate::skip_target(1, &spells, &ours), None);
+    }
+
+    #[test]
+    fn the_assigned_set_comes_from_every_row_and_ignores_empty_ones() {
+        let mut rows: HashMap<i32, crate::Category> = HashMap::new();
+        rows.insert(33130000, [100, -1, 102, -1]);
+        rows.insert(33090000, [100, 105, -1, -1]);
+        // A per-copy override filed on the full id.
+        rows.insert(33090010, [-1, -1, 900, -1]);
+        let ours = crate::assigned_spells(&rows);
+        assert_eq!(ours, assigned(&[100, 102, 105, 900]));
+        assert!(!ours.contains(&-1));
+    }
+
     #[test]
     fn copy_rows_respects_both_pitches() {
         // A staging texture padded to 8 bytes a row, a DIB padded to 4: a straight copy of the
