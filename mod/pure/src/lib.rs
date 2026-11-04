@@ -2024,14 +2024,14 @@ mod raw_tests {
 
     fn redaction_works_by_path_shape_on_both_platforms() {
         // Windows: the account segment goes, whatever the environment claims.
-        let out = redact_user_paths(r"C:\Users\<name>\AppData\Local\garyttierney\me3\config");
+        let out = redact_user_paths(r"C:\Users\<name>\AppData\Local\<manager>\me3\config");
         assert!(!out.contains("<name>"), "{out}");
         assert!(out.contains(r"C:\Users\%USER%\AppData"), "{out}");
         // Linux and Proton's drive-letter spelling of it.
         for text in [
             "/home/<name>/.local/share/Steam",
-            "/var/home/<name>/Documents/Github",
-            r"Z:\var\home\<name>\Documents\Github",
+            "/var/home/<name>/Documents",
+            r"Z:\var\home\<name>\Documents",
         ] {
             let out = redact_user_paths(text);
             assert!(!out.contains("<name>"), "{out} -> {out}");
@@ -2056,7 +2056,6 @@ mod raw_tests {
         ];
         let text = "log at C:\\Users\\<name>\\AppData\\x.log and Z:\\var\\home\\<name>\\y and /var/home/<name>/z";
         let out = redact(text, &needles);
-        assert!(!out.contains("<name>"), "{out}");
         assert!(!out.contains("<name>"), "{out}");
         // The paths are gone entirely now; neither placeholder survives either, because replacing
         // the account segment alone left `%USERPROFILE%\\AppData\\...` in the file, which is still
@@ -2227,11 +2226,11 @@ mod raw_tests {
         );
         // The same line under Proton names the host's home, and the prefix path.
         assert_eq!(
-            redact_paths("files in: /var/home/bob/.local/share/Steam/steamapps/compatdata/1245620/pfx"),
+            redact_paths("files in: /var/home/<name>/.local/share/Steam/steamapps/compatdata/1245620/pfx"),
             "files in: <path>"
         );
         assert_eq!(
-            redact_paths("STEAM_COMPAT_DATA_PATH=Z:\\var\\home\\bob\\.local\\share\\Steam"),
+            redact_paths("STEAM_COMPAT_DATA_PATH=Z:\\var\\home\\<name>\\.local\\share\\Steam"),
             "STEAM_COMPAT_DATA_PATH=<path>"
         );
     }
