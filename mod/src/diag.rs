@@ -377,7 +377,7 @@ fn module_lines(loaded: &[(String, String)]) -> String {
 /// the two catalysts assign, how many distinct attuned spells those rows can actually cast, and how
 /// many rows are dormant.
 fn balance_report() -> Option<String> {
-    let mode = crate::config::load().balance;
+    let mode = crate::config::balance();
     if mode != nr_casting_core::Balance::Attuned {
         return Some(nr_casting_core::balance_line(
             nr_casting_core::Balance::Free,
@@ -390,35 +390,23 @@ fn balance_report() -> Option<String> {
     crate::game::refresh_attuned();
     let attuned = crate::game::attuned_snapshot();
     let (left, right) = crate::weapon_ids()?;
-    let (mut assigned, mut stale) = (0u32, 0u32);
-    let mut reachable: Vec<i32> = Vec::new();
+    // Every row of both catalysts, then the same counting the panel uses. The figures a reader
+    // checks by eye should not be assembled twice.
+    let mut rows: Vec<i32> = Vec::with_capacity(2 * nr_casting_core::SLOTS);
     for weapon in [left, right] {
-        if weapon <= 0 {
-            continue;
-        }
-        let Some(pair) = crate::store_get(weapon) else {
-            continue;
-        };
-        for spell in pair {
-            if spell <= 0 {
-                continue;
-            }
-            assigned += 1;
-            if attuned.contains(&spell) {
-                if !reachable.contains(&spell) {
-                    reachable.push(spell);
-                }
-            } else {
-                stale += 1;
+        if weapon > 0 {
+            if let Some(pair) = crate::store_get(weapon) {
+                rows.extend_from_slice(&pair);
             }
         }
     }
+    let coverage = nr_casting_core::coverage(&rows, &attuned);
     Some(nr_casting_core::balance_line(
         nr_casting_core::Balance::Attuned,
         attuned.len() as u32,
-        assigned,
-        reachable.len() as u32,
-        stale,
+        coverage.assigned,
+        coverage.reachable,
+        coverage.not_attuned,
     ))
 }
 

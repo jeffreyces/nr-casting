@@ -244,6 +244,11 @@ impl Model {
     /// Used for the note when the toggle flips, so the line reports what changed instead of just
     /// announcing a setting: "4 rows went dormant" is the sentence that explains the greying.
     fn stale_rows(&self) -> u32 {
+        nr_casting_core::counts(&self.pair_rows()).stale
+    }
+
+    /// Every row the panel can show, both hands, in one list: one assembly, two readers.
+    fn pair_rows(&self) -> Vec<RowState> {
         let balanced = self.balance == Balance::Attuned;
         let mut rows = Vec::with_capacity(2 * 4);
         rows.extend_from_slice(&row_states(
@@ -258,7 +263,7 @@ impl Model {
             &self.attuned,
             balanced,
         ));
-        nr_casting_core::counts(&rows).stale
+        rows
     }
 
     fn reload(&mut self) {
@@ -267,7 +272,7 @@ impl Model {
         // The gate and its list are read on the panel thread with the panel open: the one place a
         // game-memory read is allowed to be slow. The pad poll only ever consults the published
         // snapshot (see `game::spell_attuned`).
-        self.balance = crate::config::load().balance;
+        self.balance = crate::config::balance();
         crate::game::refresh_attuned();
         self.attuned = crate::game::attuned_snapshot();
         self.weapons = crate::weapon_ids().unwrap_or((0, 0));
@@ -1036,6 +1041,15 @@ impl App {
     }
 
     fn draw(&mut self, ui: &Ui) {
+        // The mode can change under an open panel: the toggle here, or a hand edit picked up by the
+        // ini watcher. The gate always reads the live value, so a panel that kept its own copy would
+        // show one mode while casting obeyed the other - the debug_log lesson, again.
+        let live = crate::config::balance();
+        if live != self.model.balance {
+            self.model.balance = live;
+            self.model.candidates_key.clear();
+            self.remeasure = true;
+        }
         self.poll_attuned();
         // Read before the model borrow: the combo shows the scale auto picks for this window.
         let auto_scale = self.auto_scale();
@@ -1142,11 +1156,7 @@ impl App {
                     // Three figures, each naming its scope: what the memory holds, what these two
                     // catalysts assign, and how much of that will not cast.
                     vspace(ui, 5.0);
-                    ui.text_disabled(balance_summary(
-                        &model.panel,
-                        model.weapons,
-                        &model.attuned,
-                    ));
+                    ui.text_disabled(balance_summary(&model.attuned, &model.pair_rows()));
                 }
                 let mut show = model.show_all;
                 if ui.checkbox("list everything", &mut show) {
@@ -1370,10 +1380,9 @@ impl App {
             }
         }
         if let Some(mode) = balance_toggle {
+            // Writes the ini and publishes the mode as one atomic: no reload, so no leaked
+            // `Config` per click, and the next press still sees it.
             crate::config::save_balance(mode);
-            // Publish it now rather than waiting for the ini watcher's debounce: the gate is read
-            // by the input thread, and "applies immediately" has to mean the next press.
-            crate::config::reload();
             self.model.balance = mode;
             self.model.reload();
             self.remeasure = true;
@@ -1616,11 +1625,8 @@ fn schools(panel: &Panel, ids: &[i32]) -> Vec<nr_casting_core::School> {
 }
 
 /// `9 attuned | 8 assigned | 1 stale` - three figures that each name what they count.
-fn balance_summary(panel: &Panel, weapons: (i32, i32), attuned: &[i32]) -> String {
-    let mut rows = Vec::with_capacity(2 * 4);
-    rows.extend_from_slice(&row_states(panel, weapons.0, attuned, true));
-    rows.extend_from_slice(&row_states(panel, weapons.1, attuned, true));
-    let counts = nr_casting_core::counts(&rows);
+fn balance_summary(attuned: &[i32], rows: &[RowState]) -> String {
+    let counts = nr_casting_core::counts(rows);
     format!(
         "{} attuned | {} assigned | {} stale",
         attuned.len(),

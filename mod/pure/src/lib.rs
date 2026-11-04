@@ -1165,12 +1165,13 @@ pub fn balance_line(
     attuned: u32,
     assigned: u32,
     reachable: u32,
-    stale: u32,
+    not_attuned: u32,
 ) -> String {
     match mode {
         Balance::Free => "balance=free".to_string(),
         Balance::Attuned => format!(
-            "balance=attuned attuned={attuned} assigned={assigned} reachable={reachable} stale={stale}"
+            "balance=attuned attuned={attuned} assigned={assigned} reachable={reachable} \
+             not_attuned={not_attuned}"
         ),
     }
 }
@@ -1192,6 +1193,67 @@ pub fn balance_notice(catalyst: CatalystSchool, attuned: &[School]) -> Option<&'
         }
         _ => None,
     }
+}
+
+
+/// The store's lookup, with the caller's own map instead of a slice.
+///
+/// `resolve_row` is the same rule; this shape exists so `store_get` can ask a `HashMap` directly
+/// rather than carrying a second copy of "full id first, then the type's default" - the copy that
+/// made the rule untestable while its pure twin stayed green.
+pub fn resolve_row_with<F>(base: i32, full: i32, find: F) -> Option<Category>
+where
+    F: Fn(i32) -> Option<Category>,
+{
+    match find(full) {
+        Some(spells) => Some(spells),
+        None if full == base => None,
+        None => find(base),
+    }
+}
+
+/// The row an edit lands on: this copy's override if it has one, otherwise the type's default.
+///
+/// The panel shows which of the two is being edited, so the rule has to be the same one the
+/// display used; anything else would silently change which weapons an edit applies to.
+pub fn store_target(base: i32, full: i32, has_override: bool) -> i32 {
+    if full > 0 && full != base && has_override {
+        full
+    } else {
+        base
+    }
+}
+
+/// What the report counts: rows with a spell in them, and how many distinct attuned spells they
+/// can actually cast.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Coverage {
+    /// Rows with a spell in them.
+    pub assigned: u32,
+    /// Distinct spells among them that are attuned.
+    pub reachable: u32,
+    /// Rows whose spell is not attuned. Counted per row rather than derived from the two figures
+    /// above: the same spell on two inputs is one reachable spell but two assigned rows.
+    pub not_attuned: u32,
+}
+
+/// Count `assigned` (non-empty rows) and `reachable` (distinct assigned spells that are attuned).
+///
+/// Distinct on purpose: the figure answers "how many of my attuned spells can I cast from this
+/// pair", so the same spell on two inputs is one spell.
+pub fn coverage(rows: &[i32], attuned: &[i32]) -> Coverage {
+    let mut counts = Coverage::default();
+    let mut seen: Vec<i32> = Vec::new();
+    for spell in rows.iter().copied().filter(|spell| *spell > 0) {
+        counts.assigned += 1;
+        if !attuned.contains(&spell) {
+            counts.not_attuned += 1;
+        } else if !seen.contains(&spell) {
+            seen.push(spell);
+            counts.reachable += 1;
+        }
+    }
+    counts
 }
 
 #[cfg(test)]
@@ -2321,6 +2383,91 @@ mod balance_tests {
         assert_eq!(parse_slots(&text), rows);
     }
 
+
+    // ---- resolve_row_with: the store's lookup, testable --------------------------------
+
+    #[test]
+    fn the_store_lookup_prefers_the_copy_then_the_type() {
+        // Same rule as `resolve_row`, but over a caller's own lookup so the store can use it
+        // without building a map-shaped copy of the rule.
+        let rows = [(33_090_000, [1, 2, 3, 4]), (33_090_010, [9, 8, 7, 6])];
+        let find = |id: i32| rows.iter().find(|(row, _)| *row == id).map(|(_, s)| *s);
+        assert_eq!(resolve_row_with(33_090_000, 33_090_010, find), Some([9, 8, 7, 6]));
+        assert_eq!(resolve_row_with(33_090_000, 33_090_025, find), Some([1, 2, 3, 4]));
+        assert_eq!(resolve_row_with(12_345_678, 12_345_678, find), None);
+    }
+
+    #[test]
+    fn the_store_lookup_returns_an_empty_default_as_an_answer() {
+        let rows = [(33_090_000, [-1; 4])];
+        let find = |id: i32| rows.iter().find(|(row, _)| *row == id).map(|(_, s)| *s);
+        assert_eq!(resolve_row_with(33_090_000, 33_090_010, find), Some([-1; 4]));
+    }
+
+    #[test]
+    fn the_store_lookup_asks_full_first_and_base_second() {
+        // Order is the rule: asking base first would hand a customised copy its type's layout.
+        let asked = std::cell::RefCell::new(Vec::new());
+        let find = |id: i32| {
+            asked.borrow_mut().push(id);
+            None
+        };
+        assert_eq!(resolve_row_with(33_090_000, 33_090_010, find), None);
+        assert_eq!(asked.into_inner(), vec![33_090_010, 33_090_000]);
+    }
+
+    // ---- store_target: which row an edit lands on --------------------------------------
+
+    #[test]
+    fn an_edit_lands_on_the_row_that_was_shown() {
+        // Override present: the edit belongs to that copy.
+        assert_eq!(store_target(33_090_000, 33_090_010, true), 33_090_010);
+        // No override: it belongs to the type's default, so every copy of it changes.
+        assert_eq!(store_target(33_090_000, 33_090_010, false), 33_090_000);
+        // A weapon at its base id has no copy of its own to override.
+        assert_eq!(store_target(33_090_000, 33_090_000, true), 33_090_000);
+        assert_eq!(store_target(33_090_000, 33_090_000, false), 33_090_000);
+    }
+
+    // ---- coverage: the report's two counts --------------------------------------------
+
+    #[test]
+    fn coverage_counts_what_is_assigned_and_what_can_cast() {
+        let attuned = [10, 11, 12];
+        // Three rows, all attuned: three assigned, three reachable.
+        assert_eq!(
+            coverage(&[10, 11, 12], &attuned),
+            Coverage { assigned: 3, reachable: 3, not_attuned: 0 }
+        );
+        // One stale, one empty: the empty row is not an assignment.
+        assert_eq!(
+            coverage(&[10, 99, -1], &attuned),
+            Coverage { assigned: 2, reachable: 1, not_attuned: 1 }
+        );
+        // Nothing at all.
+        assert_eq!(coverage(&[], &attuned), Coverage::default());
+        assert_eq!(coverage(&[-1, -1], &attuned), Coverage::default());
+    }
+
+    #[test]
+    fn coverage_counts_a_spell_once_even_on_two_slots() {
+        // The number answers "how many of my attuned spells are reachable", not "how many inputs
+        // are filled": the same spell in two slots is still one spell.
+        let attuned = [10, 11];
+        assert_eq!(
+            coverage(&[10, 10, 11], &attuned),
+            Coverage { assigned: 3, reachable: 2, not_attuned: 0 }
+        );
+    }
+
+    #[test]
+    fn coverage_is_zero_when_nothing_is_attuned() {
+        assert_eq!(
+            coverage(&[10, 11], &[]),
+            Coverage { assigned: 2, reachable: 0, not_attuned: 2 }
+        );
+    }
+
     // ---- resolve_row ---------------------------------------------------------------------
 
     const BASE: i32 = 33_090_000;
@@ -2374,7 +2521,7 @@ mod balance_tests {
         // readable, and a guessed "/12" would be wrong for every character that lacks a stone.
         assert_eq!(
             balance_line(Balance::Attuned, 9, 8, 4, 1),
-            "balance=attuned attuned=9 assigned=8 reachable=4 stale=1"
+            "balance=attuned attuned=9 assigned=8 reachable=4 not_attuned=1"
         );
     }
 

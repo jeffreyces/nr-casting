@@ -1,51 +1,41 @@
-# v0.2.20 — balanced mode, and a crash stack that names the caller
+# v0.2.21 — the correctness pass over balanced mode
 
-An optional mode that puts the mod back inside the game's own spell economy, plus the diagnostics
-change that came just before it: a fault now prints the chain of callers, not only the instruction
-that touched the bad address.
+Everything here is a defect in 0.2.20's balanced mode, found by holding that code to the same
+review the rest of the mod gets. Free mode is untouched, and no setting changes meaning.
 
-**Upgrade is the DLL plus one optional ini key.** `balance = free` is the default, so an existing
-installation behaves exactly as it did.
+**Upgrade is the DLL.** Nothing new in the ini.
 
-## New
+## Fixed
 
-- **`balance = free | attuned`.** In `attuned` mode only the spells the character has memorised in
-  the game's own spell menu can be assigned. Vanilla's ceiling is the memory slots; this mod stores
-  four spells per catalyst, so with the gate off the library grows with the number of catalysts
-  owned. The gate makes the mod a better way to use your attuned spells rather than a way around
-  them. Off by default, switchable in the panel, and it applies in both directions immediately.
-- **The panel grows an attuned column only in that mode** — the memorised spells in wheel order and
-  a line of three figures: attuned, assigned, stale. In `free` mode the panel is unchanged.
-- **A row whose spell is no longer attuned keeps its spell and its dropdown.** It is greyed with the
-  reason rather than cleared, so re-attuning that spell re-arms the row by itself, and a different
-  spell can be assigned in one click. Until that happens its input belongs to the game again: the
-  press is not rewritten, and the chord passes through exactly as an empty row does.
-- **The dropdown in `attuned` mode offers the memorised set and nothing else.** `list everything`
-  still restores planning — the rest appears marked `(not attuned)` — and a pick that is not attuned
-  is refused with a message instead of being stored.
-- **Per-copy layouts.** A catalyst's assignments are the default for its weapon type, so upgrading a
-  staff at a smith keeps them. `customise this copy` gives the one in hand a layout of its own —
-  which is how two copies of one catalyst hold different spells — and `use the type default` drops
-  it again. The panel says which of the two you are editing.
-- **The report prints the gate's state**: `balance=attuned attuned=10 assigned=8 reachable=8 stale=0`.
-  Four figures, each naming what it counts. There is deliberately no "of 12": how many memory slots
-  a character has unlocked is not readable, and a guessed denominator would be wrong for anyone who
-  has not collected them all.
+- **A spell attuned a moment ago was refused for up to a second.** The memorised set is cached, and
+  the cached "not attuned" was believed without a second look — so after attuning a spell at a grace
+  the next press could do nothing at all. A positive answer from a slightly old snapshot is harmless
+  (the game refuses a spell it can no longer cast), but a negative one costs the player an input, so
+  the negative is now re-read before it is believed: wrong for at most a quarter second, at four
+  reads a second rather than one per poll.
+- **A weapon whose assignments were all dormant still claimed its Y-chords.** The mask that decides
+  whether Y+R1 / Y+L1 belong to the mod was built from the store alone, so a row that could never
+  cast still counted as bound and the chord was swallowed instead of two-handing. The mask now
+  applies the same gate the press does, through the same helper.
+- **The panel kept its own copy of the mode.** Edit `balance` in the ini with the panel open and the
+  checkbox, the attuned column and the candidate list stayed on the old mode while casting obeyed
+  the new one. The panel now takes the mode in force every frame, whichever way it changed.
+- **Switching modes leaked a configuration per click.** The toggle re-read the whole ini, and a
+  re-read publishes a new `Config` that is never freed. The mode is now published as one value, so a
+  click costs nothing and applies on the next input.
+- **The report's fifth figure was named for something it did not measure.** `stale=` counted rows
+  whose spell is not attuned, while the panel's "stale" also counts a spell the catalyst cannot cast
+  — two different numbers sharing one word. The report's figure is now `not_attuned=`.
 
-## Changed
+## Changed internally
 
-- **Crash reports name the caller chain.** A fault line used to end at the instruction that faulted;
-  it now prints module and offset for the frames behind it, which is the difference between "the
-  game crashed" and "the game's own teardown, five of its own frames deep".
-- **The memorised set is re-read once a second while the panel is open**, so a grace visit or a
-  talisman swap under an open panel updates the rows instead of leaving them describing the set the
-  panel opened with. With the panel closed, nothing polls.
+- **The store's lookup calls the tested rule.** `store_get` / `store_set` carried their own copy of
+  "this copy's override first, then the type's default"; they now call the same functions the unit
+  tests cover, and the report's counts come from a tested `coverage()` instead of a private loop.
+- 105 unit tests (7 written before this pass, red first).
 
 ## Verified
 
-98 unit tests green, 26 of them written before the implementation. `cargo xwin check
---target x86_64-pc-windows-msvc` clean, no warnings.
-
-The gate was exercised on one character across both catalysts, with the report line above and
-`steering: 94 of 94 magic-entry writes read back as written`. **Not tested on Windows**: every panel
-and cast check in this cycle ran under Proton.
+`cargo xwin check --target x86_64-pc-windows-msvc` clean, no warnings; 105 tests green. The counts,
+the keying rule and the report line are covered by tests; the panel and the gate were re-checked on
+one character under Proton. **Not tested on Windows.**

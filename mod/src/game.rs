@@ -626,6 +626,13 @@ fn magic_data() -> Option<&'static mut eldenring::cs::EquipMagicData> {
 /// mode is actually asking.
 const ATTUNED_TTL_MS: u32 = 1000;
 
+/// A "not attuned" answer older than this is re-read before it is believed.
+///
+/// The cost of believing it wrongly is an input that does nothing for up to a second after a spell
+/// is attuned; the cost of re-reading is one verified read. A quarter second keeps both small, and
+/// bounds a stale row's checks to four a second instead of one per poll.
+const VERIFY_NEGATIVE_MS: u32 = 250;
+
 /// The last read of the character's memorised spells.
 struct AttunedCache {
     spells: Vec<i32>,
@@ -640,6 +647,16 @@ static ATTUNED: Mutex<AttunedCache> = Mutex::new(AttunedCache {
     read_at: 0,
     ok: false,
 });
+
+/// Bumped whenever the published set changes, so a cache built from it (the pad path's bound mask)
+/// knows to rebuild. Without this a grace visit would leave the mask saying "bound" for a spell that
+/// is no longer attuned.
+static ATTUNED_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The generation of the memorised set.
+pub(crate) fn attuned_generation() -> u32 {
+    ATTUNED_GEN.load(Ordering::Relaxed)
+}
 
 /// The spells the character has memorised, in wheel order, with our own steer put back.
 ///
@@ -671,12 +688,17 @@ pub(crate) fn attuned_spells() -> Option<Vec<i32>> {
 /// Re-read the memorised list and publish it: at panel open, after a character load, and on the
 /// first press after the net expires.
 pub(crate) fn refresh_attuned() {
-    let spells = attuned_spells();
+    let read = attuned_spells();
     let read_at = crate::millis();
+    let next = read.clone().unwrap_or_default();
     if let Ok(mut cache) = ATTUNED.lock() {
-        cache.ok = spells.is_some();
-        cache.spells = spells.unwrap_or_default();
+        let changed = cache.ok != read.is_some() || cache.spells.as_slice() != next.as_slice();
+        cache.ok = read.is_some();
+        cache.spells = next;
         cache.read_at = read_at;
+        if changed {
+            ATTUNED_GEN.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -709,17 +731,45 @@ fn attuned_now() -> Option<Vec<i32>> {
 /// mode an unreadable memorised list answers `false` — verifying is what earns a cast, and a
 /// teardown is not evidence.
 pub(crate) fn spell_attuned(spell: i32) -> bool {
-    if crate::config::load().balance == nr_casting_core::Balance::Free {
+    if crate::config::balance() == nr_casting_core::Balance::Free {
         return true;
     }
-    attuned_now()
-        .map(|spells| spells.contains(&spell))
-        .unwrap_or(false)
+    // A "yes" from a slightly old snapshot is harmless: the game refuses a spell the character no
+    // longer has, so the worst case is a press that does nothing of ours. A "no" costs the player
+    // the input - attune a spell, press, nothing happens for the rest of the second - so the answer
+    // that has to be right is the negative one, and that is the one worth re-reading for.
+    match attuned_now() {
+        Some(spells) if spells.contains(&spell) => true,
+        _ => {
+            // Re-read only when the answer is old enough to be wrong about a recent attunement, so a
+            // permanently stale row costs one read per quarter second rather than one per poll.
+            if attuned_age_ms() < VERIFY_NEGATIVE_MS {
+                return false;
+            }
+            refresh_attuned();
+            attuned_snapshot().contains(&spell)
+        }
+    }
+}
+
+/// How long ago the published set was read, in milliseconds (saturating).
+fn attuned_age_ms() -> u32 {
+    match ATTUNED.lock() {
+        Ok(cache) if cache.ok => crate::millis().wrapping_sub(cache.read_at),
+        _ => u32::MAX,
+    }
 }
 
 /// The memorised set, for the panel and the report. Cheap: the published list when it is fresh.
+/// The published set as it stands, without the freshness net: callers that need the newest answer
+/// call `refresh_attuned()` first.
 pub(crate) fn attuned_snapshot() -> Vec<i32> {
-    attuned_now().unwrap_or_default()
+    ATTUNED
+        .lock()
+        .ok()
+        .filter(|cache| cache.ok)
+        .map(|cache| cache.spells.clone())
+        .unwrap_or_default()
 }
 
 /// The magic data, re-verified immediately before it is written.

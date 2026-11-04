@@ -166,6 +166,29 @@ impl Default for Config {
 }
 
 static DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// The mode in force, for readers that cannot take a lock (the pad poll).
+///
+/// `0` is "not read yet" and means free. The panel's toggle writes it directly, so switching modes
+/// applies on the next input without a `reload()` - and `reload()` still fills it, so a hand edit
+/// lands the same way.
+static BALANCE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The balanced-mode switch as it stands right now.
+pub fn balance() -> nr_casting_core::Balance {
+    match BALANCE.load(Ordering::Relaxed) {
+        2 => nr_casting_core::Balance::Attuned,
+        _ => nr_casting_core::Balance::Free,
+    }
+}
+
+fn publish_balance(mode: nr_casting_core::Balance) {
+    let code = match mode {
+        nr_casting_core::Balance::Free => 1,
+        nr_casting_core::Balance::Attuned => 2,
+    };
+    BALANCE.store(code, Ordering::Relaxed);
+}
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Directory holding the mod's files: the DLL's own folder.
@@ -369,6 +392,9 @@ pub fn save_show_all(show: bool) {
 /// `balance = on` would be a value neither mode is called.
 pub fn save_balance(mode: nr_casting_core::Balance) {
     save_ui_key("balance", mode.as_str());
+    // Publish now, rather than leaking a whole `Config` and re-reading the file: the switch has to
+    // apply on the next input, and a reader that only needs the mode should not pay for the rest.
+    publish_balance(mode);
 }
 
 /// Remember the panel window's size and corner in one ini write.
@@ -848,6 +874,9 @@ perf_log = off
                 }
             }
         }
+        // One publish point: every path that reads the file leaves the mode readable without a
+        // lock, so a hand edit and the panel's own toggle arrive the same way.
+        publish_balance(config.balance);
         config
     }
 }

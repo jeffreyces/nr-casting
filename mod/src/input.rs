@@ -1067,19 +1067,28 @@ static BOUND_MASK: AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 /// Whether each hand's weapon can cast at all. Cached with the mask: it is a param read.
 static CATALYST_LEFT: AtomicBool = AtomicBool::new(false);
 static CATALYST_RIGHT: AtomicBool = AtomicBool::new(false);
+/// The memorised-set generation the mask was built from.
+///
+/// Balanced mode makes the mask depend on more than the weapon pair and the store: a spell that is
+/// no longer attuned reads as unbound, and that changes without either of them moving.
+static BOUND_TUNE: AtomicU32 = AtomicU32::new(u32::MAX);
 
 fn bound_mask(left: i32, right: i32) -> u16 {
     let key = (left as u32 as u64) << 32 | right as u32 as u64;
     let generation = crate::store::generation();
-    if BOUND_KEY.load(Ordering::Relaxed) == key && BOUND_GEN.load(Ordering::Relaxed) == generation {
+    let tune = crate::game::attuned_generation();
+    if BOUND_KEY.load(Ordering::Relaxed) == key
+        && BOUND_GEN.load(Ordering::Relaxed) == generation
+        && BOUND_TUNE.load(Ordering::Relaxed) == tune
+    {
         return BOUND_MASK.load(Ordering::Relaxed);
     }
     let mut mask = 0u16;
     for slot in 0..nr_casting_core::SLOTS {
-        if bound_on(right, slot) > 0 {
+        if bound_on_live(right, slot) > 0 {
             mask |= 1 << slot;
         }
-        if bound_on(left, slot) > 0 {
+        if bound_on_live(left, slot) > 0 {
             mask |= 1 << (nr_casting_core::SLOTS + slot);
         }
     }
@@ -1090,8 +1099,22 @@ fn bound_mask(left: i32, right: i32) -> u16 {
     CATALYST_RIGHT.store(catalyst_or_bound(right, mask, true), Ordering::Relaxed);
     BOUND_MASK.store(mask, Ordering::Relaxed);
     BOUND_GEN.store(generation, Ordering::Relaxed);
+    BOUND_TUNE.store(tune, Ordering::Relaxed);
     BOUND_KEY.store(key, Ordering::Relaxed);
     mask
+}
+
+/// `bound_on`, minus anything balanced mode will not let the player cast.
+///
+/// The mask decides whether a chord belongs to the mod at all, so a row that can never cast must
+/// look unbound here - otherwise a weapon whose only assignments are dormant still claims its
+/// Y-chords and swallows them, instead of letting the game two-hand.
+fn bound_on_live(weapon: i32, slot: usize) -> i32 {
+    let spell = bound_on(weapon, slot);
+    if spell > 0 && !crate::game::spell_attuned(spell) {
+        return -1;
+    }
+    spell
 }
 
 /// Can this hand's weapon cast?
@@ -1608,14 +1631,9 @@ fn bound_spell(right: bool, slot: usize) -> i32 {
     if mask & (1 << bit) == 0 {
         return -1;
     }
-    let spell = bound_on(if right { right_id } else { left_id }, slot);
-    // Balanced mode: a spell that is no longer attuned reads as unbound, which is what makes it
-    // behave like an empty row everywhere downstream - the chord is the game's again, the plain
-    // press was never ours, and no press is rewritten for a spell that cannot come out.
-    if spell > 0 && !crate::game::spell_attuned(spell) {
-        return -1;
-    }
-    spell
+    // Same rule as the mask, through the same helper: the gate cannot be true in one place and
+    // false in the other.
+    bound_on_live(if right { right_id } else { left_id }, slot)
 }
 
 /// The spell bound to `slot` of one weapon id, `-1` when unbound.

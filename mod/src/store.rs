@@ -340,8 +340,11 @@ pub(crate) fn store_get(weapon: i32) -> Option<Category> {
         return None;
     }
     let map = store_lock();
+    // The rule lives in the core crate, with tests: `resolve_row` over a slice, this shape over a
+    // map. Two spellings of "full id first, then the type's default" is how the tested copy and
+    // the used copy drift apart.
     let base = nr_casting_core::base_weapon_id(weapon);
-    map.get(&weapon).or_else(|| map.get(&base)).copied()
+    nr_casting_core::resolve_row_with(base, weapon, |id| map.get(&id).copied())
 }
 
 /// Whether this exact copy has a layout of its own, rather than inheriting the type's default.
@@ -359,11 +362,7 @@ pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
     // interleave and save out of order.
     let snapshot = {
         let mut map = store_lock();
-        let target = if weapon > 0 && weapon != base && map.contains_key(&weapon) {
-            weapon
-        } else {
-            base
-        };
+        let target = nr_casting_core::store_target(base, weapon, map.contains_key(&weapon));
         let entry = map.entry(target).or_insert([-1; nr_casting_core::SLOTS]);
         if slot < entry.len() {
             entry[slot] = spell;
