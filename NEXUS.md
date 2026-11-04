@@ -160,7 +160,8 @@ spells, and a full spell wheel is never displaced.
 
 [size=5][b]Compatibility[/b][/size]
 [list]
-[*][b]me3[/b] — supported, including me3 Manager.[/*]
+[*][b]me3[/b] — supported, including me3 Manager. [b]Vortex[/b] also works: it deploys the DLL like any
+native mod, and the shipped [code].me3[/code] profile is only needed for me3.[/*]
 [*][b]Frame-generation and upscaling mods[/b] (FSR/FG) [url=https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766]https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766[/url]:
 [code]d3d12.dll[/code]
 [code]dxgi.dll[/code]
@@ -172,6 +173,11 @@ spells, and a full spell wheel is never displaced.
 [*][b][url=https://www.nexusmods.com/eldenring/mods/510]Seamless Co-op[/url][/b] — runs its own launcher with EAC off, and casting has been reported
 working alongside it. The mod is not involved in the co-op layer; every player in a session still
 needs Seamless Co-op itself.[/*]
+[*][b]ERD Tools[/b] — casts fine with it loaded, but opening ERD's config window with both loaded
+crashes the game inside ERD. The fault is at [code]erdGameTools.dll+0xa64f9[/code] reading a null
+pointer, reached from the game's own frame code, and the mod's only frame in the report is its
+exception observer — which always passes the exception on. If it crashes with
+[code]hooks = off[/code] too, it is ERD's to fix; if not, send the log from that run.[/*]
 [*][b]Other overlay mods[/b] — no swap-chain conflict, but both drive the pointer while their window is open, so expect contention there.[/*]
 [*][b]Mod Engine 2[/b] — discontinued upstream, but the DLL is a plain native plugin.[/*]
 [*][b]Spell or selection mods[/b] — direct conflict, both write the game's magic selection.[/*]
