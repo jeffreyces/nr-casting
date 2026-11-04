@@ -553,9 +553,10 @@ pub(crate) fn refresh_y_bumper() {
         let packed = (event_id as u32 as u64) << 32 | chr_id as u64;
         if CHARACTER_IDS.swap(packed, Ordering::Relaxed) != packed && cfg.debug_log {
             log(&format!(
-                "world: character ids event={event_id} chr={chr_id} npc={} (recluse mod: {loaded})",
+                "world: character ids event={event_id} chr={chr_id} npc={} (port mod: {loaded})",
                 game::player_npc_param_id().unwrap_or(0)
             ));
+            log(&format!("world: class probe {}", game::class_probe()));
         }
     }
     // The ini decides, except that a Recluse character never gets the chords under `auto`:
