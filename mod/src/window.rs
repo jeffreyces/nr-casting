@@ -1062,6 +1062,16 @@ impl App {
         // The mode can change under an open panel: the toggle here, or a hand edit picked up by the
         // ini watcher. The gate always reads the live value, so a panel that kept its own copy would
         // show one mode while casting obeyed the other - the debug_log lesson, again.
+        // The pair can change under an open panel (a weapon swap, or the panel opening before the
+        // game has published the hands at all). `weapon_ids` is cached, so this is a compare.
+        if let Some(pair) = crate::game::weapon_ids() {
+            if pair != self.model.weapons {
+                self.model.weapons = pair;
+                self.model.port_class = crate::overlay::port_class(pair);
+                self.model.candidates_key.clear();
+                self.remeasure = true;
+            }
+        }
         let live = crate::config::balance();
         if live != self.model.balance {
             self.model.balance = live;
