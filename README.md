@@ -132,8 +132,8 @@ Files from older builds (beside the DLL, or beside `eldenring.exe`) are moved in
 | `nr_casting_spells.txt` | optional override: spell names | `tools/gen-spell-names.py` |
 | `nr_casting_weapons.txt` | optional override: weapon names | `tools/gen-weapon-names.py` |
 
-The name tables are compiled into the DLL and only exist as files if you drop an override
-beside it. Settings are read from the shipped `nr_casting.ini` first, so editing it always
+Names are read from the running game's own text tables on first launch and cached in
+`nr_casting_catalogue.txt`; the optional override files above replace that source. Settings are read from the shipped `nr_casting.ini` first, so editing it always
 takes effect even if an older copy sits in the subfolder.
 
 ### Installing through the ME3 Manager

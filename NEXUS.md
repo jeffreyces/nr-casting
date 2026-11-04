@@ -33,7 +33,8 @@ live in a small text file next to the DLL, one per character.[/*]
 can be uninstalled at any time and the game behaves exactly as it did before.[/*]
 [*][b]Coexists with Recluse[/b] — that port uses Y+R1 / Y+L1 (and its 4 / 5 keys) for its own
 actions; on a Recluse character those inputs go to it instead of casting the fourth spell.[/*]
-[*][b]Offline only[/b] — built for me3 with online play disabled, so EAC never loads.[/*]
+[*][b]No anti-cheat, no network[/b] — it is loaded by me3, which starts the game with EAC disabled;
+the mod itself never talks to anything.[/*]
 [/list]
 
 [line]
@@ -56,9 +57,11 @@ keyboard and mouse hold the configured modifier (Super by default) with the same
 
 [size=5][b]Requirements[/b][/size]
 [list]
-[*]ELDEN RING, offline. Online play and EAC are not supported and not tested.[/*]
+[*]ELDEN RING launched with EAC disabled (me3 does this). The mod does not support the official
+online service and adds nothing to it.[/*]
 [*][url=https://github.com/garyttierney/me3]me3[/url] (Mod Engine 3) to load the DLL.[/*]
-[*]A controller — the mod works at the XInput layer.[/*]
+[*]A controller for the pad bindings — the mod works at the XInput layer; mouse and keyboard work
+without one.[/*]
 [*]Keyboard  / Mouse — Also works with Left/Right click (original) But added SHIFT / CTRL / ALT + Left / Right to reach full 8.[/*]
 [/list]
 [line]
@@ -102,6 +105,9 @@ ui_scale = auto
 panel_size = auto
 panel_pos = auto
 hud_mirror = off
+
+[input]
+bind_modifier = L3
 bind_modifier_kb = Super
 chord_stage = 2
 
@@ -132,13 +138,13 @@ the panel's [b]reset layout[/b] button, or by deleting the line and letting
 [code]auto[/code]
 size it from the screen again.
 [code]perf_log[/code]
-writes one timing line every 10 seconds — the pad-poll gaps and what our own hook costs — which is what
-a performance report needs.
+writes a timing line when a frame is lost or a hook runs long, and a heartbeat every five minutes
+otherwise — the pad-poll gaps and what the mod's own hook costs, which is what a performance report
+needs.
 [code]hooks = off[/code]
-is a stutter experiment rather than a setting: no input detours are installed at all, so casting
-stops, but the diagnostics bundle then shows the game's frame timing with the DLL loaded and doing
-nothing. Run one session with it off and one with it on and compare; the guided six-phase run does
-the same comparison from inside a single session, which is usually the easier way.
+installs no input detours at all, so casting stops. It exists for one comparison — the game's frame
+timing with the DLL loaded and doing nothing — and the panel's guided run makes the same comparison
+from inside a single session.
 
 [code]y_bumper[/code]
 decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]:
@@ -174,7 +180,9 @@ spells, and a full spell wheel is never displaced.
 [*][b]Class ports with their own HUD[/b] (Recluse and friends) [url=https://www.nexusmods.com/eldenring/mods/11410]Nightreign Recluse Full Port[/url]:
 [code]ERNativeUI.dll[/code]
  — no conflict: the panel never touches the game's swap chain, so their on-screen HUD keeps drawing.[/*]
-[*][b][url=https://www.nexusmods.com/eldenring/mods/510]Seamless Co-op[/url] — [/b]Utilizing this allows for online play with friends. EAC is still off. According to docs, friends also need this mod if one person has it.[/*]
+[*][b][url=https://www.nexusmods.com/eldenring/mods/510]Seamless Co-op[/url][/b] — runs its own launcher with EAC off, and casting has been reported
+working alongside it. The mod is not involved in the co-op layer; every player in a session still
+needs Seamless Co-op itself.[/*]
 [*][b]Other overlay mods[/b] — no swap-chain conflict, but both drive the pointer while their window is open, so expect contention there.[/*]
 [*][b]Mod Engine 2[/b] — discontinued upstream, but the DLL is a plain native plugin.[/*]
 [*][b]Spell or selection mods[/b] — direct conflict, both write the game's magic selection.[/*]
@@ -187,7 +195,8 @@ spells, and a full spell wheel is never displaced.
 [list]
 [*]Removing the mod is a clean revert: delete the DLL and the profile, and the game is back to
 vanilla. Nothing was added to your save file, and no game data was modified.[/*]
-[*]Spell and weapon names are compiled into the DLL, so the mod works without unpacking anything.[/*]
+[*]Spell and weapon names come from your own game's text at load (a few thousand names, about
+20 ms), so nothing is unpacked and no name list ships with the DLL.[/*]
 [*]After a game update the mod falls back to the nearest known offset table and validates it before
 touching memory; if validation fails it stays out of the way and says so in its log.[/*]
 [*]If something misbehaves, the log in
@@ -198,7 +207,7 @@ line lists every DLL loaded besides Windows' own, with each DLL's load base, and
 is recorded automatically as a
 [code]crash:[/code]
 line naming the exception, the address, the DLL
-that owns it and the offset inside it — no debug logging needed first. Please attach those lines to
+that owns it, the offset inside it and the callers behind it — no debug logging needed first. Please attach those lines to
 any bug report.[/*]
 [*]If the DLL sits somewhere read-only, the mod writes to
 [code]%APPDATA%\nr_casting\[/code]
