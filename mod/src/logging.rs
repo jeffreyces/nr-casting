@@ -69,6 +69,16 @@ macro_rules! debug {
 pub(crate) fn log(msg: &str) {
     use std::io::Write;
     let ms = epoch_millis();
+    // Redact here, at the one sink, rather than at the twenty call sites that put a path in a
+    // message: a path inside a mod manager's folder keeps its tail from `me3` on, anything else
+    // becomes `<path>`. A line without a separator cannot hold a path, so it skips the scan.
+    let redacted;
+    let msg = if msg.contains('\\') || msg.contains('/') {
+        redacted = nr_casting_core::redact_paths(msg);
+        redacted.as_str()
+    } else {
+        msg
+    };
 
     let slot = LOG_FILE.get_or_init(|| Mutex::new(None));
 

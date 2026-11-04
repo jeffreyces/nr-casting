@@ -226,8 +226,13 @@ fn run() {
     // `hud_mirror`/`show_all` change without restarting the game. The startup-only switches are
     // named in the log line rather than silently ignored.
     config::watch();
+    // The version and the build time, first line: "which build was that?" is the first question a
+    // log has to answer, and a playtest cycle runs several builds under one version on purpose.
     log(&format!(
-        "=== nr_casting loaded ({} opens the panel; cast with R1/R2/L1/L2, Y for the extra slots)",
+        "=== nr_casting {} (built {}) -- {} opens the panel; cast with R1/R2/L1/L2, Y for the \
+         extra slots",
+        env!("CARGO_PKG_VERSION"),
+        option_env!("NR_BUILD").unwrap_or("development copy"),
         cfg.hotkey_name
     ));
     log("crash: exception observer installed (faults are logged with module and offset)");

@@ -901,13 +901,39 @@ pub fn redact_paths(text: &str) -> String {
     text.split_inclusive('\n')
         .map(|line| match path_start(line) {
             Some(at) => {
-                let (before, _) = line.split_at(at);
+                let (before, path) = line.split_at(at);
                 let newline = if line.ends_with('\n') { "\n" } else { "" };
-                format!("{before}<path>{newline}")
+                // A path inside a mod manager's folder keeps its tail from `me3` on: that names the
+                // profile and the mod - which is what makes a report useful - and says nothing about
+                // the machine. Everything else is replaced whole, because the interesting part of
+                // `C:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe` is the
+                // file name, which the line already says.
+                let kept = me3_tail(path).unwrap_or("<path>");
+                format!("{before}{kept}{newline}")
             }
             None => line.to_string(),
         })
         .collect()
+}
+
+/// The part of a path from a `me3` folder onward, if it runs through one.
+///
+/// Matched only as a whole segment, preceded by a separator or at the start: `ermme3\\x` and
+/// `me3.exe` are not mod-manager folders, and keeping them would keep whatever sits above them.
+fn me3_tail(path: &str) -> Option<&str> {
+    let lower = path.to_ascii_lowercase();
+    for marker in ["me3\\", "me3/"] {
+        let mut from = 0;
+        while let Some(found) = lower[from..].find(marker) {
+            let at = from + found;
+            let whole_segment = at == 0 || matches!(lower.as_bytes()[at - 1], b'\\' | b'/');
+            if whole_segment {
+                return Some(&path[at..]);
+            }
+            from = at + marker.len();
+        }
+    }
+    None
 }
 
 /// Where a path begins on this line, if one does.
@@ -1956,6 +1982,46 @@ mod raw_tests {
 
 
     #[test]
+    /// The shape below is the one a reporter's log carried; every value in it is a placeholder.
+    ///
+    /// Never paste a real log line into a test: a path names an account and a profile, and a test
+    /// is a file that gets committed and read by strangers. `<name>`, `<manager>`, `<profile>` and
+    /// `<mod>` keep the shape that the rule depends on and carry nothing of anybody's machine.
+    #[test]
+    fn a_mod_manager_path_keeps_only_the_me3_tail() {
+        let text = r"[1] config: debug_log=false files in C:\Users\<name>\AppData\Local\<manager>\me3\config\profiles\<profile>\<mod>\nr_casting";
+        let out = crate::redact_paths(text);
+        assert!(
+            out.contains(r"me3\config\profiles\<profile>\<mod>\nr_casting"),
+            "{out}"
+        );
+        // Nothing above `me3` survives: no drive, no account, no manager name.
+        for gone in ["Users", "<name>", "AppData", "Local", "<manager>", "C:"] {
+            assert!(!out.contains(gone), "{gone} survived: {out}");
+        }
+    }
+
+    #[test]
+    fn a_path_without_me3_is_replaced_whole() {
+        let text = r"[1] XInputGetState: caller stack includes C:\Program Files (x86)\Steam\steamapps\common\ELDEN RING\Game\eldenring.exe";
+        let out = crate::redact_paths(text);
+        assert!(out.ends_with("<path>"), "{out}");
+        assert!(!out.contains("Steam"), "{out}");
+        assert!(out.starts_with("[1] XInputGetState: caller stack includes "), "{out}");
+    }
+
+    #[test]
+    fn the_linux_me3_tail_is_kept_the_same_way() {
+        let out = crate::redact_paths("/home/u/.local/share/me3/config/profiles/p/nr_casting");
+        assert_eq!(out, "me3/config/profiles/p/nr_casting");
+    }
+
+    #[test]
+    fn a_line_without_a_path_is_untouched() {
+        let text = "[1] panel: ready (hotkey registered)";
+        assert_eq!(crate::redact_paths(text), text);
+    }
+
     fn redaction_works_by_path_shape_on_both_platforms() {
         // Windows: the account segment goes, whatever the environment claims.
         let out = redact_user_paths(r"C:\Users\<name>\AppData\Local\garyttierney\me3\config");
@@ -2147,9 +2213,11 @@ mod raw_tests {
         // Verbatim from a report: the account segment was already replaced, and the disk layout
         // was still in the file.
         let line = "slots: character <character> (id 0) -> %USERPROFILE%\\AppData\\Local\\garyttierney\\me3\\config\\profiles\\eldenring-mods\\nr-casting-v0.2.7\\nr_casting\\nr_casting_slots_<character>-399e89de.txt";
+        // The manager path keeps its tail from `me3` on - profile, mod, file - and the account
+        // segment, the manager's own folder and the placeholder above it all go.
         assert_eq!(
             redact_paths(line),
-            "slots: character <character> (id 0) -> <path>"
+            "slots: character <character> (id 0) -> me3\\config\\profiles\\eldenring-mods\\nr-casting-v0.2.7\\nr_casting\\nr_casting_slots_<character>-399e89de.txt"
         );
         // Windows paths contain spaces, so a whitespace split loses half of them.
         let line = "XInputGetState: caller stack includes C:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe";

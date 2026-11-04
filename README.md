@@ -283,11 +283,15 @@ CPU, and a per-second record of the frame gaps over the last five minutes.
 - **Nothing is uploaded.** There is no endpoint: the file is written locally, its path is put on the
   clipboard, the folder opens with the file selected, and the issue page opens with the version and
   the numbers already prefilled — drag the file in and submit.
-- **It redacts on the way out.** Every file path is replaced with `<path>` — directory, file name and
-  all — your user name becomes `%USER%` where it appears outside one, and the character's name and the
-  id in its slot file name become `<character>`. What is left is the game, the modules, the numbers
-  and the log lines, none of which say who or where you are. Neither `debug_log` nor `perf_log` needs
-  to be on; the report collects what it needs at the moment you press it.
+- **It redacts on the way out — and the log does it too.** Every file path is replaced with `<path>`
+  — directory, file name and all — with one deliberate exception: a path inside a mod manager's
+  folder keeps its tail from `me3` on (`me3\config\profiles\<profile>\<mod>\nr_casting`), because
+  that names the profile and the mod and says nothing about the machine. The account segment, the
+  manager's own folder above it and the drive all go. Your user name becomes `%USER%` where it
+  appears outside a path, and the character's name and the id in its slot file name become
+  `<character>`. The same rule runs on `nr_casting_probe.log` as it is written, so a log pasted into
+  an issue carries no path either. Neither `debug_log` nor `perf_log` needs to be on; the report
+  collects what it needs at the moment you press it.
 - **`extended bundle & report`** is the one for a stutter. It does the comparing for you: press it,
   load a character, stand somewhere quiet and still, and start. The mod records nine one-minute
   phases — everything on, then the raw-input hooks off, the cursor detours taken out, pad casting off
@@ -487,6 +491,11 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 | online / EAC | not supported by design |
 
 ## Troubleshooting
+
+The first line of the log names the build — `=== nr_casting 0.2.22 (built 2026-11-04T20:18:21Z)` —
+because a playtest runs several builds under one version, and "which one was that?" is the first
+question a report has to answer. Paths in it are redacted as they are written (see Reporting a
+problem).
 
 The mod logs what it found, in order, to `nr_casting/nr_casting_probe.log` beside the DLL (or
 `%APPDATA%\nr_casting\` if that folder is not writable — the log's second line, `files in:`,
