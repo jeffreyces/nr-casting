@@ -82,6 +82,13 @@ pub struct Config {
     /// own wheel selection (the HUD visibly cycles, and a cast that reads the selection after a
     /// rewrite uses the wrong spell). Only useful if you never touch the wheel yourself.
     pub hud_mirror: bool,
+    /// When the vanilla spell wheel cycles, skip the spells the panel already owns.
+    ///
+    /// Off by default and independent of `balance`: it changes what the game's own selection does,
+    /// not what the panel accepts. A spell counts as owned if any saved row for this character holds
+    /// it, so swapping a staff does not reshuffle the wheel. Nothing is written to the memorised
+    /// list - the assigned spells stay attuned and remain castable from their own buttons.
+    pub vanilla_skips_assigned: bool,
     /// Who owns the Y+bumper chords (Y+R1 / Y+L1, the fourth slot).
     pub y_bumper: YBumper,
     pub y_bumper_name: String,
@@ -151,6 +158,7 @@ impl Default for Config {
             show_all: false,
             balance: nr_casting_core::Balance::Free,
             hud_mirror: false,
+            vanilla_skips_assigned: false,
             y_bumper: YBumper::Auto,
             y_bumper_name: "auto".to_string(),
             bind_modifier: 0x0040,  // L3
@@ -178,6 +186,20 @@ pub fn balance() -> nr_casting_core::Balance {
         2 => nr_casting_core::Balance::Attuned,
         _ => nr_casting_core::Balance::Free,
     }
+}
+
+/// Whether the game's wheel skips spells the panel owns, read without touching the file.
+///
+/// One atomic, the same shape as `balance()`: the frame clock asks this every frame, and a key that
+/// lives in a struct behind a file read would be a syscall per frame.
+static SKIP_ASSIGNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn skip_assigned() -> bool {
+    SKIP_ASSIGNED.load(Ordering::Relaxed)
+}
+
+fn publish_skip_assigned(on: bool) {
+    SKIP_ASSIGNED.store(on, Ordering::Relaxed);
 }
 
 fn publish_balance(mode: nr_casting_core::Balance) {
@@ -388,6 +410,17 @@ pub fn save_show_all(show: bool) {
 ///
 /// Written as its own word rather than a boolean: the key has two named modes, and an ini reading
 /// `balance = on` would be a value neither mode is called.
+/// Write the wheel-skip switch and publish it without re-reading the file.
+///
+/// Same shape as `save_balance`: an ini write plus one atomic, so the next press sees the change and
+/// a click does not leak a whole `Config` through `reload()`.
+pub fn save_skip_assigned(on: bool) {
+    save_ui_key("vanilla_skips_assigned", if on { "on" } else { "off" });
+    // The frame clock reads this through `config::load()`, so publishing is just the atomic swap
+    // the file watcher would do a moment later.
+    publish_skip_assigned(on);
+}
+
 pub fn save_balance(mode: nr_casting_core::Balance) {
     save_ui_key("balance", mode.as_str());
     // Publish now, rather than leaking a whole `Config` and re-reading the file: the switch has to
@@ -693,6 +726,10 @@ panel_pos = auto
 ; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off: the wheel
 ; stays yours (on, it rewrites the selection ~30x a second and fights your D-pad scrolling).
 hud_mirror = off
+; Skip the spells this panel already owns when the game cycles its spell wheel (D-pad up, or the
+; keyboard key). Those spells stay attuned and still cast from their own buttons - the wheel just
+; never stops on one. If every attuned spell is assigned, the game cycles normally.
+vanilla_skips_assigned = off
 
 [input]
 ; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
@@ -831,6 +868,7 @@ perf_log = off
                         )),
                     },
                     "hud_mirror" => config.hud_mirror = truthy(value),
+                    "vanilla_skips_assigned" => config.vanilla_skips_assigned = truthy(value),
                     "pad_hook" => config.pad_hook = truthy(value),
                     "chord_stage" => {
                         config.chord_stage = value.trim().parse::<u8>().unwrap_or(2).min(4)
@@ -860,6 +898,7 @@ perf_log = off
         // One publish point: every path that reads the file leaves the mode readable without a
         // lock, so a hand edit and the panel's own toggle arrive the same way.
         publish_balance(config.balance);
+        publish_skip_assigned(config.vanilla_skips_assigned);
         config
     }
 }

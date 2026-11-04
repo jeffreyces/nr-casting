@@ -219,6 +219,173 @@ pub(crate) fn selected_spell() -> Option<i32> {
     (id > 0).then_some(id)
 }
 
+/// What the wheel check has done, for the report.
+///
+/// `moved` is also the flicker measurement: the game applies its own cycle first, so the assigned
+/// spell is the selection for the frame it arrived on and we move off it in the same tick. If that
+/// is ever visible, this count is the evidence, not an opinion.
+static WHEEL_MOVED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static WHEEL_ALL_ASSIGNED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static WHEEL_PAUSED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// The index we wrote last, so the change we see next tick can be told from our own write.
+static WHEEL_WROTE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+/// Moves in the current second, and the second they belong to.
+static WHEEL_RATE_SECOND: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static WHEEL_RATE_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Until this uptime in milliseconds, the check does nothing. Set when the game fights back.
+static WHEEL_PAUSE_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Moves this session, times the wheel ran out of free spells, and times it stood down.
+pub(crate) fn wheel_counts() -> (u32, u32, u32) {
+    (
+        WHEEL_MOVED.load(std::sync::atomic::Ordering::Relaxed),
+        WHEEL_ALL_ASSIGNED.load(std::sync::atomic::Ordering::Relaxed),
+        WHEEL_PAUSED.load(std::sync::atomic::Ordering::Relaxed),
+    )
+}
+
+/// The assigned set with the store generation it was built from.
+struct Assigned {
+    generation: u32,
+    spells: std::collections::HashSet<i32>,
+}
+
+/// The spells this character has assigned, held behind the cache's own lock.
+///
+/// Returning a guard rather than a clone matters: this is read on the frame clock, and the earlier
+/// version copied the whole set every frame for a value that changes only when a layout is saved.
+fn assigned_cache() -> std::sync::MutexGuard<'static, Assigned> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Assigned>> = OnceLock::new();
+    let generation = crate::store::generation();
+    let cache = CACHE.get_or_init(|| {
+        Mutex::new(Assigned {
+            generation: u32::MAX,
+            spells: std::collections::HashSet::new(),
+        })
+    });
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.generation != generation {
+        let rows = crate::store::rows_snapshot();
+        guard.spells = nr_casting_core::assigned_spells(&rows);
+        guard.generation = generation;
+    }
+    guard
+}
+
+/// The memorised list and where the game's selection points, read in one pass.
+///
+/// One function because both come from the same structure: two readers meant two `VirtualQuery`
+/// walks per frame and two chances for the pointer to move between them.
+struct Wheel {
+    spells: Vec<i32>,
+    current: usize,
+}
+
+fn read_wheel() -> Option<Wheel> {
+    let magic = magic_data_verified()?;
+    let len = magic.entries.len();
+    let current = magic.selected_slot;
+    if current < 0 || current as usize >= len {
+        return None;
+    }
+    let borrowed = BORROWED
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|b| (b.idx, b.param_id)));
+    let mut spells = Vec::with_capacity(len);
+    for (index, entry) in magic.entries.iter().enumerate() {
+        let mut id = entry.param_id;
+        if let Some((borrowed_index, original)) = borrowed {
+            if borrowed_index == index {
+                id = original;
+            }
+        }
+        spells.push(id);
+    }
+    Some(Wheel {
+        spells,
+        current: current as usize,
+    })
+}
+
+/// Put the game's selection on `index`, without borrowing an entry.
+///
+/// Returns whether the write read back. The entry is untouched, so the spell that was there stays
+/// attuned and remains castable from its own button.
+pub(crate) fn set_selected_index(index: usize) -> bool {
+    let Some(magic) = magic_data_verified() else {
+        return false;
+    };
+    if index >= magic.entries.len() {
+        return false;
+    }
+    magic.selected_slot = index as i32;
+    magic.selected_slot == index as i32
+}
+
+/// Skip the spells the panel owns when the game cycles its wheel. Runs on the game's frame clock.
+pub(crate) fn wheel_tick() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED_ALL: AtomicBool = AtomicBool::new(false);
+    static WARNED_FIGHT: AtomicBool = AtomicBool::new(false);
+
+    // Off is off: no read of game memory at all.
+    if !crate::config::skip_assigned() {
+        WHEEL_WROTE.store(-1, Ordering::Relaxed);
+        return;
+    }
+    // The panel owns the input while it is up.
+    if crate::UI_OPEN.load(Ordering::Relaxed) {
+        return;
+    }
+    let now = crate::logging::uptime_ms() as u64;
+    if now < WHEEL_PAUSE_UNTIL.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(wheel) = read_wheel() else {
+        return;
+    };
+    // Our own write from last tick: nothing to do, and re-reading the list would only confirm it.
+    if WHEEL_WROTE.swap(-1, Ordering::Relaxed) == wheel.current as i32 {
+        return;
+    }
+    let assigned = assigned_cache();
+    let assigned = &assigned.spells;
+    let Some(target) = nr_casting_core::skip_target(wheel.current, &wheel.spells, assigned) else {
+        // Nothing to do. "Everything is assigned" is worth one line, so a player who presses up and
+        // sees the wheel behave normally knows why rather than filing a bug.
+        let on_assigned = assigned.contains(&wheel.spells[wheel.current]);
+        let nowhere = nr_casting_core::next_unassigned(wheel.current, &wheel.spells, assigned).is_none();
+        if on_assigned && nowhere && !WARNED_ALL.swap(true, Ordering::Relaxed) {
+            WHEEL_ALL_ASSIGNED.fetch_add(1, Ordering::Relaxed);
+            crate::log("wheel: every attuned spell is assigned - the game's own cycling is left alone");
+        }
+        return;
+    };
+    // A hand cannot cycle twenty times a second; that rate means the game is rewriting the selection
+    // itself, and writing back every frame is a fight rather than a feature.
+    let second = (now / 1000) as u32;
+    if WHEEL_RATE_SECOND.swap(second, Ordering::Relaxed) != second {
+        WHEEL_RATE_COUNT.store(0, Ordering::Relaxed);
+    }
+    if WHEEL_RATE_COUNT.fetch_add(1, Ordering::Relaxed) + 1 > 20 {
+        WHEEL_PAUSE_UNTIL.store(now + 1000, Ordering::Relaxed);
+        WHEEL_PAUSED.fetch_add(1, Ordering::Relaxed);
+        if !WARNED_FIGHT.swap(true, Ordering::Relaxed) {
+            crate::log(
+                "wheel: the game keeps taking the selection back - skipping pauses a second at a \
+                 time rather than fighting it",
+            );
+        }
+        return;
+    }
+    if set_selected_index(target) {
+        WHEEL_WROTE.store(target as i32, Ordering::Relaxed);
+        WHEEL_MOVED.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// How many writes to the magic entry read back correctly, and how many did not.
 ///
 /// The report used to say "the write path is checked on the first cast" and then never say what

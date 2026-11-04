@@ -143,6 +143,12 @@ off the chord in [b]Options > Button Settings > Origin Skills[/b] ([b]X+RB[/b] /
 usual choice). The port reads that menu, so it follows you. The mod cannot make this choice for you:
 where you put Origin Skills lives in the game's own button settings and cannot be read.
 
+[code]vanilla_skips_assigned = on[/code]
+makes the game's own wheel step over the spells this panel assigns, so pressing up only lands on the
+ones you kept for the default cast. Nothing is removed from your memory slots — those spells stay
+attuned and still cast from their own buttons — and if every attuned spell is assigned the wheel
+cycles normally. Independent of [code]balance[/code], applies immediately, off by default.
+
 [code]hooks = off[/code]
 installs nothing and casting stops; it exists only to measure the game with the DLL loaded and idle.
 

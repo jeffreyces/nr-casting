@@ -257,11 +257,13 @@ fn run() {
         Err(e) => log(&format!("pump: no frame heartbeat: {e}")),
     }
     log(&format!(
-        "config: debug_log={} y_bumper={} bind_modifier={} bind_modifier_kb={} files in {}",
+        "config: debug_log={} y_bumper={} bind_modifier={} bind_modifier_kb={} \
+         vanilla_skips_assigned={} files in {}",
         cfg.debug_log,
         cfg.y_bumper_name,
         cfg.bind_modifier_name,
         cfg.bind_modifier_kb_name,
+        cfg.vanilla_skips_assigned,
         config::dir().display()
     ));
     apply_runtime_config();

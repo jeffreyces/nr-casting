@@ -434,6 +434,18 @@ fn state() -> String {
     if let Some(line) = balance_report() {
         let _ = writeln!(out, "{line}");
     }
+    // The wheel skip has one number that matters - how often it had to move the selection - and
+    // the one that says whether the game was fighting it.
+    let (moved, all_assigned, paused) = crate::game::wheel_counts();
+    let _ = writeln!(
+        out,
+        "wheel=skip {} moved={moved} all_assigned={all_assigned} paused={paused}",
+        if crate::config::skip_assigned() {
+            "on"
+        } else {
+            "off"
+        }
+    );
     match crate::weapon_ids() {
         Some((left, right)) => {
             let _ = writeln!(out, "weapons in hand: left={left} right={right}");

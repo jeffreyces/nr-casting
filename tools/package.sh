@@ -55,6 +55,10 @@ panel_pos = auto
 ; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off by default:
 ; on, it rewrites the selection ~30x a second and fights your D-pad scrolling.
 hud_mirror = off
+; Skip the spells this panel already owns when the game cycles its spell wheel (D-pad up, or the
+; keyboard key). They stay attuned and still cast from their own buttons - the wheel just never
+; stops on one. If every attuned spell is assigned, the game cycles normally.
+vanilla_skips_assigned = off
 
 [input]
 ; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.

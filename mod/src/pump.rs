@@ -77,6 +77,12 @@ unsafe extern "system" fn peek_detour(
         // The frame clock serves marks too: with no controller there are no pad polls, and a panel
         // that opened would otherwise wait for one that never comes. Cheap - one atomic swap.
         crate::dispatch::run(crate::millis(), crate::dispatch::Clock::FrameClock);
+        // The game's own wheel selection is read here, on the thread that pumps its frames, and
+        // moved off a spell the panel owns. Self-gated: with the toggle off this is one atomic load
+        // and a return, so it costs nothing on a session that does not want it.
+        if crate::config::skip_assigned() {
+            crate::game::wheel_tick();
+        }
     }
     out
 }

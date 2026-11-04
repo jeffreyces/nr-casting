@@ -76,6 +76,14 @@ the character is one of its classes, where they pass straight through to the cla
 eight spells everywhere else, its own chords on its own character, and three rather than four on
 that hand. Four needs `y_bumper = on` plus a rebind of the class skills; see above.
 
+**Keeping assigned spells out of the vanilla wheel.** If you assign most of your spells to the
+panel's buttons and keep one or two for the game's own default cast, the wheel still lists all of
+them. `vanilla_skips_assigned = on` makes the game's own cycling step over the spells the panel owns,
+so pressing up (or the keyboard cycle key) only lands on the ones you have not assigned. Nothing is
+removed from your memory slots: those spells stay attuned and still cast from their own buttons. If
+every attuned spell is assigned, the wheel cycles normally. It is independent of `balance`, applies
+immediately, and defaults to off.
+
 The mouse uses the same eight slots with no separate configuration, and it *always* uses its own
 layer: the mod steers the selected spell and the game's own click performs the cast, with or without
 a controller attached. Nothing is synthesised for a click, so one click is one action. Shift is
@@ -180,6 +188,7 @@ chord_stage = 2          ; reports a chord spends with Y released before casting
 
 [recluse]
 y_bumper = auto          ; auto | on | off — who gets Y+R1 / Y+L1
+vanilla_skips_assigned = off  ; on = the game's wheel skips the spells this panel assigns
 
 [logging]
 debug_log = off          ; log every cast, not just captures and errors

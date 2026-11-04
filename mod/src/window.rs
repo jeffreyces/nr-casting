@@ -1114,6 +1114,7 @@ impl App {
         let model = &mut self.model;
         let mut hand_action: Option<HandAction> = None;
         let mut balance_toggle: Option<Balance> = None;
+        let mut skip_toggle: Option<bool> = None;
         let mut close_clicked = false;
         let mut scale_choice: Option<Option<f32>> = None;
         let mut reset_layout = false;
@@ -1287,6 +1288,15 @@ impl App {
                     });
                 }
                 ui.same_line();
+                // Independent of balanced mode on purpose: it changes what the game's own wheel
+                // does, not what the panel accepts, and a player may want one without the other.
+                // Read live rather than from the model: a hand edit to the ini arrives through the
+                // watcher, and a checkbox that disagreed with the file for a frame is a bug report.
+                let mut skip_box = crate::config::skip_assigned();
+                if ui.checkbox("skip assigned in wheel", &mut skip_box) {
+                    skip_toggle = Some(skip_box);
+                }
+                ui.same_line();
                 ui.text("UI scale");
                 ui.same_line();
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
@@ -1456,6 +1466,15 @@ impl App {
         }
         if let Some(choice) = scale_choice {
             self.set_ui_scale(choice);
+        }
+        if let Some(on) = skip_toggle {
+            crate::config::save_skip_assigned(on);
+            self.note = if on {
+                "the spell wheel will skip the spells this panel assigns".to_string()
+            } else {
+                "the spell wheel cycles every attuned spell again".to_string()
+            };
+            crate::log(&format!("panel: {}", self.note));
         }
     }
 
