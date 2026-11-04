@@ -56,6 +56,16 @@ unsafe extern "system" fn peek_detour(
     let original: unsafe extern "system" fn(*mut u8, *mut u8, u32, u32, u32) -> i32 =
         std::mem::transmute(tramp);
     let out = original(msg, hwnd, min, max, remove);
+    // First pump after the panel closed: how long the game took to come back. Logged once, because
+    // the answer is one number per close and a per-frame line would drown the log.
+    let closed_at = crate::window::CLOSED_AT.swap(0, std::sync::atomic::Ordering::Relaxed);
+    if closed_at != 0 {
+        let now = crate::logging::uptime_ms() as u64;
+        crate::log(&format!(
+            "panel: first game frame after close came {} ms later",
+            now.saturating_sub(closed_at)
+        ));
+    }
     // The panel pumps its own messages on its own thread; those ticks say nothing about the game's
     // frame cadence and would flatten the series while the panel is open.
     let thread = crate::win32::GetCurrentThreadId();

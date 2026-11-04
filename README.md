@@ -485,7 +485,7 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 | class ports with their own HUD (`ERNativeUI.dll` and friends) | no conflict: the panel is its own window, so their HUD keeps drawing |
 | Mod Engine 2 | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special |
 | other overlay mods | no swap-chain conflict; both drive the pointer while their window is open, so expect contention there |
-| ERD Tools | loads alongside fine, but **opening ERD's config window with both loaded crashes the game inside ERD** — see "ERD Tools" under Troubleshooting for the bisect that tells you which side to report it to |
+| ERD Tools | supported. Earlier builds crashed inside ERD when the panel opened; measured cause was the panel's own swap chain and `Present`, and the panel no longer has one (see "ERD Tools" under Troubleshooting for how that was found) |
 | spells/selection mods | direct conflict: both write the magic selection |
 | regulation mods | no conflict today (no param edits shipped) |
 | online / EAC | not supported by design |
@@ -516,8 +516,8 @@ you never have to turn debug on first.
 
 ### ERD Tools
 
-Casting works with ERD Tools loaded. Opening **ERD's own config window** with both loaded can kill
-the game, and the report says where:
+Supported, after a fix that came from a report. The symptom was a crash inside ERD a second after
+the panel opened, and the report said where:
 
 ```
 crash: exception 0xc0000005 at 0x7ffd3e3d64f9 in erdGameTools.dll (offset 0xa64f9) thread 30856 reading 0x20
@@ -527,17 +527,25 @@ crash:   frame 7: eldenring.exe+0x1ea0eac
 ```
 
 The faulting address is inside ERD, reading field `0x20` of a null pointer, and the call comes from
-the game's own per-frame code — this mod's only frame in that stack is its exception observer, which
-always returns `EXCEPTION_CONTINUE_SEARCH` and therefore neither raises nor hides the fault. The panel
-log in the same second reads `no frame presented for a second`, i.e. the game's present stopped while
-ERD's window was being built.
+the game's own per-frame code.
 
-Which side owns it, in one step:
+Reproduced locally by opening the panel on a timer, then bisected in five runs:
 
-1. Set `hooks = off`, restart, open ERD's config window. **Still crashes** → nothing of this mod is
-   installed, so it is ERD's to fix; send that log to ERD's author with the offset above.
-2. **Stops crashing** → send the log from that run and try `pointer_hook = off` and `raw_hook = off`
-   one at a time; the log's `hooks:` line lists which groups were live.
+| what exists | result |
+|---|---|
+| window only | no crash |
+| + a D3D11 device | no crash |
+| + a swap chain that is never presented | no crash |
+| + one `Present` | **crash** inside ERD |
+| `hooks = off` (none of this mod's detours) | **crash** — the detours were never involved |
+
+The trigger is a `Present` from the panel's window: ERD hooks the present path process-wide and its
+per-frame code then reads stale state. The panel therefore has **no swap chain** any more — it renders
+into a texture, copies that to a DIB and `BitBlt`s it into its window, which calls no `Present` at
+all. Cost is one GPU-to-CPU copy per drawn frame, reported as `present ok (copy under 1 ms)`.
+
+The bisect switches used to find this are still in the build, as environment variables rather than ini
+keys: `NR_CASTING_AUTO_PANEL_MS`, `NR_CASTING_PANEL_NODEVICE`, `NR_CASTING_PANEL_DEVICE_ONLY`.
 
 If the panel never appears, look for `panel:` — `panel: no panel graphics; staying closed` or
 `panel: D3D11 device creation failed` mean the window could not get a device (casting is

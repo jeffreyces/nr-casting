@@ -138,8 +138,9 @@ unsafe extern "system" fn present_detour(this: *mut u8, sync_interval: u32, flag
     }
     let original: unsafe extern "system" fn(*mut u8, u32, u32) -> i32 = std::mem::transmute(tramp);
     let out = original(this, sync_interval, flags);
-    // The panel's own presents are not the game's frames.
-    if CRATE_THREAD.with(|ours| !ours.get()) {
+    // Every present seen here is the game's now: the panel has no swap chain (see `surface.rs`),
+    // so there is no present of ours to filter out.
+    {
         // The thread that presents is the frame thread. Attribution used to follow whoever called
         // `PeekMessageW`, which on at least one machine is a different thread: a reporter's report
         // showed 56 presents a second beside "46 ms of CPU per frame", which cannot both be true.
@@ -149,15 +150,8 @@ unsafe extern "system" fn present_detour(this: *mut u8, sync_interval: u32, flag
     out
 }
 
-thread_local! {
-    /// Set while our own code is presenting (the panel's frame), so its presents are not counted.
-    pub static CRATE_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Mark the current call as ours: used by the panel around its own `Present`.
-pub fn in_our_present(ours: bool) {
-    CRATE_THREAD.with(|flag| flag.set(ours));
-}
+// The panel used to mark its own `Present` here so the clock would not count it. The panel has no
+// swap chain any more (see `surface.rs`), so there is no present of ours to exclude.
 
 // Keeps the unused-import warnings honest if the panel never presents in this build.
 #[allow(dead_code)]

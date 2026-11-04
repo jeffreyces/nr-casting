@@ -1247,6 +1247,40 @@ pub fn passthrough_note(class: &str, right_hand: bool) -> [String; 2] {
     ]
 }
 
+/// Copy `height` rows of `row_bytes` bytes from a mapped texture into a DIB's pixels.
+///
+/// The two pitches differ by construction: a mapped D3D11 staging texture reports its own
+/// `RowPitch` (often padded to a driver alignment), while a DIB section's rows are `width * 4`
+/// for 32-bit pixels. Copying `size` bytes straight across would either shear the image or run off
+/// the end of the destination; copying row by row with both pitches is the whole job, and it is the
+/// only part of the present path that can be tested without a GPU.
+///
+/// Returns the number of rows copied, or `None` if either buffer is too small for what was asked —
+/// the caller treats that as a failed frame rather than a partial blit.
+pub fn copy_rows(
+    src: &[u8],
+    src_pitch: usize,
+    dst: &mut [u8],
+    dst_pitch: usize,
+    height: usize,
+    row_bytes: usize,
+) -> Option<usize> {
+    if row_bytes > src_pitch || row_bytes > dst_pitch {
+        return None;
+    }
+    let src_needed = height.checked_sub(1)?.checked_mul(src_pitch)?.checked_add(row_bytes)?;
+    let dst_needed = height.checked_sub(1)?.checked_mul(dst_pitch)?.checked_add(row_bytes)?;
+    if src.len() < src_needed || dst.len() < dst_needed {
+        return None;
+    }
+    for row in 0..height {
+        let from = row * src_pitch;
+        let to = row * dst_pitch;
+        dst[to..to + row_bytes].copy_from_slice(&src[from..from + row_bytes]);
+    }
+    Some(height)
+}
+
 /// The sentence shown when the gate leaves a hand with nothing to offer, empty when it is fine.
 pub const ATTUNE_FIRST: &str = "attune spells in the game's spell menu, then come back";
 
@@ -1351,6 +1385,31 @@ pub fn schools_from_flags(bits_105: u8, bits_106: u8) -> CatalystSchools {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn copy_rows_respects_both_pitches() {
+        // A staging texture padded to 8 bytes a row, a DIB padded to 4: a straight copy of the
+        // pixels would shear every row by four bytes.
+        let src = [
+            1u8, 2, 3, 4, 0xAA, 0xAA, 0xAA, 0xAA, //
+            5, 6, 7, 8, 0xAA, 0xAA, 0xAA, 0xAA,
+        ];
+        let mut dst = [0u8; 8];
+        assert_eq!(crate::copy_rows(&src, 8, &mut dst, 4, 2, 4), Some(2));
+        assert_eq!(dst, [1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn copy_rows_refuses_buffers_it_cannot_fill() {
+        let src = [0u8; 4];
+        let mut dst = [0u8; 4];
+        // Two rows wanted, one available.
+        assert_eq!(crate::copy_rows(&src, 4, &mut dst, 4, 2, 4), None);
+        // A row wider than either pitch.
+        assert_eq!(crate::copy_rows(&src, 4, &mut dst, 4, 1, 8), None);
+        // Zero height is nothing to do, and reports it rather than pretending it copied.
+        assert_eq!(crate::copy_rows(&src, 4, &mut dst, 4, 0, 4), None);
+    }
+
     #[test]
     fn passthrough_note_names_the_class_and_its_own_chord() {
         let right = crate::passthrough_note("Duchess", true).join("\n");

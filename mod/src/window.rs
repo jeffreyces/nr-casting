@@ -37,16 +37,10 @@ use windows::Win32::Graphics::Direct3D::{
     D3D_FEATURE_LEVEL_11_0,
 };
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, D3D11CreateDeviceAndSwapChain, ID3D11DepthStencilView, ID3D11Device, ID3D11DeviceContext,
-    ID3D11RenderTargetView, ID3D11Texture2D, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
+    D3D11CreateDevice, ID3D11DepthStencilView, ID3D11Device, ID3D11DeviceContext,
+    ID3D11RenderTargetView, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
 };
-use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_DESC, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
-};
-use windows::Win32::Graphics::Dxgi::{
-    IDXGIAdapter, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_DISCARD,
-    DXGI_USAGE_RENDER_TARGET_OUTPUT,
-};
+use windows::Win32::Graphics::Dxgi::IDXGIAdapter;
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, HOT_KEY_MODIFIERS};
@@ -64,7 +58,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
-use crate::logging::debug;
 use crate::overlay::Panel;
 
 /// Height of the draggable header band, in physical pixels.
@@ -351,7 +344,9 @@ struct Input {
 struct Gfx {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
-    swap_chain: IDXGISwapChain,
+    /// Where the pixels go: a texture, a staging copy and a DIB. No swap chain, on purpose - see
+    /// `surface.rs` for the measurement that made that a requirement rather than a preference.
+    surface: crate::surface::Surface,
     view: Option<ID3D11RenderTargetView>,
     size: (u32, u32),
     /// ImGui context and renderer for the current scale.
@@ -421,24 +416,43 @@ unsafe fn build_ui(device: &ID3D11Device, scale: f32) -> Result<PanelUi, String>
 
 impl Gfx {
     unsafe fn rebuild_view(&mut self) {
-        let buffer: ID3D11Texture2D = match self.swap_chain.GetBuffer(0) {
-            Ok(buffer) => buffer,
-            Err(e) => {
-                crate::log(&format!("panel: no back buffer: {e}"));
-                return;
-            }
-        };
-        // Drop the old view before replacing it: `ResizeBuffers` calls this every time, and an
-        // overwritten COM pointer is a leaked render target, not a freed one.
+        // The render target is a texture this mod owns, so there is no back buffer to ask for and
+        // no `ResizeBuffers` that can fail while a view is alive.
+        //
+        // Drop the old view before replacing it: an overwritten COM pointer is a leaked render
+        // target, not a freed one.
         self.view = None;
         let mut view: Option<ID3D11RenderTargetView> = None;
         match self
             .device
-            .CreateRenderTargetView(&buffer, None, Some(&mut view))
+            .CreateRenderTargetView(self.surface.texture(), None, Some(&mut view))
         {
             Ok(()) => self.view = view,
             Err(e) => crate::log(&format!("panel: no render target: {e}")),
         }
+    }
+
+    /// Rebuild the render target and the DIB at a new size.
+    ///
+    /// A texture cannot be resized in place, so the old surface is replaced whole. A drag sends one
+    /// `WM_SIZE` per pixel of movement, so resizing allocates a fresh surface repeatedly; that is
+    /// the price of not having a swap chain to call `ResizeBuffers` on, and it is bounded by the
+    /// panel's own size (about 4 MB at 1623x720). If the new one
+    /// cannot be built the old one stays and the panel keeps drawing at its previous size, which is
+    /// a better failure than a window that stops updating.
+    unsafe fn resize_surface(&mut self, width: u32, height: u32) {
+        self.view = None;
+        match crate::surface::Surface::new(&self.device, width, height) {
+            Ok(surface) => {
+                self.surface = surface;
+                self.size = self.surface.size();
+            }
+            Err(e) => {
+                crate::log(&format!("panel: surface resize failed: {e}"));
+                return;
+            }
+        }
+        self.rebuild_view();
     }
 }
 
@@ -556,6 +570,16 @@ enum Resize {
     /// Exactly as tall as the layout used, no taller.
     Fit(f32),
 }
+
+/// Wall-clock milliseconds at the last close, for the frame clock to report the game's resume.
+///
+/// Closing this panel takes 0 ms in `set_open` and still feels like a hitch, which means the
+/// visible delay is on the game's side: it was unfocused while the panel was up, and the first
+/// frames after focus returns are what the player is waiting for. One number separates "our window
+/// lingers" from "the game took a moment", and it is the difference between a bug here and a
+/// consequence of stealing focus.
+pub(crate) static CLOSED_AT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 /// The id this window registers its hotkey under; `WM_HOTKEY` carries it back.
 const HOTKEY_ID: i32 = 1;
@@ -788,39 +812,6 @@ impl App {
 
     /// Build the device, swap chain and ImGui renderer. First open only.
     fn init_gfx(&mut self) -> bool {
-        // Experiment switch: `NR_CASTING_PANEL_NODEVICE=1` shows the window and skips every step
-        // that touches the graphics stack. It separates "our panel's window exists" from "our panel
-        // created a second D3D11 device and a swap chain", which are the two things a crash inside
-        // another mod's overlay can plausibly be caused by.
-        if std::env::var("NR_CASTING_PANEL_NODEVICE").is_ok() {
-            crate::log("panel: graphics skipped (NR_CASTING_PANEL_NODEVICE); window only");
-            return false;
-        }
-        // Second experiment switch: create the device and context, register no swap chain, draw
-        // nothing. It separates "a second D3D11 device exists" from "a second swap chain exists",
-        // which are the two candidates left once skipping graphics entirely stopped the crash.
-        if std::env::var("NR_CASTING_PANEL_DEVICE_ONLY").is_ok() {
-            let levels: [D3D_FEATURE_LEVEL; 1] = [D3D_FEATURE_LEVEL_11_0];
-            let mut device: Option<ID3D11Device> = None;
-            let mut context: Option<ID3D11DeviceContext> = None;
-            let built = unsafe {
-                D3D11CreateDevice(
-                    None::<&IDXGIAdapter>,
-                    D3D_DRIVER_TYPE_HARDWARE,
-                    HMODULE::default(),
-                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                    Some(&levels),
-                    D3D11_SDK_VERSION,
-                    Some(&mut device),
-                    None,
-                    Some(&mut context),
-                )
-            };
-            crate::log(&format!(
-                "panel: device only (NR_CASTING_PANEL_DEVICE_ONLY): {built:?}, no swap chain"
-            ));
-            return false;
-        }
         // The cursor hooks exist for the panel: they go in with it and come out with it.
         crate::pointer::engage_cursor(true);
         if self.gfx.is_some() {
@@ -831,64 +822,32 @@ impl App {
         let width = (rect.right - rect.left).max(1) as u32;
         let height = (rect.bottom - rect.top).max(1) as u32;
 
-        let desc = DXGI_SWAP_CHAIN_DESC {
-            BufferDesc: DXGI_MODE_DESC {
-                Width: width,
-                Height: height,
-                RefreshRate: DXGI_RATIONAL {
-                    Numerator: 60,
-                    Denominator: 1,
-                },
-                Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-                ScanlineOrdering: Default::default(),
-                Scaling: Default::default(),
-            },
-            SampleDesc: DXGI_SAMPLE_DESC {
-                Count: 1,
-                Quality: 0,
-            },
-            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            BufferCount: 2,
-            OutputWindow: self.hwnd,
-            Windowed: true.into(),
-            // Flip and blt model were both measured against the ERD Tools crash: neither changed it,
-            // so this stays on the model the panel has always used rather than changing a working
-            // path for no gain. The trigger turned out to be registering a swap chain at all, not
-            // which model it uses - `NR_CASTING_PANEL_DEVICE_ONLY` (device, no swap chain) runs
-            // clean where this crashes.
-            SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
-            Flags: 0,
-        };
-
+        let built_at = Instant::now();
+        // A device, and only a device. The panel used to build its swap chain here and `Present`
+        // into it; that single call is what killed ERD Tools when the panel opened (see
+        // `surface.rs`), so the swap chain is gone and the pixels travel through a DIB instead.
         let levels: [D3D_FEATURE_LEVEL; 3] = [
             D3D_FEATURE_LEVEL_11_0,
             D3D_FEATURE_LEVEL_10_1,
             D3D_FEATURE_LEVEL_10_0,
         ];
-        let mut swap_chain: Option<IDXGISwapChain> = None;
         let mut device: Option<ID3D11Device> = None;
         let mut context: Option<ID3D11DeviceContext> = None;
-        let mut level = D3D_FEATURE_LEVEL_11_0;
-
         let created = unsafe {
-            D3D11CreateDeviceAndSwapChain(
+            D3D11CreateDevice(
                 None::<&IDXGIAdapter>,
                 D3D_DRIVER_TYPE_HARDWARE,
                 HMODULE::default(),
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 Some(&levels),
                 D3D11_SDK_VERSION,
-                Some(&desc),
-                Some(&mut swap_chain),
                 Some(&mut device),
-                Some(&mut level),
+                None,
                 Some(&mut context),
             )
         };
-        let (device, context, swap_chain) = match (created, device, context, swap_chain) {
-            (Ok(()), Some(device), Some(context), Some(swap_chain)) => {
-                (device, context, swap_chain)
-            }
+        let (device, context) = match (created, device, context) {
+            (Ok(()), Some(device), Some(context)) => (device, context),
             (Err(e), ..) => {
                 crate::log(&format!("panel: D3D11 device creation failed: {e}"));
                 return false;
@@ -898,7 +857,18 @@ impl App {
                 return false;
             }
         };
+        let device_ms = built_at.elapsed().as_millis();
+        let surface_at = Instant::now();
+        let surface = match unsafe { crate::surface::Surface::new(&device, width, height) } {
+            Ok(surface) => surface,
+            Err(e) => {
+                crate::log(&format!("panel: no surface: {e}"));
+                return false;
+            }
+        };
 
+        let surface_ms = surface_at.elapsed().as_millis();
+        let ui_at = Instant::now();
         // The scale follows the window, which the window procedure sized from the monitor when it
         // was created — so the first thing the player sees on a 4K screen is already 2x.
         let scale = self.target_scale();
@@ -910,14 +880,20 @@ impl App {
             }
         };
 
+        // Open latency is user-visible ("a slight lag when it opens"), so the build reports what it
+        // cost and where: a device, the surface, or the font atlas. Guessing which is the slow part
+        // has cost a round trip before.
         crate::log(&format!(
-            "panel: D3D11 device + ImGui renderer created at {:.0}% ({width}x{height})",
-            scale * 100.0
+            "panel: D3D11 device + ImGui renderer created at {:.0}% ({width}x{height}); no swap \
+             chain; built in {} ms (device {device_ms}, surface {surface_ms}, ui {})",
+            scale * 100.0,
+            built_at.elapsed().as_millis(),
+            ui_at.elapsed().as_millis()
         ));
         let mut gfx = Gfx {
             device,
             context,
-            swap_chain,
+            surface,
             view: None,
             size: (width, height),
             ui: Some(ui),
@@ -1012,6 +988,10 @@ impl App {
     }
 
     fn set_open(&mut self, open: bool) {
+        // Opening and closing are the two moments the player feels, so they are timed and reported
+        // when they are slow enough to notice. "A slight lag on open and close" is a report about
+        // these two numbers, and nothing else in the log says them.
+        let began = Instant::now();
         // A guided run measures the game with the panel out of the way: it owns the input, the
         // cursor and a D3D11 device, and one report showed the panel reopening 25 times inside a
         // nine-minute run - which meant the run measured a game that had a window in front of it for
@@ -1072,7 +1052,15 @@ impl App {
             crate::dispatch::mark(crate::dispatch::PANEL_OPEN);
             self.model.reload();
         }
-        crate::log(if open { "panel: open" } else { "panel: closed" });
+        let spent = began.elapsed().as_millis();
+        if !open {
+            CLOSED_AT.store(
+                crate::logging::uptime_ms() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        let what = if open { "open" } else { "close" };
+        crate::log(&format!("panel: {what} in {spent} ms"));
     }
 
     /// Re-read the memorised list once a second while the panel is open.
@@ -1504,23 +1492,7 @@ impl App {
                 (client.bottom - client.top).max(1) as u32,
             );
             if size != gfx.size {
-                gfx.size = size;
-                gfx.view = None;
-                if let Err(e) = unsafe {
-                    gfx.swap_chain.ResizeBuffers(
-                        0,
-                        size.0,
-                        size.1,
-                        DXGI_FORMAT_R8G8B8A8_UNORM,
-                        Default::default(),
-                    )
-                } {
-                    crate::log(&format!("panel: resize failed at frame time: {e}"));
-                }
-                if let Ok(desc) = unsafe { gfx.swap_chain.GetDesc() } {
-                    gfx.size = (desc.BufferDesc.Width, desc.BufferDesc.Height);
-                }
-                unsafe { gfx.rebuild_view() };
+                unsafe { gfx.resize_surface(size.0, size.1) };
             }
         }
 
@@ -1566,21 +1538,14 @@ impl App {
                     gfx.presented = true;
                     crate::log("panel: first frame presented");
                 }
-                // Our own present is not a game frame: the clock hook reads every present in the
-                // process, including this one, and counting the panel's 60 Hz would flatten the
-                // series the moment it opens.
-                crate::present::in_our_present(true);
-                // Third experiment switch: build the swap chain but never present through it. It
-                // separates "a swap chain object exists" from "we put a frame on the screen", which
-                // decides whether a cheaper present can ever be compatible or the object itself is
-                // the problem.
-                let present: windows::core::HRESULT =
-                    if std::env::var("NR_CASTING_PANEL_NO_PRESENT").is_ok() {
-                        windows::core::HRESULT(0)
-                    } else {
-                        gfx.swap_chain.Present(1, Default::default())
-                    };
-                crate::present::in_our_present(false);
+                // Copy to a DIB and `BitBlt` it into the window. Deliberately *not* a swap chain:
+                // a single `Present` from this window killed another overlay mod's per-frame code,
+                // which is what `surface.rs` documents. The returned number is the copy's own
+                // cost, reported below rather than assumed.
+                //
+                // The present clock no longer needs telling that this is not a game frame: there
+                // is no `Present` here for it to see.
+                let present = gfx.surface.present(&gfx.context, self.hwnd);
                 if present.is_ok() {
                     gfx.last_present = Instant::now();
                 }
@@ -1591,8 +1556,15 @@ impl App {
                     gfx.last_report = Instant::now();
                     crate::log(&format!(
                         "panel: {cw}x{ch} client, {bw}x{bh} buffer, scale {scale:.2}, content \
-                         {content:.0}px, view {view}, present {}",
+                         {content:.0}px, view {view}, present {}{copy}",
                         if present.is_ok() { "ok" } else { "FAILED" },
+                        // An integer millisecond count hides everything below 1 ms, and "0 ms"
+                        // reads as a broken counter - so say what the resolution can support.
+                        copy = match present {
+                            Ok(0) => " (copy under 1 ms)".to_string(),
+                            Ok(ms) => format!(" ({ms} ms copy)"),
+                            Err(_) => String::new(),
+                        },
                         cw = (client.right - client.left).max(0),
                         ch = (client.bottom - client.top).max(0),
                         bw = gfx.size.0,
@@ -2099,37 +2071,10 @@ unsafe extern "system" fn wnd_proc(
                         let width = (lparam.0 & 0xFFFF) as u32;
                         let height = ((lparam.0 >> 16) & 0xFFFF) as u32;
                         if width > 0 && height > 0 && (width, height) != gfx.size {
-                            gfx.size = (width, height);
-                            // DXGI refuses ResizeBuffers while any reference to a back buffer
-                            // lives, so the render target has to go first.
-                            gfx.view = None;
-                            if let Err(e) = gfx.swap_chain.ResizeBuffers(
-                                0,
-                                width,
-                                height,
-                                DXGI_FORMAT_R8G8B8A8_UNORM,
-                                Default::default(),
-                            ) {
-                                crate::log(&format!("panel: resize failed: {e}"));
-                            }
-                            // The swap chain is the truth about how many pixels exist, not the
-                            // client rect we just asked for. ImGui is told this size, and its window
-                            // is drawn with it: if the two ever disagree the window's right and
-                            // bottom edges fall outside the buffer and their borders simply vanish.
-                            if let Ok(desc) = gfx.swap_chain.GetDesc() {
-                                let buffer = (desc.BufferDesc.Width, desc.BufferDesc.Height);
-                                if buffer != (width, height) {
-                                    crate::log(&format!(
-                                        "panel: swap chain is {}x{} while the client is \
-                                         {width}x{height} — drawing at the buffer size",
-                                        buffer.0, buffer.1
-                                    ));
-                                    gfx.size = buffer;
-                                } else {
-                                    debug!("panel: swap chain now {width}x{height}");
-                                }
-                            }
-                            gfx.rebuild_view();
+                            // The client rect is what the player asked for; the surface is built to
+                            // exactly that, so ImGui and the buffer cannot disagree about how many
+                            // pixels exist - which is what used to make a border vanish mid-drag.
+                            gfx.resize_surface(width, height);
                         }
                     }
                     // Every pixel of a drag lands here, so this only restarts the quiet timer.

@@ -173,11 +173,10 @@ native mod, and the shipped [code].me3[/code] profile is only needed for me3.[/*
 [*][b][url=https://www.nexusmods.com/eldenring/mods/510]Seamless Co-op[/url][/b] — runs its own launcher with EAC off, and casting has been reported
 working alongside it. The mod is not involved in the co-op layer; every player in a session still
 needs Seamless Co-op itself.[/*]
-[*][b]ERD Tools[/b] — casts fine with it loaded, but opening ERD's config window with both loaded
-crashes the game inside ERD. The fault is at [code]erdGameTools.dll+0xa64f9[/code] reading a null
-pointer, reached from the game's own frame code, and the mod's only frame in the report is its
-exception observer — which always passes the exception on. If it crashes with
-[code]hooks = off[/code] too, it is ERD's to fix; if not, send the log from that run.[/*]
+[*][b]ERD Tools[/b] — supported. Earlier builds crashed inside ERD a second after the panel opened;
+measured cause was the panel's own swap chain and [code]Present[/code] (ERD hooks that path
+process-wide), so the panel no longer has a swap chain: it renders to a texture, copies to a DIB and
+[code]BitBlt[/code]s it, calling no [code]Present[/code] at all.[/*]
 [*][b]Other overlay mods[/b] — no swap-chain conflict, but both drive the pointer while their window is open, so expect contention there.[/*]
 [*][b]Mod Engine 2[/b] — discontinued upstream, but the DLL is a plain native plugin.[/*]
 [*][b]Spell or selection mods[/b] — direct conflict, both write the game's magic selection.[/*]

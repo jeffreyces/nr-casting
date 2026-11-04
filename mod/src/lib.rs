@@ -64,6 +64,7 @@ mod msg;
 mod overlay;
 mod padcost;
 mod panel_geometry;
+mod surface;
 mod panel_report;
 mod panel_shell;
 mod params;
