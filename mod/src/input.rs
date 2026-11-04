@@ -1050,7 +1050,8 @@ pub(crate) fn set_y_bumper(allowed: bool) {
         crate::log(if allowed {
             "input: Y+R1 / Y+L1 are ours (4 spells per hand)"
         } else {
-            "input: Y+R1 / Y+L1 left to Recluse (3 spells per hand)"
+            // No class named: this is the state change; the caller's line says which port it went to.
+            "input: Y+R1 / Y+L1 belong to the class port (3 spells per hand)"
         });
     }
 }
