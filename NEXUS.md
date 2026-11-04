@@ -97,28 +97,28 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 [size=5][b]Configuration[/b][/size]
 
 [code][ui]
-overlay = on              ; show the panel at all
-hotkey = F8               ; key that opens it
-show_all = off            ; list spells you cannot cast yet
-balance = free            ; free = any spell, attuned = only memorised ones
-ui_scale = auto           ; auto follows the window, a number pins it
-panel_size = auto         ; window size, saved when you stop dragging
-panel_pos = auto          ; window corner, saved the same way
-hud_mirror = off          ; force the wheel to slot 1
+overlay = on              ; show the panel at all
+hotkey = F8               ; key that opens it
+show_all = off            ; list spells you cannot cast yet
+balance = free            ; free = any spell, attuned = only memorised ones
+ui_scale = auto           ; auto follows the window, a number pins it
+panel_size = auto         ; window size, saved when you stop dragging
+panel_pos = auto          ; window corner, saved the same way
+hud_mirror = off          ; force the wheel to slot 1
 
 [input]
-bind_modifier = L3        ; hold + a spell input to bind the wheel's spell
-bind_modifier_kb = Super  ; the same gesture on mouse and keyboard
-chord_stage = 2           ; reports spent releasing Y before a cast
+bind_modifier = L3        ; hold + a spell input to bind the wheel's spell
+bind_modifier_kb = Super  ; the same gesture on mouse and keyboard
+chord_stage = 2           ; reports spent releasing Y before a cast
 
 [recluse]
-y_bumper = auto           ; who gets Y+R1 / Y+L1: auto, on or off
-recluse_chr_ids = 8131    ; character ids that count as a Recluse
+y_bumper = auto           ; who gets Y+R1 / Y+L1: auto, on or off
+recluse_chr_ids = 8131    ; character ids that count as a Recluse
 
 [logging]
-hooks = on                ; off = no input detours (comparison only)
-debug_log = off           ; every cast logged
-perf_log = on             ; a line on a lost frame, else every 5 min[/code]
+hooks = on                ; off = no input detours (comparison only)
+debug_log = off           ; every cast logged
+perf_log = on             ; a line on a lost frame, else every 5 min[/code]
 
 Everything is optional: delete a line and the default above applies.
 
@@ -130,8 +130,11 @@ the spell and it comes back by itself.
 
 [code]y_bumper = auto[/code]
 takes [b]Y+R1[/b] / [b]Y+L1[/b] unless the Recluse mod is loaded and the character is a Recluse: there
-the chord goes to the class port's own [b]4[/b] / [b]5[/b] keys. [code]on[/code] always takes them,
-[code]off[/code] gives vanilla two-handing back.
+the chord goes to the class port's own [b]4[/b] / [b]5[/b] keys.
+[code]on[/code]
+always takes them,
+[code]off[/code]
+gives vanilla two-handing back.
 
 [code]hooks = off[/code]
 installs nothing and casting stops; it exists only to measure the game with the DLL loaded and idle.
