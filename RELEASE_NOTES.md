@@ -36,9 +36,23 @@ Two things a player ran into, both in how the mod decides what a catalyst can do
 
 - **The picker label says what the weapon offers**: `sorceries only`, `incantations only`,
   `sorceries and incantations`, or `not applicable`.
+- **The passthrough row names the class**: `Duchess class: passthrough to its 4 key`, not a hardcoded
+  "Recluse". The character itself cannot be asked — its id fields read 0 on current builds — so the
+  class is named from the port weapon in hand, in `nr_casting_class_ports.txt`, which is a text file
+  beside the DLL you can extend for another port.
+- **The panel follows the equipped pair while it is open**, so opening it during a load (or swapping a
+  weapon with it up) no longer shows the hands it opened with.
 - In balanced mode, the "no attuned sorcery left for this staff" notice only appears when the
   catalyst genuinely cannot cast that school — a both-school staff with nothing but incantations
   attuned is a different build, not a problem.
+
+## Notes
+
+Every number behind these decisions was read from the running game, and is written down with the
+method used, in `docs/probed-game-facts.md`: the two catalyst flag bytes and their offsets, the row
+size, the twelve staves and eleven seals they were checked against, and the nine character fields
+that turned out to be zero. The rule that produced it is in there too — probe and diff two known
+cases instead of trusting a field name, and validate any offset read before believing it.
 
 ## Verified
 

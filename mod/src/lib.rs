@@ -552,11 +552,14 @@ pub(crate) fn refresh_y_bumper() {
     if let Some((event_id, chr_id)) = ids {
         let packed = (event_id as u32 as u64) << 32 | chr_id as u64;
         if CHARACTER_IDS.swap(packed, Ordering::Relaxed) != packed && cfg.debug_log {
-            log(&format!(
-                "world: character ids event={event_id} chr={chr_id} npc={} (port mod: {loaded})",
-                game::player_npc_param_id().unwrap_or(0)
-            ));
-            log(&format!("world: class probe {}", game::class_probe()));
+            // The character's own ids are logged for one reason: they read 0 on current builds, which
+            // is why the class is named from the weapon in hand. See docs/probed-game-facts.md.
+            if crate::config::load().debug_log {
+                log(&format!(
+                    "world: character ids event={event_id} chr={chr_id} npc={} (port mod: {loaded})",
+                    game::player_npc_param_id().unwrap_or(0)
+                ));
+            }
         }
     }
     // The ini decides, except that a Recluse character never gets the chords under `auto`:

@@ -433,64 +433,88 @@ const SCHOOLS_TABLE: &str = include_str!("../data/nr_casting_catalyst_schools.tx
 /// Class ports' own weapons, and the class name each one belongs to.
 const PORTS_TABLE: &str = include_str!("../data/nr_casting_class_ports.txt");
 
-/// The class name for a port weapon, by base id.
-fn port_classes() -> &'static std::collections::HashMap<i32, String> {
-    static SET: std::sync::OnceLock<std::collections::HashMap<i32, String>> =
-        std::sync::OnceLock::new();
-    SET.get_or_init(|| {
-        let (text, _source) = table_text("nr_casting_class_ports.txt", PORTS_TABLE);
-        let mut map = std::collections::HashMap::new();
-        for line in text.lines() {
-            let line = line.split('#').next().unwrap_or("").trim();
-            let Some((id, name)) = line.split_once('=') else {
-                continue;
-            };
-            let (Ok(id), name) = (id.trim().parse::<i32>(), name.trim()) else {
-                continue;
-            };
-            if !name.is_empty() {
-                map.insert(id, name.to_string());
-            }
+/// One `id = text` table: the copy beside the DLL if there is one, otherwise the embedded copy.
+///
+/// Three tables in `data/` share this shape (weapon names, catalyst schools, class-port weapons).
+/// One parser means a blank line, a trailing comment or a stray space is handled the same way in all
+/// of them, and each file is parsed at most once.
+fn id_table(
+    file: &'static str,
+    embedded: &'static str,
+) -> &'static std::collections::HashMap<i32, String> {
+    type Tables = std::collections::HashMap<
+        &'static str,
+        &'static std::collections::HashMap<i32, String>,
+    >;
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<Tables>> = std::sync::OnceLock::new();
+    let mut cache = CACHE
+        .get_or_init(|| std::sync::Mutex::new(Tables::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(table) = cache.get(file) {
+        return table;
+    }
+    let (text, _source) = table_text(file, embedded);
+    let mut table = std::collections::HashMap::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let Some((id, value)) = line.split_once('=') else {
+            continue;
+        };
+        let Ok(id) = id.trim().parse::<i32>() else {
+            continue;
+        };
+        let value = value.trim();
+        if !value.is_empty() {
+            table.insert(id, value.to_string());
         }
-        map
-    })
+    }
+    // Leaked on purpose: three tables per process, read for the life of the session.
+    let leaked: &'static std::collections::HashMap<i32, String> = Box::leak(Box::new(table));
+    cache.insert(file, leaked);
+    leaked
+}
+
+fn table_text(name: &str, embedded: &'static str) -> (String, &'static str) {
+    match std::fs::read_to_string(crate::config::read_path(name)) {
+        Ok(text) => (text, "file"),
+        Err(_) => (embedded.to_string(), "embedded"),
+    }
+}
+
+/// Base weapon ids the vanilla table knows.
+fn vanilla_weapons() -> &'static std::collections::HashMap<i32, String> {
+    id_table("nr_casting_weapons.txt", WEAPONS_TABLE)
 }
 
 /// Which class port the equipped weapons belong to, if any.
 ///
 /// The character cannot be asked - its ids read 0 on this build - so the weapons answer instead.
-/// Every class port ships its own, and their ids are absent from the vanilla table; the table names
+/// Every class port ships its own, their ids are absent from the vanilla table, and the table names
 /// the class. `None` means no port weapon is in hand.
 pub fn port_class(weapons: (i32, i32)) -> Option<String> {
+    let table = id_table("nr_casting_class_ports.txt", PORTS_TABLE);
     for weapon in [weapons.1, weapons.0] {
         if weapon <= 0 {
             continue;
         }
         let base = nr_casting_core::base_weapon_id(weapon);
-        if let Some(name) = port_classes().get(&base) {
+        if let Some(name) = table.get(&base) {
             return Some(name.clone());
         }
     }
     None
 }
 
-/// Catalysts with a capability the id band cannot express, by base weapon id.
+/// Catalysts whose capability the id band cannot express, by base weapon id.
 fn school_overrides() -> &'static std::collections::HashMap<i32, nr_casting_core::CatalystSchools> {
     static SET: std::sync::OnceLock<
         std::collections::HashMap<i32, nr_casting_core::CatalystSchools>,
     > = std::sync::OnceLock::new();
     SET.get_or_init(|| {
-        let (text, _source) = table_text("nr_casting_catalyst_schools.txt", SCHOOLS_TABLE);
         let mut map = std::collections::HashMap::new();
-        for line in text.lines() {
-            let line = line.split('#').next().unwrap_or("").trim();
-            let Some((id, what)) = line.split_once('=') else {
-                continue;
-            };
-            let Ok(id) = id.trim().parse::<i32>() else {
-                continue;
-            };
-            let schools = match what.trim().to_ascii_lowercase().as_str() {
+        for (id, what) in id_table("nr_casting_catalyst_schools.txt", SCHOOLS_TABLE) {
+            let schools = match what.to_ascii_lowercase().as_str() {
                 "both" => nr_casting_core::CatalystSchools::BOTH,
                 "sorcery" => nr_casting_core::CatalystSchools::SORCERY,
                 "incantation" => nr_casting_core::CatalystSchools::INCANTATION,
@@ -502,32 +526,11 @@ fn school_overrides() -> &'static std::collections::HashMap<i32, nr_casting_core
                     continue;
                 }
             };
-            map.insert(id, schools);
+            map.insert(*id, schools);
         }
         map
     })
 }
-
-fn table_text(name: &str, embedded: &'static str) -> (String, &'static str) {
-    match std::fs::read_to_string(crate::config::read_path(name)) {
-        Ok(text) => (text, "file"),
-        Err(_) => (embedded.to_string(), "embedded"),
-    }
-}
-
-/// Base weapon ids the vanilla table knows, built once from the embedded copy.
-fn vanilla_weapons() -> &'static std::collections::HashSet<i32> {
-    static SET: std::sync::OnceLock<std::collections::HashSet<i32>> = std::sync::OnceLock::new();
-    SET.get_or_init(|| {
-        WEAPONS_TABLE
-            .lines()
-            .filter_map(|line| line.split('#').next())
-            .filter_map(|line| line.split_once('='))
-            .filter_map(|(id, _)| id.trim().parse::<i32>().ok())
-            .collect()
-    })
-}
-
 
 /// What a weapon can cast, decided from the game's own data rather than from the catalogue.
 ///
@@ -584,7 +587,7 @@ pub fn weapon_schools(weapon: i32) -> nr_casting_core::CatalystSchools {
 /// table lists. A class port ships its own catalysts, and those are exactly the ids that are
 /// missing here — which is how a Recluse character is recognised without knowing its chr id.
 pub(crate) fn is_vanilla_weapon(id: i32) -> bool {
-    id <= 0 || vanilla_weapons().contains(&(id - id % 100))
+    id <= 0 || vanilla_weapons().contains_key(&(id - id % 100))
 }
 
 /// One weapon's name by base id, for code outside the panel (the chord logic needs to know
@@ -595,24 +598,9 @@ pub(crate) fn is_vanilla_weapon(id: i32) -> bool {
 /// "... Seal". A weapon the table does not name is a content mod's, and the caller falls back to
 /// "has spells assigned" for those.
 pub(crate) fn weapon_name_base(id: i32) -> Option<String> {
-    static NAMES: std::sync::OnceLock<std::collections::HashMap<i32, String>> =
-        std::sync::OnceLock::new();
-    let names = NAMES.get_or_init(|| {
-        let (text, _source) = table_text("nr_casting_weapons.txt", WEAPONS_TABLE);
-        let mut map = std::collections::HashMap::new();
-        for line in text.lines() {
-            let line = line.split('#').next().unwrap_or("").trim();
-            if let Some((id, name)) = line.split_once('=') {
-                if let (Ok(id), name) = (id.trim().parse::<i32>(), name.trim()) {
-                    if !name.is_empty() {
-                        map.insert(id, name.to_string());
-                    }
-                }
-            }
-        }
-        map
-    });
-    names.get(&nr_casting_core::base_weapon_id(id)).cloned()
+    vanilla_weapons()
+        .get(&nr_casting_core::base_weapon_id(id))
+        .cloned()
 }
 
 fn load_weapon_names() -> std::collections::HashMap<i32, String> {

@@ -544,37 +544,6 @@ pub(crate) fn character_ids() -> Option<(i32, u32)> {
     Some((event_id, chr_id))
 }
 
-/// Every field that could plausibly identify the character's class, for one log line.
-///
-/// `ChrIns.character_id`, `PlayerGameData.character_event_id` and the player's `NpcParam` row all
-/// read 0 on current builds, which is why the class has been inferred from the weapon in hand. The
-/// name is readable, so the character is there; these are the other candidates, measured rather
-/// than assumed: a port's class should differ from a vanilla one in the model or the narrator data.
-pub(crate) fn class_probe() -> String {
-    let mut out = String::new();
-    if let Some(pgd) = game_data() {
-        out.push_str(&format!(
-            "chr_type={} archetype={} voice={} gender={} character_id={} player_id={}",
-            pgd.chr_type as u32,
-            pgd.archetype,
-            pgd.voice_type,
-            pgd.gender,
-            pgd.character_id,
-            pgd.player_id
-        ));
-    }
-    if let Some(player) = player() {
-        out.push_str(&format!(
-            " npc_id={} npc_param_id={} chr_type={} npc_param={}",
-            player.chr_ins.npc_id,
-            player.chr_ins.npc_param_id,
-            player.chr_ins.chr_type as u32,
-            player.npc_param.is_some()
-        ));
-    }
-    out
-}
-
 /// The `NpcParam` row behind the player's model.
 ///
 /// Logged, not decided on: `ChrIns.character_id` reads 0 on this build, so the ini's class ids
