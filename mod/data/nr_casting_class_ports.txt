@@ -1,0 +1,17 @@
+# Class ports: which weapon belongs to which port, and what the port calls that class.
+#
+# The panel has to say something better than "Recluse class" when the class is not a Recluse, and
+# the character itself cannot be asked: on current builds `ChrIns.character_id`,
+# `PlayerGameData.character_event_id` and the player's `NpcParam` row all read 0, so there is no id
+# to match. What is observable is the catalyst in hand - every class port ships its own weapons, and
+# their ids are missing from the vanilla table.
+#
+# Format: weapon_param_id = Class Name
+# Base ids only: the upgrade level is the low two digits and is stripped before the lookup.
+#
+# A port weapon that is not listed falls back to "class port", which is still true; add a line here
+# (or drop this file beside the DLL with the same name) to name a new port's class.
+
+33790000 = Recluse    # the port's glintstone staff (casts sorceries and incantations)
+33700000 = Duchess    # the port's dagger, right hand
+33700800 = Duchess    # the port's dagger, left hand

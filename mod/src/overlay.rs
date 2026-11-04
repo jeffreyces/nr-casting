@@ -430,6 +430,49 @@ const SPELLS_TABLE: &str = include_str!("../data/nr_casting_spells.txt");
 /// Catalysts that do not fit the id band. `EQUIP_PARAM_WEAPON_ST` has no field naming a spell
 /// school, so the exceptions ship as data.
 const SCHOOLS_TABLE: &str = include_str!("../data/nr_casting_catalyst_schools.txt");
+/// Class ports' own weapons, and the class name each one belongs to.
+const PORTS_TABLE: &str = include_str!("../data/nr_casting_class_ports.txt");
+
+/// The class name for a port weapon, by base id.
+fn port_classes() -> &'static std::collections::HashMap<i32, String> {
+    static SET: std::sync::OnceLock<std::collections::HashMap<i32, String>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(|| {
+        let (text, _source) = table_text("nr_casting_class_ports.txt", PORTS_TABLE);
+        let mut map = std::collections::HashMap::new();
+        for line in text.lines() {
+            let line = line.split('#').next().unwrap_or("").trim();
+            let Some((id, name)) = line.split_once('=') else {
+                continue;
+            };
+            let (Ok(id), name) = (id.trim().parse::<i32>(), name.trim()) else {
+                continue;
+            };
+            if !name.is_empty() {
+                map.insert(id, name.to_string());
+            }
+        }
+        map
+    })
+}
+
+/// Which class port the equipped weapons belong to, if any.
+///
+/// The character cannot be asked - its ids read 0 on this build - so the weapons answer instead.
+/// Every class port ships its own, and their ids are absent from the vanilla table; the table names
+/// the class. `None` means no port weapon is in hand.
+pub fn port_class(weapons: (i32, i32)) -> Option<String> {
+    for weapon in [weapons.1, weapons.0] {
+        if weapon <= 0 {
+            continue;
+        }
+        let base = nr_casting_core::base_weapon_id(weapon);
+        if let Some(name) = port_classes().get(&base) {
+            return Some(name.clone());
+        }
+    }
+    None
+}
 
 /// Catalysts with a capability the id band cannot express, by base weapon id.
 fn school_overrides() -> &'static std::collections::HashMap<i32, nr_casting_core::CatalystSchools> {
@@ -506,15 +549,12 @@ pub fn weapon_schools(weapon: i32) -> nr_casting_core::CatalystSchools {
     let base = nr_casting_core::base_weapon_id(weapon);
     if crate::params::flags_validated() {
         if let Some((bits_105, bits_106)) = crate::params::catalyst_flags(base) {
-            let schools = nr_casting_core::schools_from_flags(bits_105, bits_106);
-            if schools.any() {
-                return schools;
-            }
-            // Neither flag set: the game says this weapon casts nothing. Trust that for a vanilla
-            // weapon; a weapon the table does not know still gets the benefit of the doubt below.
-            if is_vanilla_weapon(base) {
-                return CatalystSchools::NONE;
-            }
+            // The row is readable and the offsets are proven, so its answer is the answer - for a
+            // vanilla staff, for the DLC's dual staff, and equally for a class port's own weapons.
+            // A port sets these bits on its catalysts (the Recluse staff reads 0x87/0x12) and
+            // leaves them clear on its daggers, which is exactly the distinction this needs; only
+            // an unreadable row falls through to the guesses below.
+            return nr_casting_core::schools_from_flags(bits_105, bits_106);
         }
     }
     if let Some(schools) = school_overrides().get(&base) {

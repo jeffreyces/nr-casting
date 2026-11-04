@@ -567,15 +567,20 @@ pub(crate) fn refresh_y_bumper() {
         // ours, so nothing is lost for players who run the port for one character only.
         config::YBumper::Auto => !(loaded && is_recluse),
     };
+    // Named from the port weapon in hand: the character's own ids read 0 on this build, so the
+    // class is inferred from what it is holding.
+    let class = game::weapon_ids()
+        .and_then(overlay::port_class)
+        .unwrap_or_else(|| "class port".to_string());
     let previous = Y_BUMPER_ALLOWED.swap(allowed, Ordering::Relaxed);
     if previous != allowed {
         log(&format!(
-            "input: Y+R1 / Y+L1 {} (recluse mod: {loaded}, recluse character: {is_recluse} \
+            "input: Y+R1 / Y+L1 {} (port mod: {loaded}, port character: {is_recluse} \
              [catalyst: {by_catalyst}], mode: {:?})",
             if allowed {
-                "are ours"
+                "are ours".to_string()
             } else {
-                "left to Recluse"
+                format!("left to {class}")
             },
             cfg.y_bumper
         ));

@@ -163,6 +163,9 @@ struct Model {
     boost: String,
     /// How many spells the pickers are offering, against the whole table.
     listed: String,
+    /// The class port the equipped weapons belong to, when one does: named from the port's own
+    /// weapon, because the character's ids read 0 on this build.
+    port_class: Option<String>,
     /// Whether assignments are limited to the character's memorised spells, and the memorised
     /// list itself. The column and every marker are conditional on `balance`.
     balance: Balance,
@@ -227,6 +230,7 @@ impl Model {
             weapons: (0, 0),
             search: String::new(),
             show_all: config.show_all,
+            port_class: None,
             balance: config.balance,
             attuned: Vec::new(),
             who: "waiting for the player...".to_string(),
@@ -273,9 +277,23 @@ impl Model {
         // game-memory read is allowed to be slow. The pad poll only ever consults the published
         // snapshot (see `game::spell_attuned`).
         self.balance = crate::config::balance();
+        // `debug_log` only: what the panel decided each hand can cast, with the weapon it decided
+        // it from. "The panel says both on a dagger" is a question about this line.
+        if crate::config::load().debug_log {
+            for (hand, weapon) in [("left", self.weapons.0), ("right", self.weapons.1)] {
+                let schools = self.panel.catalyst_schools(weapon);
+                crate::log(&format!(
+                    "panel: {hand} hand weapon {weapon} casts: {} (sorcery={} incantation={})",
+                    schools.label(),
+                    schools.sorcery,
+                    schools.incantation
+                ));
+            }
+        }
         crate::game::refresh_attuned();
         self.attuned = crate::game::attuned_snapshot();
         self.weapons = crate::weapon_ids().unwrap_or((0, 0));
+        self.port_class = crate::overlay::port_class(self.weapons);
         self.panel.set_filter(self.search.clone());
         self.panel.set_show_all(self.show_all);
         let listed = self.panel.candidates(&self.search).len();
@@ -1127,6 +1145,7 @@ impl App {
                     &candidates,
                     crate::input::y_bumper(),
                     &left_states,
+                    model.port_class.as_deref().unwrap_or("class port"),
                 ) {
                     hand_action = Some(action);
                 }
@@ -1181,6 +1200,7 @@ impl App {
                     &candidates_right,
                     crate::input::y_bumper(),
                     &right_states,
+                    model.port_class.as_deref().unwrap_or("class port"),
                 ) {
                     hand_action = Some(action);
                 }
@@ -1645,6 +1665,7 @@ fn hand_column(
     candidates: &[(i32, String)],
     y_bumper: bool,
     states: &[RowState; 4],
+    class_name: &str,
 ) -> Option<HandAction> {
     ui.text(heading);
     ui.text(if weapon > 0 {
@@ -1688,10 +1709,11 @@ fn hand_column(
         let dormant = state.dormant();
         ui.disabled(off_for_recluse || !can_cast, || {
             if off_for_recluse {
-                // Not "off": the chords still work on a Recluse, they just belong to the class
-                // port, which binds them to its own 4 and 5 keys.
+                // Not "off": the chords still work on the class character, they just belong to the
+                // class port, which binds them to its own 4 and 5 keys. The class is named from the
+                // port weapon in hand, because the character's ids read 0 on this build.
                 let key = if slot.right_hand { "4" } else { "5" };
-                ui.text_disabled(format!("(Recluse class: passthrough to its {key} key)"));
+                ui.text_disabled(format!("({class_name} class: passthrough to its {key} key)"));
             } else if let Some(picked) = slot_combo(
                 ui,
                 &format!("##{prefix}{index}"),
