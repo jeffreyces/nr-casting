@@ -97,65 +97,44 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 [size=5][b]Configuration[/b][/size]
 
 [code][ui]
-overlay = on
-hotkey = F8
-show_all = off
-balance = free
-ui_scale = auto
-panel_size = auto
-panel_pos = auto
-hud_mirror = off
+overlay = on                ; show the panel at all
+hotkey = F8                 ; key that opens it
+show_all = off              ; list spells the character cannot cast yet
+balance = free              ; free = any spell; attuned = only memorised ones
+ui_scale = auto             ; auto follows the window; a number pins 100-300%
+panel_size = auto           ; window size, saved when you stop dragging
+panel_pos = auto            ; window corner, saved the same way
+hud_mirror = off            ; force the game's wheel to slot 1 (fights your scrolling)
 
 [input]
-bind_modifier = L3
-bind_modifier_kb = Super
-chord_stage = 2
+bind_modifier = L3          ; hold this + a spell input to bind the wheel's spell
+bind_modifier_kb = Super    ; the same gesture on mouse and keyboard
+chord_stage = 2             ; reports spent releasing Y before a chord casts
 
 [recluse]
-y_bumper = auto
-recluse_chr_ids = 8131
+y_bumper = auto             ; who gets Y+R1 / Y+L1: auto, on or off
+recluse_chr_ids = 8131      ; character ids that count as a Recluse
 
 [logging]
-hooks = on
+hooks = on                  ; off = install no input detours (one comparison only)
 debug_log = off
-perf_log = on[/code]
+perf_log = on               ; a line when a frame is lost; heartbeat every 5 minutes[/code]
+
+Everything is optional: delete a line and the default above applies.
 
 [code]balance = attuned[/code]
-is optional and off by default: only spells you have memorised in the game's own spell menu can be
-assigned. A slot whose spell you no longer have attuned is greyed rather than cleared — reassign it
-from its own dropdown, or re-attune the spell and it comes back by itself.
+is the one worth knowing. Only spells you have memorised in the game's own spell menu can be
+assigned, so the mod works within your memory slots instead of replacing them. A slot whose spell you
+no longer have attuned is greyed rather than cleared — reassign it from its own dropdown, or re-attune
+the spell and it comes back by itself.
 
-[code]ui_scale[/code]
-sizes the panel's text and widgets:
-[code]auto[/code]
-follows the window, so dragging the corner grows the text with it; a number pins it between 100% and
-300%.
-[code]panel_size[/code]
-and
-[code]panel_pos[/code]
-are the window's size and corner, written when you stop dragging and on panel close; both reset with
-the panel's [b]reset layout[/b] button, or by deleting the line and letting
-[code]auto[/code]
-size it from the screen again.
-[code]perf_log[/code]
-writes a timing line when a frame is lost or a hook runs long, and a heartbeat every five minutes
-otherwise — the pad-poll gaps and what the mod's own hook costs, which is what a performance report
-needs.
+[code]y_bumper = auto[/code]
+takes [b]Y+R1[/b] / [b]Y+L1[/b] unless the Recluse mod is loaded and the character is a Recluse: there
+the chord goes to the class port's own [b]4[/b] / [b]5[/b] keys. [code]on[/code] always takes them,
+[code]off[/code] gives vanilla two-handing back.
+
 [code]hooks = off[/code]
-installs no input detours at all, so casting stops. It exists for one comparison — the game's frame
-timing with the DLL loaded and doing nothing — and the panel's guided run makes the same comparison
-from inside a single session.
-
-[code]y_bumper[/code]
-decides who gets [b]Y+R1[/b] / [b]Y+L1[/b]:
-[code]auto[/code]
-takes them unless the Recluse mod is
-loaded and the character is a Recluse — there the chord goes to the class port's own
-[b]4[/b] / [b]5[/b] keys (the pad report is left alone; an Alt click is translated into that key) —
-[code]on[/code]
-always takes them,
-[code]off[/code]
-gives vanilla two-handing back.
+installs nothing and casting stops; it exists only to measure the game with the DLL loaded and idle.
 
 [line]
 
