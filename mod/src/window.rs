@@ -1570,7 +1570,16 @@ impl App {
                 // process, including this one, and counting the panel's 60 Hz would flatten the
                 // series the moment it opens.
                 crate::present::in_our_present(true);
-                let present = gfx.swap_chain.Present(1, Default::default());
+                // Third experiment switch: build the swap chain but never present through it. It
+                // separates "a swap chain object exists" from "we put a frame on the screen", which
+                // decides whether a cheaper present can ever be compatible or the object itself is
+                // the problem.
+                let present: windows::core::HRESULT =
+                    if std::env::var("NR_CASTING_PANEL_NO_PRESENT").is_ok() {
+                        windows::core::HRESULT(0)
+                    } else {
+                        gfx.swap_chain.Present(1, Default::default())
+                    };
                 crate::present::in_our_present(false);
                 if present.is_ok() {
                     gfx.last_present = Instant::now();
