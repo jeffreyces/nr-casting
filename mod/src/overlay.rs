@@ -47,18 +47,6 @@ fn catalogue_is_current(text: &str, stamp: &str) -> bool {
     lines.next() == Some(CATALOGUE_VERSION) && lines.next() == Some(stamp)
 }
 
-/// What a hand's catalyst can cast, which decides what its pickers offer.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Catalyst {
-    /// A glintstone staff: sorceries only.
-    Staff,
-    /// A sacred seal: incantations only.
-    Seal,
-    /// A hand without a catalyst, or one that cannot be classified: everything is offered, because
-    /// guessing wrong would hide spells the player can actually use.
-    Other,
-}
-
 /// Whether this catalyst offers a catalogue row, by the school the game's own text names.
 ///
 /// A row whose school string is neither is offered: an unclassified spell is not evidence against
@@ -358,30 +346,6 @@ impl Panel {
             .collect()
     }
 
-    /// Staff, seal, or neither, for a weapon id.
-    ///
-    /// The id bands are the same ones `input.rs` uses to recognise a catalyst: `33xxxxxx` glintstone
-    /// staffs and `34xxxxxx` sacred seals, every row of both. Anything else falls back to the name,
-    /// which catches class-port catalysts and the odd vanilla weapon outside the bands.
-    pub fn catalyst_kind(&self, weapon: i32) -> Catalyst {
-        if weapon <= 0 {
-            return Catalyst::Other;
-        }
-        match weapon / 1_000_000 {
-            33 => return Catalyst::Staff,
-            34 => return Catalyst::Seal,
-            _ => {}
-        }
-        let name = self.weapon_label(weapon).to_ascii_lowercase();
-        if name.contains("staff") || name.contains("scepter") || name.contains("sceptre") {
-            Catalyst::Staff
-        } else if name.contains("seal") {
-            Catalyst::Seal
-        } else {
-            Catalyst::Other
-        }
-    }
-
     /// The catalogue's school for a spell id, for the balance gate.
     ///
     /// The catalogue already carries the string the game uses; this maps it onto the three values
@@ -408,35 +372,7 @@ impl Panel {
     ///    player can cast is worse than offering one the game will refuse;
     /// 3. the band rule, which is exact for the base game's 42 catalysts.
     pub fn catalyst_schools(&self, weapon: i32) -> nr_casting_core::CatalystSchools {
-        use nr_casting_core::CatalystSchools;
-        if weapon <= 0 {
-            return CatalystSchools::BOTH;
-        }
-        let base = nr_casting_core::base_weapon_id(weapon);
-        // First choice: the two flag bits in the weapon's own row, which say what the game will let
-        // it cast. They cover vanilla staves, seals, the dual catalysts from both the DLC and a
-        // class port, and anything else a mod adds - provided the offsets still validate.
-        if crate::params::flags_validated() {
-            if let Some((bits_105, bits_106)) = crate::params::catalyst_flags(base) {
-                let schools = nr_casting_core::schools_from_flags(bits_105, bits_106);
-                if schools != CatalystSchools::NONE {
-                    return schools;
-                }
-                // A row with neither bit is not a catalyst: fall through so a port's odd weapon
-                // still gets the benefit of the doubt below.
-            }
-        }
-        if let Some(schools) = school_overrides().get(&base) {
-            return *schools;
-        }
-        if !is_vanilla_weapon(base) {
-            return CatalystSchools::BOTH;
-        }
-        match self.catalyst_kind(weapon) {
-            Catalyst::Staff => CatalystSchools::SORCERY,
-            Catalyst::Seal => CatalystSchools::INCANTATION,
-            Catalyst::Other => CatalystSchools::BOTH,
-        }
+        weapon_schools(weapon)
     }
 
     pub fn assign(&self, weapon: i32, slot: usize, id: i32) {
@@ -547,6 +483,59 @@ fn vanilla_weapons() -> &'static std::collections::HashSet<i32> {
             .filter_map(|(id, _)| id.trim().parse::<i32>().ok())
             .collect()
     })
+}
+
+
+/// What a weapon can cast, decided from the game's own data rather than from the catalogue.
+///
+/// Free-standing because the pad thread has to answer it too: whether a hand's weapon is a catalyst
+/// decides whether a Y-chord belongs to the mod, and a dagger with leftover assignments must not
+/// claim one.
+///
+/// Order: the two flag bits in the weapon's own row (authoritative, covering dual catalysts from the
+/// DLC and from class ports), then the shipped exception table for builds where those offsets no
+/// longer validate, then "a weapon the vanilla table does not know is a mod's" (offered both, since
+/// hiding a spell it can cast is worse), then the id band and the name.
+pub fn weapon_schools(weapon: i32) -> nr_casting_core::CatalystSchools {
+    use nr_casting_core::CatalystSchools;
+    if weapon <= 0 {
+        // Nothing in hand: nothing casts. Returning "both" here is what made unarmed offer the
+        // whole catalogue.
+        return CatalystSchools::NONE;
+    }
+    let base = nr_casting_core::base_weapon_id(weapon);
+    if crate::params::flags_validated() {
+        if let Some((bits_105, bits_106)) = crate::params::catalyst_flags(base) {
+            let schools = nr_casting_core::schools_from_flags(bits_105, bits_106);
+            if schools.any() {
+                return schools;
+            }
+            // Neither flag set: the game says this weapon casts nothing. Trust that for a vanilla
+            // weapon; a weapon the table does not know still gets the benefit of the doubt below.
+            if is_vanilla_weapon(base) {
+                return CatalystSchools::NONE;
+            }
+        }
+    }
+    if let Some(schools) = school_overrides().get(&base) {
+        return *schools;
+    }
+    if !is_vanilla_weapon(base) {
+        return CatalystSchools::BOTH;
+    }
+    match base / 1_000_000 {
+        33 => return CatalystSchools::SORCERY,
+        34 => return CatalystSchools::INCANTATION,
+        _ => {}
+    }
+    let name = weapon_name_base(base).unwrap_or_default().to_ascii_lowercase();
+    if name.contains("staff") || name.contains("scepter") || name.contains("sceptre") {
+        CatalystSchools::SORCERY
+    } else if name.contains("seal") {
+        CatalystSchools::INCANTATION
+    } else {
+        CatalystSchools::NONE
+    }
 }
 
 /// Whether a weapon id came from the base game rather than from a content mod.

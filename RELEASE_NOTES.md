@@ -25,17 +25,24 @@ Two things a player ran into, both in how the mod decides what a catalyst can do
   working: the key is simply ignored. The character's `NpcParam` row is logged on load instead, so a
   measured rule can replace the guess later rather than another list nobody can fill in.
 
+- **A weapon that cannot cast offered every spell in the catalogue.** Unarmed, and any weapon the
+  flags say casts nothing, came back as "offers both" — the same value that means a dual catalyst —
+  so a dagger (or the Duchess's single-handed daggers) listed sorceries and incantations and accepted
+  an assignment that could never cast. It now reads `not applicable`, the four rows are disabled, and
+  such a weapon is no longer treated as a catalyst for the Y-chords either, even if an old
+  assignment is still sitting on it.
+
 ## Changed
 
-- **The picker label says what the catalyst offers**: `sorceries only`, `incantations only`, or
-  `sorceries and incantations`.
+- **The picker label says what the weapon offers**: `sorceries only`, `incantations only`,
+  `sorceries and incantations`, or `not applicable`.
 - In balanced mode, the "no attuned sorcery left for this staff" notice only appears when the
   catalyst genuinely cannot cast that school — a both-school staff with nothing but incantations
   attuned is a different build, not a problem.
 
 ## Verified
 
-109 unit tests green (4 of them for the flag bits and the both-school case). `cargo xwin check
+110 unit tests green (5 for the flag bits, the both-school case and the cannot-cast case). `cargo xwin check
 --target x86_64-pc-windows-msvc` clean, no warnings. The class-port path was exercised with the
 port's own staff equipped on a port character; the vanilla both-school staff was **not** tested in
 game — the id and its capability come from the shipped table, and the filtering rule is unit-tested.

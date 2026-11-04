@@ -1134,6 +1134,11 @@ fn catalyst_or_bound(weapon: i32, mask: u16, right: bool) -> bool {
         (mask >> nr_casting_core::SLOTS) & ((1 << nr_casting_core::SLOTS) - 1)
     };
     let base = nr_casting_core::base_weapon_id(weapon);
+    // A weapon that cannot cast is not a catalyst, even if a stale assignment sits on it: this is
+    // what let a dagger with leftover spells swallow its Y-chords.
+    if !crate::overlay::weapon_schools(base).any() {
+        return false;
+    }
     let band = base / 1_000_000;
     let answer = if band == 33 || band == 34 {
         true

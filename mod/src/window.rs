@@ -1654,9 +1654,10 @@ fn hand_column(
     });
     // Which spells this hand can actually cast, so a short list reads as a filter and not a bug.
     let schools = panel.catalyst_schools(weapon);
-    if !schools.label().is_empty() {
-        ui.text_disabled(schools.label());
-    }
+    // "not applicable" for an unarmed hand or a dagger, and the four rows are not offered at all:
+    // an assignment there could never cast, so the dropdown was inviting a mistake.
+    ui.text_disabled(schools.label());
+    let can_cast = schools.any();
     let mut chosen = None;
     for index in indices {
         let slot = SLOTS[index];
@@ -1685,7 +1686,7 @@ fn hand_column(
         // that the player can immediately pick a spell that is attuned. Only the press is ignored
         // (see `bound_spell`), and only an unattuned pick is refused at assignment time.
         let dormant = state.dormant();
-        ui.disabled(off_for_recluse, || {
+        ui.disabled(off_for_recluse || !can_cast, || {
             if off_for_recluse {
                 // Not "off": the chords still work on a Recluse, they just belong to the class
                 // port, which binds them to its own 4 and 5 keys.

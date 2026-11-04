@@ -1060,14 +1060,23 @@ impl CatalystSchools {
         }
     }
 
-    /// The line shown under the equipped catalyst, empty when nothing is filtered.
+    /// The line shown under the equipped weapon.
+    ///
+    /// "not applicable" rather than an empty line for a weapon that cannot cast: nothing equipped,
+    /// unarmed, a dagger. Blankness there read as "no filter applied", which is the opposite of
+    /// what it means, and the rows were still offered.
     pub fn label(self) -> &'static str {
         match (self.sorcery, self.incantation) {
             (true, true) => "sorceries and incantations",
             (true, false) => "sorceries only",
             (false, true) => "incantations only",
-            (false, false) => "",
+            (false, false) => "not applicable",
         }
+    }
+
+    /// Whether this hand can cast anything at all.
+    pub fn any(self) -> bool {
+        self.sorcery || self.incantation
     }
 }
 
@@ -2309,6 +2318,18 @@ mod balance_tests {
     }
 
     #[test]
+    fn a_weapon_that_cannot_cast_greys_every_assignment() {
+        // Unarmed, a dagger, a shield: nothing casts, so nothing is live - even a spell that is
+        // still attuned. The row is kept and stays editable; it simply cannot come out here.
+        assert_eq!(
+            classify(10, School::Sorcery, CatalystSchools::NONE, &[10]),
+            RowState::WrongSchool
+        );
+        assert_eq!(classify(-1, School::Sorcery, CatalystSchools::NONE, &[10]), RowState::Empty);
+        assert_eq!(balance_notice(CatalystSchools::NONE, &[School::Sorcery]), None);
+    }
+
+    #[test]
     fn a_both_school_catalyst_is_never_out_of_one_school() {
         // Attuned only sorceries, on a staff that also casts incantations: nothing to warn about.
         assert_eq!(
@@ -2326,7 +2347,9 @@ mod balance_tests {
         assert_eq!(CatalystSchools::SORCERY.label(), "sorceries only");
         assert_eq!(CatalystSchools::INCANTATION.label(), "incantations only");
         assert_eq!(CatalystSchools::BOTH.label(), "sorceries and incantations");
-        assert_eq!(CatalystSchools::NONE.label(), "");
+        assert_eq!(CatalystSchools::NONE.label(), "not applicable");
+        assert!(!CatalystSchools::NONE.any());
+        assert!(CatalystSchools::BOTH.any());
         assert!(!CatalystSchools::NONE.wants(School::Sorcery));
         assert!(!CatalystSchools::NONE.wants(School::Incantation));
         // An unclassified spell is always offered.
