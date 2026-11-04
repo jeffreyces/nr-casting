@@ -37,7 +37,7 @@ use windows::Win32::Graphics::Direct3D::{
     D3D_FEATURE_LEVEL_11_0,
 };
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDeviceAndSwapChain, ID3D11DepthStencilView, ID3D11Device, ID3D11DeviceContext,
+    D3D11CreateDevice, D3D11CreateDeviceAndSwapChain, ID3D11DepthStencilView, ID3D11Device, ID3D11DeviceContext,
     ID3D11RenderTargetView, ID3D11Texture2D, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
@@ -788,6 +788,39 @@ impl App {
 
     /// Build the device, swap chain and ImGui renderer. First open only.
     fn init_gfx(&mut self) -> bool {
+        // Experiment switch: `NR_CASTING_PANEL_NODEVICE=1` shows the window and skips every step
+        // that touches the graphics stack. It separates "our panel's window exists" from "our panel
+        // created a second D3D11 device and a swap chain", which are the two things a crash inside
+        // another mod's overlay can plausibly be caused by.
+        if std::env::var("NR_CASTING_PANEL_NODEVICE").is_ok() {
+            crate::log("panel: graphics skipped (NR_CASTING_PANEL_NODEVICE); window only");
+            return false;
+        }
+        // Second experiment switch: create the device and context, register no swap chain, draw
+        // nothing. It separates "a second D3D11 device exists" from "a second swap chain exists",
+        // which are the two candidates left once skipping graphics entirely stopped the crash.
+        if std::env::var("NR_CASTING_PANEL_DEVICE_ONLY").is_ok() {
+            let levels: [D3D_FEATURE_LEVEL; 1] = [D3D_FEATURE_LEVEL_11_0];
+            let mut device: Option<ID3D11Device> = None;
+            let mut context: Option<ID3D11DeviceContext> = None;
+            let built = unsafe {
+                D3D11CreateDevice(
+                    None::<&IDXGIAdapter>,
+                    D3D_DRIVER_TYPE_HARDWARE,
+                    HMODULE::default(),
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                    Some(&levels),
+                    D3D11_SDK_VERSION,
+                    Some(&mut device),
+                    None,
+                    Some(&mut context),
+                )
+            };
+            crate::log(&format!(
+                "panel: device only (NR_CASTING_PANEL_DEVICE_ONLY): {built:?}, no swap chain"
+            ));
+            return false;
+        }
         // The cursor hooks exist for the panel: they go in with it and come out with it.
         crate::pointer::engage_cursor(true);
         if self.gfx.is_some() {
@@ -818,6 +851,11 @@ impl App {
             BufferCount: 2,
             OutputWindow: self.hwnd,
             Windowed: true.into(),
+            // Flip and blt model were both measured against the ERD Tools crash: neither changed it,
+            // so this stays on the model the panel has always used rather than changing a working
+            // path for no gain. The trigger turned out to be registering a swap chain at all, not
+            // which model it uses - `NR_CASTING_PANEL_DEVICE_ONLY` (device, no swap chain) runs
+            // clean where this crashes.
             SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
             Flags: 0,
         };
@@ -1008,6 +1046,9 @@ impl App {
                     crate::pointer::adopt_game_window(previous.0 as usize);
                     self.previous_foreground = Some(previous);
                 }
+                // Showing without activation was measured against the same crash and changed
+                // nothing (it moved the fault to another offset), so activation stays: the panel
+                // needs the keyboard, and stealing focus is not what breaks the other overlay.
                 let _ = ShowWindow(self.hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(self.hwnd);
             } else if let Some(previous) = self.previous_foreground.take() {
@@ -2223,8 +2264,27 @@ pub fn start() {
             "panel: ready (hotkey unavailable to register — polling it instead)"
         });
 
+        // Developer knob, not a feature: `NR_CASTING_AUTO_PANEL_MS=8000` opens the panel once, that
+        // many milliseconds after the window exists, through the same `set_open` path the hotkey
+        // uses. It exists because reproducing another mod's crash needs our panel up, and there is
+        // no way to press a key from outside the process. Undocumented on purpose: a player has no
+        // use for it, and an ini switch nobody can explain is worse than an env var nobody sees.
+        let mut auto_open_at = std::env::var("NR_CASTING_AUTO_PANEL_MS")
+            .ok()
+            .and_then(|ms| ms.trim().parse::<u64>().ok())
+            .map(|ms| Instant::now() + std::time::Duration::from_millis(ms));
+
         let mut msg = MSG::default();
         loop {
+            if auto_open_at.is_some_and(|at| Instant::now() >= at) {
+                auto_open_at = None;
+                APP.with(|cell| {
+                    if let Some(app) = cell.borrow_mut().as_mut() {
+                        crate::log("panel: auto-open (NR_CASTING_AUTO_PANEL_MS)");
+                        app.set_open(true);
+                    }
+                });
+            }
             // PeekMessageW, not GetMessageW: the latter blocks, so the hotkey poll would never
             // run while the window sits idle.
             while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.0 != 0 {

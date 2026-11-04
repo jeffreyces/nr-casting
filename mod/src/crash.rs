@@ -150,19 +150,19 @@ unsafe extern "system" fn exception_handler(info: *mut ExceptionPointers) -> i32
     // another DLL reads exactly like a crash - which is the wrong conclusion to hand a reporter.
     let key = ((code as u64) << 32) ^ address as u64;
     let unhandled = LAST_SIGHTING.swap(key, Ordering::Relaxed) == key;
-    let mut module = [0u16; 96];
+    // Name the faulting module exactly as the frame walker does. The first version of this read
+    // into a 96-unit buffer and kept the *end* of the result, which cannot help: GetModuleFileNameW
+    // truncates from the START, so a long path (a plugin inside a mod manager's profile directory)
+    // lost the file name and the crash line named a fragment of a directory instead - a reporter's
+    // line read `in Elden_Ring_g` while the base was `erdGameTools.dll`, which is the one word that
+    // decides whose bug it is. `module_of` reads MAX_PATH and splits the file name off, and the
+    // frames below already use it; the fallback keeps the old fixed-buffer path for the case where
+    // the loader cannot name the module at all.
     let mut base = 0usize;
-    let mut module_len = 0usize;
-    // SAFETY: out-parameter is a local; the address is whatever the CPU faulted on, which
-    // GetModuleHandleExW answers without touching it.
-    unsafe {
-        let mut handle: *mut u8 = std::ptr::null_mut();
-        if GetModuleHandleExW(FROM_ADDRESS | UNCHANGED_REFCOUNT, address as *const u16, &mut handle) != 0
-            && !handle.is_null()
-        {
-            base = handle as usize;
-            module_len = GetModuleFileNameW(handle, module.as_mut_ptr(), module.len() as u32) as usize;
-        }
+    let mut name = String::new();
+    if let Some((found_base, found_name)) = module_of(address) {
+        base = found_base;
+        name = found_name;
     }
 
     // An access violation also says what it was doing and where.
@@ -173,25 +173,6 @@ unsafe extern "system" fn exception_handler(info: *mut ExceptionPointers) -> i32
     } else {
         None
     };
-
-    // The line is built from ASCII module names in a fixed buffer: no allocation, and no wide
-    // conversion machinery that could itself fault.
-    let mut ascii = [0u8; 96];
-    let mut ascii_len = 0usize;
-    // Keep the END of the path, not the start. me3 installs profiles under
-    // `%LOCALAPPDATA%\garyttierney\me3\config\profiles\eldenring-mods\<mod>\`, and 96 bytes of
-    // that is the directory - a reporter's crash line named the folder and cut off the DLL name,
-    // which is the one word that identifies the faulting module. The file name survives this way.
-    let units = &module[..module_len.min(module.len())];
-    let units = &units[units.len().saturating_sub(ascii.len())..];
-    for unit in units {
-        if *unit < 128 && ascii_len < ascii.len() {
-            ascii[ascii_len] = *unit as u8;
-            ascii_len += 1;
-        }
-    }
-    let path = std::str::from_utf8(&ascii[..ascii_len]).unwrap_or("");
-    let name = path.rsplit(['\\', '/']).next().unwrap_or(path);
 
     let ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -204,7 +185,7 @@ unsafe extern "system" fn exception_handler(info: *mut ExceptionPointers) -> i32
         unsafe { GetCurrentThreadId() },
         base,
         address.wrapping_sub(base),
-        name,
+        &name,
         access,
     );
     log_stack();
