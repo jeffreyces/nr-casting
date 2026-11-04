@@ -36,10 +36,13 @@ Two things a player ran into, both in how the mod decides what a catalyst can do
 
 - **The picker label says what the weapon offers**: `sorceries only`, `incantations only`,
   `sorceries and incantations`, or `not applicable`.
-- **The passthrough row names the class**: `Duchess class: passthrough to its 4 key`, not a hardcoded
-  "Recluse". The character itself cannot be asked — its id fields read 0 on current builds — so the
-  class is named from the port weapon in hand, in `nr_casting_class_ports.txt`, which is a text file
-  beside the DLL you can extend for another port.
+- **The passthrough row names the class and says what it costs**: `Duchess class: Y+R1 is its skill -
+  3 slots here`, not a hardcoded "Recluse" and not "its 4 key" — that is the port's keyboard fallback,
+  while on the pad it owns `Y+RB`. A second line gives the remedy (`y_bumper = on` plus a rebind of
+  the class skills in the game's own button settings), because the choice between the class skill and
+  the fourth slot is otherwise invisible. The character itself cannot be asked — its id fields read 0
+  on current builds — so the class is named from the port weapon in hand, in
+  `nr_casting_class_ports.txt`, a text file beside the DLL you can extend for another port.
 - **The panel follows the equipped pair while it is open**, so opening it during a load (or swapping a
   weapon with it up) no longer shows the hands it opened with.
 - In balanced mode, the "no attuned sorcery left for this staff" notice only appears when the
@@ -56,7 +59,8 @@ cases instead of trusting a field name, and validate any offset read before beli
 
 ## Verified
 
-110 unit tests green (5 for the flag bits, the both-school case and the cannot-cast case). `cargo xwin check
+112 unit tests green (5 for the flag bits, the both-school case and the cannot-cast case; 2 for the
+passthrough wording, whose figures are derived rather than typed). `cargo xwin check
 --target x86_64-pc-windows-msvc` clean, no warnings. The class-port path was exercised with the
 port's own staff equipped on a port character; the vanilla both-school staff was **not** tested in
 game — the id and its capability come from the shipped table, and the filtering rule is unit-tested.
