@@ -1279,6 +1279,26 @@ pub fn coverage(rows: &[i32], attuned: &[i32]) -> Coverage {
     counts
 }
 
+
+/// `bits_105` bit that says the catalyst casts sorceries.
+pub const CATALYST_SORCERY_BIT: u8 = 0x80;
+/// `bits_106` bit that says the catalyst casts incantations.
+pub const CATALYST_INCANTATION_BIT: u8 = 0x02;
+
+/// Read a catalyst's schools from the two flag bits in its `EquipParamWeapon` row.
+///
+/// Measured, not assumed: every vanilla staff has `0x87`/`0x10`, every vanilla seal `0x07`/`0x12`,
+/// and the two dual catalysts in the game (the Staff of the Great Beyond and a class port's staff)
+/// have `0x87`/`0x12` - one bit each, which is exactly the "catalyst type" the paramdef does not
+/// name. The bits are validated against a known staff and a known seal before they are trusted (see
+/// `params::catalyst_flags`), so a patched game falls back to the id band instead of lying.
+pub fn schools_from_flags(bits_105: u8, bits_106: u8) -> CatalystSchools {
+    CatalystSchools {
+        sorcery: bits_105 & CATALYST_SORCERY_BIT != 0,
+        incantation: bits_106 & CATALYST_INCANTATION_BIT != 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2450,6 +2470,20 @@ mod balance_tests {
         assert_eq!(parse_slots(&text), rows);
     }
 
+
+
+    // ---- catalyst flags ------------------------------------------------------------------
+
+    #[test]
+    fn the_flag_bits_split_staves_seals_and_dual_catalysts() {
+        // Measured from the running game: 12 staves, 11 seals, and the two dual catalysts.
+        assert_eq!(schools_from_flags(0x87, 0x10), CatalystSchools::SORCERY);
+        assert_eq!(schools_from_flags(0x07, 0x12), CatalystSchools::INCANTATION);
+        assert_eq!(schools_from_flags(0x87, 0x12), CatalystSchools::BOTH);
+        assert_eq!(schools_from_flags(0x00, 0x00), CatalystSchools::NONE);
+        // A row that is not a catalyst at all reads as none, and the caller falls back.
+        assert_eq!(schools_from_flags(0x07, 0x10), CatalystSchools::NONE);
+    }
 
     // ---- resolve_row_with: the store's lookup, testable --------------------------------
 

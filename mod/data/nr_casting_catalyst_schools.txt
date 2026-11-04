@@ -1,10 +1,12 @@
-# Catalysts that do not fit the id-band rule, and what they can cast.
+# Fallback: catalysts whose schools must be stated, for builds where the flag offsets no longer
+# validate.
 #
-# A glintstone staff (33xxxxxx) casts sorceries and a sacred seal (34xxxxxx) casts incantations
-# in vanilla, so the mod infers the school from the id band. That inference is wrong for the few
-# catalysts built to cast both, and there is nothing to read instead: EQUIP_PARAM_WEAPON_ST has no
-# field naming a spell school (weapon_category, wepmotion_category, wep_type and
-# behavior_variation_id are all about how it swings, not what it casts), so the answer ships here.
+# The schools are read from two flag bits in the weapon's own EquipParamWeapon row - 0x80 in
+# bits_105 for sorceries, 0x02 in bits_106 for incantations - which every vanilla staff (0x87/0x10),
+# every vanilla seal (0x07/0x12) and both dual catalysts (0x87/0x12: the Staff of the Great Beyond
+# and a class port's staff) agree on. The paramdef does not name those bytes, so they are read by
+# offset and checked against a known staff and seal before they are trusted; if a patch moves them,
+# this table is what keeps the dual catalysts working.
 #
 # Format: weapon_param_id = sorcery | incantation | both
 # Base ids only: the upgrade level is the low two digits and is stripped before the lookup.

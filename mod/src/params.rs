@@ -105,6 +105,57 @@ pub fn live_weapon_ids() -> Vec<i32> {
     out
 }
 
+/// Byte offsets of the two catalyst flag bytes inside an `EquipParamWeapon` row.
+///
+/// The vendored bindings generate these two fields without accessors (`bits_105` / `bits_106` are
+/// private), so they are read by offset - validated before use, because an offset that moved with a
+/// patch must not be believed. `flags_validated` proves the offset still lands on the two bits by
+/// checking a known staff and a known seal.
+const BITS_105_OFFSET: usize = 0x105;
+const BITS_106_OFFSET: usize = 0x106;
+
+/// The `(bits_105, bits_106)` pair of a weapon's param row.
+pub fn catalyst_flags(weapon: i32) -> Option<(u8, u8)> {
+    if weapon <= 0 {
+        return None;
+    }
+    let base = nr_casting_core::base_weapon_id(weapon);
+    let Ok(repo) = (unsafe { SoloParamRepository::instance() }) else {
+        return None;
+    };
+    let row = repo.get::<EquipParamWeapon>(base as u32)?;
+    let size = std::mem::size_of_val(row);
+    if size <= BITS_106_OFFSET {
+        return None;
+    }
+    // SAFETY: the row came from the repository, is `size` bytes of a plain struct, and both offsets
+    // were bounds-checked against that size.
+    let bytes = unsafe { std::slice::from_raw_parts(row as *const _ as *const u8, size) };
+    Some((bytes[BITS_105_OFFSET], bytes[BITS_106_OFFSET]))
+}
+
+/// Whether the flag offsets still mean what they meant when they were measured.
+///
+/// Checked once per process against two rows whose answer cannot change: a vanilla glintstone staff
+/// casts sorceries, a vanilla finger seal casts incantations. If either reads otherwise, the offsets
+/// have moved and the caller falls back to the id band rather than mislabelling every catalyst in
+/// the game.
+pub fn flags_validated() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        use nr_casting_core::CatalystSchools;
+        let staff = catalyst_flags(33_000_000).map(|(a, b)| nr_casting_core::schools_from_flags(a, b));
+        let seal = catalyst_flags(34_000_000).map(|(a, b)| nr_casting_core::schools_from_flags(a, b));
+        let ok = staff == Some(CatalystSchools::SORCERY) && seal == Some(CatalystSchools::INCANTATION);
+        crate::log(if ok {
+            "catalyst: school flags read from the weapon rows (staff and seal both check out)"
+        } else {
+            "catalyst: school flags did not validate against a known staff/seal - using the id band"
+        });
+        ok
+    })
+}
+
 /// The weapon's `EquipParamWeapon.weaponCategory`, for the log.
 ///
 /// Logged rather than used as a test: the Paramdex enum for this field is coarse and the numbers

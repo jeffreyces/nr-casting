@@ -413,6 +413,19 @@ impl Panel {
             return CatalystSchools::BOTH;
         }
         let base = nr_casting_core::base_weapon_id(weapon);
+        // First choice: the two flag bits in the weapon's own row, which say what the game will let
+        // it cast. They cover vanilla staves, seals, the dual catalysts from both the DLC and a
+        // class port, and anything else a mod adds - provided the offsets still validate.
+        if crate::params::flags_validated() {
+            if let Some((bits_105, bits_106)) = crate::params::catalyst_flags(base) {
+                let schools = nr_casting_core::schools_from_flags(bits_105, bits_106);
+                if schools != CatalystSchools::NONE {
+                    return schools;
+                }
+                // A row with neither bit is not a catalyst: fall through so a port's odd weapon
+                // still gets the benefit of the doubt below.
+            }
+        }
         if let Some(schools) = school_overrides().get(&base) {
             return *schools;
         }
