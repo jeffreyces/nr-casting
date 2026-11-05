@@ -1282,8 +1282,10 @@ impl App {
                 ui.same_line();
                 // A divider between "what the panel offers" and "how big it draws": the two
                 // checkboxes are features, the dropdown is display, and on one line they read as
-                // three settings of the same kind.
-                ui.text("|");
+                // three settings of the same kind. Drawn in the separators' own colour, so it reads
+                // as the same kind of rule as the horizontal ones rather than as another word.
+                let divider = ui.clone_style().colors[StyleColor::Separator as usize];
+                ui.text_colored(divider, "|");
                 ui.same_line();
                 ui.text("UI scale");
                 ui.same_line();
