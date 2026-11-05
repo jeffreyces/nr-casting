@@ -98,32 +98,32 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 [size=5][b]Configuration[/b][/size]
 
 [code][ui]
-overlay = on                  ; show the panel at all
-hotkey = F8                   ; key that opens it
-show_all = off                ; list spells you cannot cast yet
-balance = free                ; free = any spell, attuned = only memorised ones
-vanilla_skips_assigned = off  ; the game's wheel skips the spells this panel owns
-ui_scale = auto               ; auto follows the window, a number pins it
-panel_size = auto             ; window size, saved when you stop dragging
-panel_pos = auto              ; window corner, saved the same way
-hud_mirror = off              ; force the wheel to slot 1
+overlay = on                  ; show the panel at all
+hotkey = F8                   ; key that opens it
+show_all = off                ; list spells you cannot cast yet
+balance = free                ; free = any spell, attuned = only memorised ones
+vanilla_skips_assigned = off  ; the game's wheel skips the spells this panel owns
+ui_scale = auto               ; auto follows the window, a number pins it
+panel_size = auto             ; window size, saved when you stop dragging
+panel_pos = auto              ; window corner, saved the same way
+hud_mirror = off              ; force the wheel to slot 1
 
 [input]
-bind_modifier = L3        ; hold + a spell input to bind the wheel's spell
-bind_modifier_kb = Super  ; the same gesture on mouse and keyboard
-chord_stage = 2           ; reports spent releasing Y before a cast
-pad_hook = on             ; off = no pad hook at all (diagnostic)
+bind_modifier = L3            ; hold + a spell input to bind the wheel's spell
+bind_modifier_kb = Super      ; the same gesture on mouse and keyboard
+chord_stage = 2               ; reports spent releasing Y before a cast
+pad_hook = on                 ; off = no pad hook at all (diagnostic)
 
 [recluse]
-y_bumper = auto           ; who gets Y+R1 / Y+L1: auto, on or off
+y_bumper = auto               ; who gets Y+R1 / Y+L1: auto, on or off
 
 [logging]
-hooks = on                ; off = no input detours (comparison only)
-raw_hook = on             ; mouse and keyboard raw input, part of hooks
-pointer_hook = on         ; confine the pointer while the panel is open
-present_clock = off       ; dxgi Present as the frame clock (crashes under Proton)
-debug_log = off           ; every cast logged
-perf_log = on             ; a line on a lost frame, else every 5 min[/code]
+hooks = on                    ; off = no input detours (comparison only)
+raw_hook = on                 ; mouse and keyboard raw input, part of hooks
+pointer_hook = on             ; confine the pointer while the panel is open
+present_clock = off           ; dxgi Present as the frame clock (crashes under Proton)
+debug_log = off               ; every cast logged
+perf_log = on                 ; a line on a lost frame, else every 5 min[/code]
 
 Everything is optional: delete a line and the default above applies.
 
@@ -143,7 +143,8 @@ incantations out of the wheel. Nothing is removed from your memory slots — tho
 attuned and still cast from their own buttons — and if every attuned spell is assigned the wheel
 cycles normally. Casting from a bound button leaves the wheel on the spell you had selected, so the
 next press of up carries on from where you were. Independent of
-[code]balance[/code],
+[code]balance[/code]
+,
 applies immediately, off by default.
 
 [code]y_bumper = auto[/code]
