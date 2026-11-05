@@ -238,8 +238,9 @@ pub(crate) fn release_borrowed() -> bool {
     true
 }
 
-/// Put one borrowed entry back. `false` means the world was not readable and the record must be
-/// kept for another attempt.
+/// Undo one steer: put the entry back, and put the wheel back where the player left it.
+///
+/// `false` means the world was not readable and the record must be kept for another attempt.
 fn restore_one(magic: &mut eldenring::cs::EquipMagicData, snapshot: &Borrow) -> bool {
     match magic.entries.get_mut(snapshot.idx) {
         Some(entry) if entry.param_id == snapshot.steered => {
@@ -260,20 +261,29 @@ fn restore_one(magic: &mut eldenring::cs::EquipMagicData, snapshot: &Borrow) -> 
                 );
             } else {
                 RESTORE_FAILED.fetch_add(1, Ordering::Relaxed);
-                crate::log(&format!(
-                    "steer: restore of entry {} to spell {} did not land (found {}) - that slot holds our spell",
-                    snapshot.idx,
-                    snapshot.param_id,
-                    magic.entries.get(snapshot.idx).map(|e| e.param_id).unwrap_or(-2)
-                ));
+                // Logged once: a restore can be retried on every idle poll, and a failure that
+                // repeats (another mod rewriting the entry each frame) would otherwise write a line
+                // 125 times a second and churn the log's own 4 MiB rotation. The counter keeps
+                // counting, and the report prints it.
+                static WARNED_RESTORE: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !WARNED_RESTORE.swap(true, Ordering::Relaxed) {
+                    crate::log(&format!(
+                        "steer: restore of entry {} to spell {} did not land (found {}) - that slot holds our spell; further failures are counted only",
+                        snapshot.idx,
+                        snapshot.param_id,
+                        magic.entries.get(snapshot.idx).map(|e| e.param_id).unwrap_or(-2)
+                    ));
+                }
             }
             // Casting makes the game re-point the wheel at the spell it just cast: the selection
             // lands on the entry that really holds that spell, not on the one we borrowed, and the
             // wheel visibly jumps - and then the skip steps off that assigned spell as it should.
-            // Put the selection back where the player left it, but only when it moved onto the spell
-            // we steered, so a player cycling during the cast is never undone.
+            // Put the selection back where the player left it, but only when the entry really went
+            // back: on a failed restore that index holds *our* spell, and pointing the wheel there
+            // would show the player a spell they never chose.
             let selected = magic.selected_slot;
-            if selected >= 0 && selected as usize != snapshot.idx {
+            if landed && selected >= 0 && selected as usize != snapshot.idx {
                 let moved_onto_our_cast = magic
                     .entries
                     .get(selected as usize)
@@ -497,8 +507,15 @@ fn equipped_weapons() -> [i32; 6] {
 ///
 /// One function because both come from the same structure: two readers meant two `VirtualQuery`
 /// walks per frame and two chances for the pointer to move between them.
+/// How many memory slots the game's `EquipMagicData` has (`entries: [EquipMagicItem; 14]`).
+///
+/// The size is fixed by the structure, so the wheel is a fixed array and the per-frame read
+/// allocates nothing. A `Vec` here was one heap allocation per frame on the frame thread, for a
+/// length that can never vary.
+const MAGIC_SLOTS: usize = 14;
+
 struct Wheel {
-    spells: Vec<i32>,
+    spells: [i32; MAGIC_SLOTS],
     current: usize,
 }
 
@@ -510,9 +527,13 @@ fn read_wheel() -> Option<Wheel> {
         return None;
     }
     let originals = borrows();
-    let mut spells = Vec::with_capacity(len);
-    for (index, entry) in magic.entries.iter().enumerate() {
-        spells.push(original_at(&originals, index).unwrap_or(entry.param_id));
+    let mut spells = [0i32; MAGIC_SLOTS];
+    for (index, slot) in spells.iter_mut().enumerate() {
+        *slot = magic
+            .entries
+            .get(index)
+            .map(|entry| original_at(&originals, index).unwrap_or(entry.param_id))
+            .unwrap_or(-1);
     }
     Some(Wheel {
         spells,
@@ -588,16 +609,16 @@ pub(crate) fn wheel_tick() {
     // catalysts cannot cast at all. The second half is why unequipping a seal hides the incantations
     // again - the game would list them and then refuse the cast.
     let hidden = nr_casting_core::wheel_hidden(
-        &wheel.spells,
+        &wheel.spells[..],
         &assigned.spells,
         hands_capability(),
         crate::overlay::spell_school_static,
     );
-    let Some(target) = nr_casting_core::skip_target(wheel.current, &wheel.spells, &hidden) else {
+    let Some(target) = nr_casting_core::skip_target(wheel.current, &wheel.spells[..], &hidden) else {
         // Nothing to do. "Everything is assigned" is worth one line, so a player who presses up and
         // sees the wheel behave normally knows why rather than filing a bug.
         let on_hidden = hidden.contains(&wheel.spells[wheel.current]);
-        let nowhere = nr_casting_core::next_unassigned(wheel.current, &wheel.spells, &hidden).is_none();
+        let nowhere = nr_casting_core::next_unassigned(wheel.current, &wheel.spells[..], &hidden).is_none();
         if on_hidden && nowhere && !WARNED_ALL.swap(true, Ordering::Relaxed) {
             WHEEL_ALL_ASSIGNED.fetch_add(1, Ordering::Relaxed);
             crate::log(
