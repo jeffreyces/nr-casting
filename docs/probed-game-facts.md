@@ -3,6 +3,19 @@
 Everything here was read out of the live process, not inferred from wiki text or paramdex names.
 Each section says how it was measured, so it can be re-measured rather than re-guessed after a patch.
 
+## Equipped weapons (`PlayerGameData.equipment_param_ids`)
+
+**All six carried weapons are readable, three per hand.** `chr_asm.equipment_param_ids` is a 22-entry
+`i32` array and slots `0..=5` are `ChrAsmSlot` 0–5 — `WeaponLeft1, WeaponRight1, WeaponLeft2,
+WeaponRight2, WeaponLeft3, WeaponRight3`. `active_weapon_slot(hand)` separately says which of them is
+in a hand right now; that is the cast path's question, and the wheel's question is the whole carried
+set (a spell bound to the spare staff is still spoken for).
+
+Source of the mapping: the bindings' own documentation for `ChrAsmSlot`, not a measurement of ours.
+The engine prints the six ids labelled (`spell: carried L1=… R1=… L2=… R3=…`) at panel open so a
+report can confirm them against the equipment screen; if that line ever disagrees with what the player
+carries, this is the section to correct.
+
 ## Catalyst spell school (`EquipParamWeapon`)
 
 **A catalyst's schools are two flag bits in its own row.** The Paramdex-generated bindings name every

@@ -499,24 +499,41 @@ fn state() -> String {
     );
     let _ = writeln!(out, "raw: {}", crate::stats::raw_report());
     // The one line that turns "the write path is checked on the first cast" into an observation.
-    let (ok, refused, restore_refused) = crate::game::steer_counts();
+    let (ok, write_failed, busy, restore_failed, restore_superseded) = crate::game::steer_counts();
+    // Three different outcomes, so three numbers. One counter for "the write failed" and "we refused
+    // to write because others were in flight" made the report blame the write path for a scheduling
+    // decision, and the reader had no way to tell which had happened.
     let _ = writeln!(
         out,
-        "steering: {} of {} magic-entry writes read back as written{}",
-        ok,
-        ok + refused,
-        if refused == 0 {
-            String::new()
-        } else {
-            format!(" - {refused} did NOT take, so those casts used the wheel's spell")
-        }
+        "steering: {ok} of {} magic-entry writes read back as written",
+        ok + write_failed + busy
     );
-    // A refused restore leaves our spell in the player's memorised list, which is the one failure
-    // here that changes their character rather than just mis-casting once.
-    let _ = writeln!(
-        out,
-        "steering restores: {restore_refused} refused (each one left our spell in a memory slot)"
-    );
+    if write_failed > 0 {
+        let _ = writeln!(
+            out,
+            "steering: {write_failed} did NOT take, so those casts used the wheel's spell"
+        );
+    }
+    if busy > 0 {
+        let _ = writeln!(
+            out,
+            "steering: {busy} casts were refused while other casts were still in flight"
+        );
+    }
+    // Only a restore that did not land changes the player's character; one that found the entry
+    // already rewritten did not leave anything behind, and the two are printed apart.
+    if restore_failed > 0 {
+        let _ = writeln!(
+            out,
+            "steering restores: {restore_failed} did not land - the memory slot may hold our spell"
+        );
+    }
+    if restore_superseded > 0 {
+        let _ = writeln!(
+            out,
+            "steering restores: {restore_superseded} found the entry already changed (nothing left behind)"
+        );
+    }
     // Where our pad work spends its time. A group comparison can only say the group matters; this
     // says which line to look at, and separates "our code is slow" from "the game is slow after it".
     let minutes = (crate::logging::uptime_ms() / 60_000) as u64;

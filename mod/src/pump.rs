@@ -83,9 +83,12 @@ unsafe extern "system" fn peek_detour(
         if crate::config::skip_assigned() {
             crate::game::wheel_tick();
         }
-        // Cheap when nothing is being watched: one mutex read and a return.
-        crate::game::watch_wheel();
-        crate::game::watch_restored_entry();
+        // The wheel observer is a diagnostic, so it pays nothing unless the player asked for the log:
+        // it reads game memory to compare against the last wheel, and a session with `debug_log = off`
+        // must not walk those pointers every frame to feed a file nobody opens.
+        if crate::debug_enabled() {
+            crate::game::watch_wheel();
+        }
     }
     out
 }

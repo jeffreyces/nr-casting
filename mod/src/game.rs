@@ -40,16 +40,14 @@ static BORROWED: Mutex<Vec<Borrow>> = Mutex::new(Vec::new());
 /// More simultaneous steers than a player can meaningfully pull. Past this a cast is refused rather
 /// than risking a place: refusing one cast is recoverable, losing a memorised spell is not.
 const MAX_BORROWS: usize = 4;
-/// Non-blocking mirror of `BORROWED.is_some()` for the pad poll. The poll path runs on the game's
-/// input thread and must never queue behind the panel thread's lock.
-static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-/// Lock-free mirror of `Borrow::steered`: the spell the borrowed entry currently holds.
+/// Non-blocking mirror of `!BORROWED.is_empty()` for the pad poll, which runs on the game's input
+/// thread and must never queue behind a lock for a question it asks every poll.
 ///
-/// Steering is a write to game memory behind two `VirtualQuery` checks and two locks. Doing that
-/// once per press is the point; doing it on every poll of a held button (125 a second) was the
-/// per-poll cost most likely to be felt as a hitch while casting.
-static STEERED: AtomicI32 = AtomicI32::new(-1);
+/// Invariant: this is written **only** while the borrows are held, in the same function that changes
+/// the list, and its value is derived from the list rather than from what the caller believes. The
+/// version that stored `true` on the way in and `false` on the way out could be cleared underneath a
+/// borrow taken concurrently - and then nothing ever released that entry.
+static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Keep the borrowed entry in place until this millisecond timestamp.
 ///
@@ -63,15 +61,6 @@ static BORROW_HOLD_UNTIL: AtomicU32 = AtomicU32::new(0);
 /// Hold the borrowed entry for `ms` so the game's own click can act on it.
 pub(crate) fn hold_borrowed(ms: u32) {
     BORROW_HOLD_UNTIL.store(now_ms().wrapping_add(ms), Ordering::Relaxed);
-}
-
-/// The spell the borrow currently holds, or `-1` when nothing is borrowed.
-pub(crate) fn steered_spell() -> i32 {
-    if BORROW_ACTIVE.load(Ordering::Relaxed) {
-        STEERED.load(Ordering::Relaxed)
-    } else {
-        -1
-    }
 }
 
 /// Cached game pointers, in `usize` form so they can live in atomics.
@@ -105,72 +94,89 @@ const RECHECK_MS: u32 = 5000;
 /// slot, and permanently displacing somebody's spell risks the game saving that displacement.
 /// The tampering window here is one burst of input, and `release_borrowed` closes it on the
 /// first poll with no spell input held.
-fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
-    // No slots means nothing to steer (seen for a frame during a teardown); `entries[0]` would
-    // panic, and this crate is panic=abort, so a panic here kills the game.
+/// The borrows, with the poison rule in one place.
+///
+/// A panic elsewhere must not cost a player their memorised spell, so a poisoned lock is used
+/// rather than skipped: the earlier code had two call sites that quietly returned on poison, which
+/// meant one of them silently skipped a restore.
+fn borrows() -> std::sync::MutexGuard<'static, Vec<Borrow>> {
+    BORROWED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Which entry the game's selection points at, clamped to something that exists.
+///
+/// No slots means nothing to steer (seen for a frame during a teardown); `entries[0]` would panic,
+/// and this crate is panic=abort, so a panic here kills the game.
+fn selected_index(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
     if magic.entries.is_empty() {
         return None;
     }
     let selected = magic.selected_slot;
-    let idx = if (0..magic.entries.len() as i32).contains(&selected) {
+    Some(if (0..magic.entries.len() as i32).contains(&selected) {
         selected as usize
     } else {
         0
-    };
-    let mut borrowed = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
-    // Already steering this entry: its original is what is recorded, and re-snapshotting now would
-    // save our own value as the "original" - the exact way a place gets lost.
-    if borrowed.iter().any(|b| b.idx == idx) {
-        return Some(idx);
+    })
+}
+
+/// Snapshot the selected entry, steer it at `spell` and confirm the write, **as one operation**.
+///
+/// The snapshot and the write used to be two steps with the lock released between them, so a poll
+/// that released the borrow in that window restored the entry before our write landed - leaving our
+/// spell in the player's list with no record of it. Holding the lock across the whole thing is what
+/// makes that impossible; the write is a single store, so the lock is held for microseconds.
+fn borrow_and_write(magic: &mut eldenring::cs::EquipMagicData, spell: i32) -> Option<usize> {
+    let idx = selected_index(magic)?;
+    let mut list = borrows();
+    match list.iter_mut().find(|b| b.idx == idx) {
+        // Already steering this entry: its original is what is recorded, and re-snapshotting now
+        // would save our own value as the "original" - the other way a place gets lost.
+        Some(existing) => existing.steered = spell,
+        None => {
+            if list.len() >= MAX_BORROWS {
+                STEER_BUSY.fetch_add(1, Ordering::Relaxed);
+                crate::logging::debug!(
+                    "steer: {} casts still in flight, refusing entry {idx} instead of risking their places",
+                    list.len()
+                );
+                return None;
+            }
+            let entry = &magic.entries[idx];
+            crate::logging::debug!(
+                "steer: borrowing entry {} holding spell {} (charges {})",
+                idx,
+                entry.param_id,
+                entry.charges
+            );
+            list.push(Borrow {
+                idx,
+                param_id: entry.param_id,
+                charges: entry.charges,
+                steered: spell,
+            });
+        }
     }
-    if borrowed.len() >= MAX_BORROWS {
-        STEER_REFUSED.fetch_add(1, Ordering::Relaxed);
-        crate::logging::debug!(
-            "steer: {} casts still in flight, refusing {} instead of risking their places",
-            borrowed.len(),
-            idx
-        );
-        return None;
+    let entry = magic.entries.get_mut(idx)?;
+    entry.param_id = spell;
+    if entry.charges > 0 {
+        entry.charges = -1;
     }
-    let entry = &magic.entries[idx];
-    crate::logging::debug!(
-        "steer: borrowing entry {} holding spell {} (charges {})",
-        idx,
-        entry.param_id,
-        entry.charges
-    );
-    borrowed.push(Borrow {
-        idx,
-        param_id: entry.param_id,
-        charges: entry.charges,
-        steered: 0,
-    });
-    BORROW_ACTIVE.store(true, Ordering::Relaxed);
+    magic.selected_slot = idx as i32;
+    BORROW_ACTIVE.store(!list.is_empty(), Ordering::Relaxed);
     Some(idx)
 }
 
-/// Remember what `select_spell` wrote into the borrowed entry.
-fn remember_steered(idx: usize, spell: i32) {
-    STEERED.store(spell, Ordering::Relaxed);
-    if let Ok(mut slot) = BORROWED.lock() {
-        if let Some(borrow) = slot.iter_mut().find(|b| b.idx == idx) {
-            borrow.steered = spell;
-        }
-    }
-}
-
-/// The original value of every entry we are currently steering.
+/// The original of the borrowed entry at `idx`, if we are steering it.
 ///
-/// Readers show the player's wheel, not the spell we are about to cast, or the gate would approve
-/// the very spell it is supposed to stop.
-fn borrowed_originals() -> std::collections::HashMap<usize, i32> {
-    BORROWED
-        .lock()
-        .map(|guard| guard.iter().map(|b| (b.idx, b.param_id)).collect())
-        .unwrap_or_default()
+/// A lookup over the live borrows (at most `MAX_BORROWS`) rather than a map built per call: this is
+/// read on the frame clock, and the earlier version allocated a `HashMap` every frame for a value
+/// that only changes when a cast starts or ends. Readers show the player's wheel, not the spell we
+/// are about to cast, or the gate would approve the very spell it is supposed to stop.
+fn original_at(list: &[Borrow], idx: usize) -> Option<i32> {
+    list.iter().find(|b| b.idx == idx).map(|b| b.param_id)
 }
 
-/// Put back whatever `borrow_selected` overwrote.
+/// Put back whatever `borrow_and_write` overwrote.
 ///
 /// **Only call this from the game's own threads** — the pad poll is the only caller. A timer or
 /// the panel thread must never write here: the character can be freed by a load, a warp or a
@@ -192,15 +198,16 @@ pub(crate) fn release_borrowed() -> bool {
     if nr_casting_core::armed_until(now_ms(), BORROW_HOLD_UNTIL.load(Ordering::Relaxed)) {
         return false;
     }
-    let snapshots = {
-        let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
-        std::mem::take(&mut *slot)
-    };
-    if snapshots.is_empty() {
+    // Held for the whole operation, and the in-flight flag is derived from the list rather than
+    // stored beside it. Taking the snapshots out, restoring them and only then clearing the flag
+    // left a window where a borrow taken by another poll was merged after the fact - or, worse, the
+    // flag was cleared while that borrow was live, so nothing ever released it.
+    let mut list = borrows();
+    if list.is_empty() {
         BORROW_ACTIVE.store(false, Ordering::Relaxed);
-        STEERED.store(-1, Ordering::Relaxed);
         return false;
     }
+    let snapshots = std::mem::take(&mut *list);
     // From here the pointer is about to be walked: everything below this line is game memory,
     // whatever it returns.
     //
@@ -209,120 +216,82 @@ pub(crate) fn release_borrowed() -> bool {
     // warp, a death) lost the record of what to put back, and our steered spell stayed in the
     // player's memorised list with nothing left to undo it. The teardown path calls
     // `forget_borrowed`, so this cannot retry forever against a world that is really gone.
+    // One verified read for the whole pass: `restore_one` used to walk the pointer chain once per
+    // borrow, up to four times for a hand's worth of overlapping casts.
     let mut unrestored: Vec<Borrow> = Vec::new();
-    let mut touched = false;
-    for snapshot in snapshots {
-        if !restore_one(&snapshot) {
-            unrestored.push(snapshot);
+    match magic_data_verified() {
+        Some(magic) => {
+            for snapshot in snapshots {
+                if !restore_one(magic, &snapshot) {
+                    unrestored.push(snapshot);
+                }
+            }
         }
-        touched = true;
+        None => unrestored = snapshots,
     }
-    if unrestored.is_empty() {
-        BORROW_ACTIVE.store(false, Ordering::Relaxed);
-        STEERED.store(-1, Ordering::Relaxed);
-    } else {
-        if let Ok(mut slot) = BORROWED.lock() {
-            *slot = unrestored;
-        }
-        BORROW_ACTIVE.store(true, Ordering::Relaxed);
+    list.extend(unrestored);
+    let live = !list.is_empty();
+    drop(list);
+    BORROW_ACTIVE.store(live, Ordering::Relaxed);
+    if !live {
     }
-    touched
+    true
 }
 
 /// Put one borrowed entry back. `false` means the world was not readable and the record must be
 /// kept for another attempt.
-fn restore_one(snapshot: &Borrow) -> bool {
-    match magic_data_verified() {
-        Some(magic) => match magic.entries.get_mut(snapshot.idx) {
-            Some(entry) if entry.param_id == snapshot.steered => {
-                entry.param_id = snapshot.param_id;
-                entry.charges = snapshot.charges;
-                // Read the entry back: a restore that did not land is the whole bug, and writing it
-                // without checking is how it could go unnoticed.
-                let landed = magic
-                    .entries
-                    .get(snapshot.idx)
-                    .is_some_and(|e| e.param_id == snapshot.param_id);
-                if !landed {
-                    RESTORE_REFUSED.fetch_add(1, Ordering::Relaxed);
-                }
+fn restore_one(magic: &mut eldenring::cs::EquipMagicData, snapshot: &Borrow) -> bool {
+    match magic.entries.get_mut(snapshot.idx) {
+        Some(entry) if entry.param_id == snapshot.steered => {
+            entry.param_id = snapshot.param_id;
+            entry.charges = snapshot.charges;
+            // Read the entry back: a restore that did not land is the whole bug, and writing it
+            // without checking is how it could go unnoticed.
+            let landed = magic
+                .entries
+                .get(snapshot.idx)
+                .is_some_and(|e| e.param_id == snapshot.param_id);
+            if landed {
                 crate::logging::debug!(
                     "steer: restored entry {} to spell {} (after steering {})",
                     snapshot.idx,
                     snapshot.param_id,
                     snapshot.steered
                 );
-                *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = Some((
+            } else {
+                RESTORE_FAILED.fetch_add(1, Ordering::Relaxed);
+                crate::log(&format!(
+                    "steer: restore of entry {} to spell {} did not land (found {}) - that slot holds our spell",
                     snapshot.idx,
                     snapshot.param_id,
-                    crate::logging::uptime_ms() as u64 + WATCH_MS,
+                    magic.entries.get(snapshot.idx).map(|e| e.param_id).unwrap_or(-2)
                 ));
-                true
             }
-            Some(entry) => {
-                // Someone else owns the value now: our spell is not there, so nothing is left in
-                // the list. Count it, because it means a write of ours was overwritten mid-cast.
-                RESTORE_REFUSED.fetch_add(1, Ordering::Relaxed);
-                crate::logging::debug!(
-                    "steer: restore not needed at entry {} - our {} is gone, found {} (original {})",
-                    snapshot.idx,
-                    snapshot.steered,
-                    entry.param_id,
-                    snapshot.param_id
-                );
-                true
-            }
-            None => false,
-        },
+            true
+        }
+        Some(entry) => {
+            // Someone else owns the value now, so our spell is not there and nothing is left in the
+            // player's list. Counted apart from a failed restore: one means a displaced spell, the
+            // other means there is nothing to displace.
+            RESTORE_SUPERSEDED.fetch_add(1, Ordering::Relaxed);
+            crate::logging::debug!(
+                "steer: restore not needed at entry {} - our {} is gone, found {} (original {})",
+                snapshot.idx,
+                snapshot.steered,
+                entry.param_id,
+                snapshot.param_id
+            );
+            true
+        }
         None => false,
     }
 }
-
 /// Drop the borrow without touching game memory. For a world that is going away: the object is
 /// being freed, so there is nothing left to restore and no thread we may write from.
 pub(crate) fn forget_borrowed() {
-    let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
-    slot.clear();
+    let mut list = borrows();
+    list.clear();
     BORROW_ACTIVE.store(false, Ordering::Relaxed);
-    STEERED.store(-1, Ordering::Relaxed);
-}
-
-/// An entry whose restored value is being watched, and when the watch ends.
-///
-/// Our own write is restored (the trace says so), so if the player still sees a displaced spell the
-/// change happens *after* us - a save, a menu, another mod. Watching the entry for a few seconds is
-/// the only way to tell "the game put it back its own way" from "we never really restored it".
-static WATCH: std::sync::Mutex<Option<(usize, i32, u64)>> = std::sync::Mutex::new(None);
-/// How long an entry is watched after a restore.
-const WATCH_MS: u64 = 10_000;
-
-/// Look once per frame at an entry we just restored, and report any later change.
-pub(crate) fn watch_restored_entry() {
-    let Some((idx, expected, until)) = *WATCH.lock().unwrap_or_else(|e| e.into_inner()) else {
-        return;
-    };
-    if (crate::logging::uptime_ms() as u64) > until {
-        *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        return;
-    }
-    // Our own steer lands a few ms after the borrow, so a check made while a borrow is live reports
-    // our own value as a third party's. The watch only speaks when we are not mid-cast.
-    if BORROW_ACTIVE.load(Ordering::Relaxed) {
-        return;
-    }
-    let Some(magic) = magic_data_verified() else {
-        return;
-    };
-    let Some(entry) = magic.entries.get(idx) else {
-        return;
-    };
-    if entry.param_id != expected {
-        crate::log(&format!(
-            "steer: entry {idx} was restored to {expected} and is now {} - something else wrote it",
-            entry.param_id
-        ));
-        *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    }
 }
 
 /// The twelve memorised entries as the game holds them, oldest slot first.
@@ -335,40 +304,35 @@ pub(crate) fn log_entries() {
     };
     let ids: Vec<i32> = magic.entries.iter().map(|e| e.param_id).collect();
     crate::logging::debug!("spell: entries = {ids:?} (selected {})", magic.selected_slot);
+    // The six carried slots, labelled, on the same line as the wheel: the mapping from
+    // `equipment_param_ids` index to hand and number is the one thing here that came from the
+    // bindings' documentation rather than from a measurement of our own, so it is printed for the
+    // report to confirm against the equipment screen.
+    let carried = equipped_weapons();
+    crate::logging::debug!(
+        "spell: carried L1={} R1={} L2={} R2={} L3={} R3={}",
+        carried[0],
+        carried[1],
+        carried[2],
+        carried[3],
+        carried[4],
+        carried[5]
+    );
     // A spell cannot legitimately occupy two memory slots, so a duplicate is the fingerprint of a
-    // steer write that was never put back - ours from an older build, or another mod's. Saying so
-    // saves the next investigation from starting at "the mod replaced my spell" all over again.
-    for (i, id) in ids.iter().enumerate() {
+    // steer write that was never put back - ours from an older build, or another mod's. First-seen
+    // map rather than a scan per slot: this runs once at panel open, and the index arithmetic that
+    // version used was one more thing to misread.
+    let mut first_seen: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
+    for (slot, id) in ids.iter().enumerate() {
         if *id <= 0 {
             continue;
         }
-        if let Some(j) = ids.iter().skip(i + 1).position(|other| other == id) {
+        if let Some(first) = first_seen.insert(*id, slot) {
             crate::log(&format!(
-                "spell: {id} is in slots {i} and {} - a steer write was never put back; re-memorise it at a grace",
-                i + 1 + j
+                "spell: {id} is in slots {first} and {slot} - a steer write was never put back; re-memorise it at a grace"
             ));
         }
     }
-}
-
-/// The entries around `idx`, logged in the same breath as a steer write.
-///
-/// Writing one slot and seeing its *neighbour* change would mean the view we steer and the game's
-/// wheel disagree about the stride. Writing one slot and seeing a distant slot change a moment
-/// later means the game copies it. Those need opposite fixes, so both are logged rather than guessed.
-fn log_entry_neighbours(idx: usize) {
-    let Some(magic) = magic_data_verified() else {
-        return;
-    };
-    let at = |i: usize| magic.entries.get(i).map(|e| e.param_id).unwrap_or(-2);
-    crate::logging::debug!(
-        "steer: after writing entry {idx}: slots {}..{} read [{}, {}, {}]",
-        idx.saturating_sub(1),
-        idx + 1,
-        at(idx.saturating_sub(1)),
-        at(idx),
-        at(idx + 1)
-    );
 }
 
 /// The last wheel we saw, so any change made while we are not casting can be named.
@@ -525,14 +489,10 @@ fn read_wheel() -> Option<Wheel> {
     if current < 0 || current as usize >= len {
         return None;
     }
-    let originals = borrowed_originals();
+    let originals = borrows();
     let mut spells = Vec::with_capacity(len);
     for (index, entry) in magic.entries.iter().enumerate() {
-        let mut id = entry.param_id;
-        if let Some(original) = originals.get(&index) {
-            id = *original;
-        }
-        spells.push(id);
+        spells.push(original_at(&originals, index).unwrap_or(entry.param_id));
     }
     Some(Wheel {
         spells,
@@ -648,21 +608,25 @@ pub(crate) fn wheel_tick() {
 /// the check found: a claim with no observation behind it. The counters make the claim auditable
 /// from the report alone - a session with casts and zero refusals *is* the write verification.
 static STEER_OK: AtomicU32 = AtomicU32::new(0);
-static STEER_REFUSED: AtomicU32 = AtomicU32::new(0);
-/// Restores that were refused because the borrowed entry no longer held what we wrote.
-///
-/// A refusal is the one way our steered spell can stay in the memorised list: we wrote it, we then
-/// decline to put the original back, and the player's memory slot shows our spell instead. Counting
-/// it turns "the wheel replaced my spell" into a number, and the log line that comes with it says
-/// which index, what we expected and what was there.
-static RESTORE_REFUSED: AtomicU32 = AtomicU32::new(0);
+/// The write did not read back: a wrong offset, a read-only page, or the game rewriting it first.
+static STEER_WRITE_FAILED: AtomicU32 = AtomicU32::new(0);
+/// A cast was refused because the borrow list was full. Not a failure of the write.
+static STEER_BUSY: AtomicU32 = AtomicU32::new(0);
+/// A restore did not land: the dangerous one, and the only one that leaves our spell in the list.
+static RESTORE_FAILED: AtomicU32 = AtomicU32::new(0);
+/// A restore found the entry already holding something else, so our value was gone and there was
+/// nothing to put back. Benign - counted apart from `RESTORE_FAILED` because they mean opposites and
+/// one counter for both made the report claim a displaced spell where none was left.
+static RESTORE_SUPERSEDED: AtomicU32 = AtomicU32::new(0);
 
-/// Writes that read back as written, and writes that did not. Zero handles means no cast yet.
-pub(crate) fn steer_counts() -> (u32, u32, u32) {
+/// What the steer path has done, one number per meaning. Zero handles means no cast yet.
+pub(crate) fn steer_counts() -> (u32, u32, u32, u32, u32) {
     (
         STEER_OK.load(Ordering::Relaxed),
-        STEER_REFUSED.load(Ordering::Relaxed),
-        RESTORE_REFUSED.load(Ordering::Relaxed),
+        STEER_WRITE_FAILED.load(Ordering::Relaxed),
+        STEER_BUSY.load(Ordering::Relaxed),
+        RESTORE_FAILED.load(Ordering::Relaxed),
+        RESTORE_SUPERSEDED.load(Ordering::Relaxed),
     )
 }
 
@@ -670,17 +634,11 @@ pub(crate) fn select_spell(spell: i32) -> bool {
     let Some(magic) = magic_data_verified() else {
         return false;
     };
-    let Some(idx) = borrow_selected(magic) else {
+    // Snapshot and write together: a release on another poll cannot restore the entry between the
+    // two, which is how our spell used to be left in the list with nothing recording it.
+    let Some(idx) = borrow_and_write(magic, spell) else {
         return false;
     };
-    let Some(entry) = magic.entries.get_mut(idx) else {
-        return false;
-    };
-    entry.param_id = spell;
-    if entry.charges > 0 {
-        entry.charges = -1;
-    }
-    magic.selected_slot = idx as i32;
     // Read back what was just written. This is the whole of the write verification now: the write
     // is one the cast needs anyway, so checking it costs two loads and adds no memory shape of its
     // own — no snapshot, no restore, no synthetic sentinel. A wrong offset or a read-only page
@@ -688,7 +646,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
     let took = magic.entries.get(idx).map(|e| e.param_id) == Some(spell)
         && magic.selected_slot == idx as i32;
     if !took {
-        STEER_REFUSED.fetch_add(1, Ordering::Relaxed);
+        STEER_WRITE_FAILED.fetch_add(1, Ordering::Relaxed);
         static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
             crate::log(
@@ -699,8 +657,6 @@ pub(crate) fn select_spell(spell: i32) -> bool {
         return false;
     }
     STEER_OK.fetch_add(1, Ordering::Relaxed);
-    remember_steered(idx, spell);
-    log_entry_neighbours(idx);
     // The menu's `selected_magic_item` is deliberately left alone: the cast reads
     // `EquipMagicData`, that field is a display cache (it sat at the "no item" sentinel while
     // casting worked fine), and writing it is one more piece of shared state to fight another
@@ -1108,13 +1064,10 @@ pub(crate) fn attuned_generation() -> u32 {
 /// the count is what the report prints, and the game does not let the same spell be attuned twice.
 pub(crate) fn attuned_spells() -> Option<Vec<i32>> {
     let magic = magic_data_verified()?;
-    let originals = borrowed_originals();
+    let originals = borrows();
     let mut spells: Vec<i32> = Vec::with_capacity(magic.entries.len());
     for (idx, entry) in magic.entries.iter().enumerate() {
-        let mut id = entry.param_id;
-        if let Some(original) = originals.get(&idx) {
-            id = *original;
-        }
+        let id = original_at(&originals, idx).unwrap_or(entry.param_id);
         if id > 0 && !spells.contains(&id) {
             spells.push(id);
         }

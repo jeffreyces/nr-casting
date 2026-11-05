@@ -1480,14 +1480,10 @@ fn adjust_inner(state: &mut XInputState) {
                 release_borrowed();
             }
         }
-        // An idle poll is exactly where a borrow must go back: the button that started the cast has
-        // been released, and the release is what this pass sees. Skipping it here - which is what
-        // this arm did - meant the release only ever happened if another routed press arrived, so a
-        // borrow could outlive the cast that made it and leave our steered spell sitting in the
-        // player's memorised list. `release_borrowed` is one atomic load when nothing is in flight.
-        Route::Idle => {
-            release_borrowed();
-        }
+        // Unreachable: an idle poll returned above, and `idle()` has always called
+        // `release_borrowed` (the release was never the missing piece - a second overlapping cast
+        // overwrote the single borrow record, which is fixed in `game::borrow_and_write`).
+        Route::Idle => {}
     }
     // Marks raised during this poll (by the mirror, by the panel opening) are served here, after
     // the routing has finished: the dispatcher's work is never in the middle of a cast decision.
@@ -1760,7 +1756,10 @@ fn press_cast(pad: &mut XInputGamepad, right: bool, bound: i32, which: &str, now
     // selection already points at it. Redoing it on every poll of a held button was real work at
     // up to 125 Hz that changed nothing — the per-poll cost most likely to be felt as a hitch
     // while casting. Skip it while the borrow and the selection both still agree.
-    let steered = crate::game::steered_spell() == bound && selection_is(bound);
+    // "Already steered" is exactly "the entry the selection points at holds this spell". Asking a
+    // global for the last spell we wrote was ambiguous the moment two casts could be in flight, and
+    // it was the wrong question anyway: the player's own selection of that spell needs no write.
+    let steered = selection_is(bound);
     if !steered && !select_spell(bound) {
         debug!("input: {which} bound to {bound} but magic data unreadable — press swallowed");
         swallow_chord(pad);
