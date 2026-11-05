@@ -162,21 +162,47 @@ pub(crate) fn release_borrowed() -> bool {
     let Some(snapshot) = snapshot else {
         return false;
     };
-    // From here the borrow is gone and the pointer is about to be walked: everything below this
-    // line is game memory, whatever it returns.
-    let Some(magic) = magic_data_verified() else {
-        return true;
+    // From here the pointer is about to be walked: everything below this line is game memory,
+    // whatever it returns.
+    //
+    // The snapshot is only dropped once the restore has actually happened. Dropping it first - which
+    // is what this did - meant that a world that was unreadable for that one instant (a load, a
+    // warp, a death) lost the record of what to put back, and our steered spell stayed in the
+    // player's memorised list with nothing left to undo it. The teardown path calls
+    // `forget_borrowed`, so this cannot retry forever against a world that is really gone.
+    let restored = match magic_data_verified() {
+        Some(magic) => match magic.entries.get_mut(snapshot.idx) {
+            Some(entry) if entry.param_id == snapshot.steered => {
+                entry.param_id = snapshot.param_id;
+                entry.charges = snapshot.charges;
+                true
+            }
+            Some(entry) => {
+                // Someone else owns the value now: our spell is not there, so nothing is left in
+                // the list. Count it, because it means a write of ours was overwritten mid-cast.
+                RESTORE_REFUSED.fetch_add(1, Ordering::Relaxed);
+                crate::logging::debug!(
+                    "steer: restore not needed at entry {} - our {} is gone, found {} (original {})",
+                    snapshot.idx,
+                    snapshot.steered,
+                    entry.param_id,
+                    snapshot.param_id
+                );
+                true
+            }
+            None => false,
+        },
+        None => false,
     };
-    let Some(entry) = magic.entries.get_mut(snapshot.idx) else {
-        return true;
-    };
-    // Only undo our own write. If the entry no longer holds the spell we steered, someone else
-    // (the game rebuilding the wheel, another selection mod) owns the value now.
-    if entry.param_id != snapshot.steered {
-        return true;
+    if !restored {
+        // Put the record back and try again on the next poll: the world may be mid-load rather than
+        // gone, and the difference matters - one is a hiccup, the other is a spell of the player's
+        // replaced for good.
+        if let Ok(mut slot) = BORROWED.lock() {
+            *slot = Some(snapshot);
+        }
+        BORROW_ACTIVE.store(true, Ordering::Relaxed);
     }
-    entry.param_id = snapshot.param_id;
-    entry.charges = snapshot.charges;
     true
 }
 
@@ -443,12 +469,20 @@ pub(crate) fn wheel_tick() {
 /// from the report alone - a session with casts and zero refusals *is* the write verification.
 static STEER_OK: AtomicU32 = AtomicU32::new(0);
 static STEER_REFUSED: AtomicU32 = AtomicU32::new(0);
+/// Restores that were refused because the borrowed entry no longer held what we wrote.
+///
+/// A refusal is the one way our steered spell can stay in the memorised list: we wrote it, we then
+/// decline to put the original back, and the player's memory slot shows our spell instead. Counting
+/// it turns "the wheel replaced my spell" into a number, and the log line that comes with it says
+/// which index, what we expected and what was there.
+static RESTORE_REFUSED: AtomicU32 = AtomicU32::new(0);
 
 /// Writes that read back as written, and writes that did not. Zero handles means no cast yet.
-pub(crate) fn steer_counts() -> (u32, u32) {
+pub(crate) fn steer_counts() -> (u32, u32, u32) {
     (
         STEER_OK.load(Ordering::Relaxed),
         STEER_REFUSED.load(Ordering::Relaxed),
+        RESTORE_REFUSED.load(Ordering::Relaxed),
     )
 }
 

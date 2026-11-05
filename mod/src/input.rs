@@ -1480,7 +1480,14 @@ fn adjust_inner(state: &mut XInputState) {
                 release_borrowed();
             }
         }
-        Route::Idle => {}
+        // An idle poll is exactly where a borrow must go back: the button that started the cast has
+        // been released, and the release is what this pass sees. Skipping it here - which is what
+        // this arm did - meant the release only ever happened if another routed press arrived, so a
+        // borrow could outlive the cast that made it and leave our steered spell sitting in the
+        // player's memorised list. `release_borrowed` is one atomic load when nothing is in flight.
+        Route::Idle => {
+            release_borrowed();
+        }
     }
     // Marks raised during this poll (by the mirror, by the panel opening) are served here, after
     // the routing has finished: the dispatcher's work is never in the middle of a cast decision.

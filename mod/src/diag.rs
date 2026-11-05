@@ -499,7 +499,7 @@ fn state() -> String {
     );
     let _ = writeln!(out, "raw: {}", crate::stats::raw_report());
     // The one line that turns "the write path is checked on the first cast" into an observation.
-    let (ok, refused) = crate::game::steer_counts();
+    let (ok, refused, restore_refused) = crate::game::steer_counts();
     let _ = writeln!(
         out,
         "steering: {} of {} magic-entry writes read back as written{}",
@@ -510,6 +510,12 @@ fn state() -> String {
         } else {
             format!(" - {refused} did NOT take, so those casts used the wheel's spell")
         }
+    );
+    // A refused restore leaves our spell in the player's memorised list, which is the one failure
+    // here that changes their character rather than just mis-casting once.
+    let _ = writeln!(
+        out,
+        "steering restores: {restore_refused} refused (each one left our spell in a memory slot)"
     );
     // Where our pad work spends its time. A group comparison can only say the group matters; this
     // says which line to look at, and separates "our code is slow" from "the game is slow after it".
