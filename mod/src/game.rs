@@ -244,9 +244,10 @@ pub(crate) fn wheel_counts() -> (u32, u32, u32) {
     )
 }
 
-/// The assigned set with the store generation it was built from.
+/// The assigned set with what it was built from: the store's generation and the pair in hand.
 struct Assigned {
     generation: u32,
+    hands: (i32, i32),
     spells: std::collections::HashSet<i32>,
 }
 
@@ -258,17 +259,29 @@ fn assigned_cache() -> std::sync::MutexGuard<'static, Assigned> {
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<Assigned>> = OnceLock::new();
     let generation = crate::store::generation();
+    // Scope is the pair in hand, not the whole character. A player with two staves cleared a spell
+    // from the staff they were holding and it still never appeared in the wheel, because it was
+    // still in a row belonging to the other staff - or to another copy's override, which is filed on
+    // the full id. "What do the buttons I am holding own" is the question the wheel is asking.
+    let hands = crate::weapon_ids().unwrap_or((0, 0));
     let cache = CACHE.get_or_init(|| {
         Mutex::new(Assigned {
             generation: u32::MAX,
+            hands: (0, 0),
             spells: std::collections::HashSet::new(),
         })
     });
     let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.generation != generation {
-        let rows = crate::store::rows_snapshot();
+    if guard.generation != generation || guard.hands != hands {
+        let mut rows = std::collections::HashMap::new();
+        for weapon in [hands.0, hands.1] {
+            if let Some(row) = crate::store::store_get(weapon) {
+                rows.insert(weapon, row);
+            }
+        }
         guard.spells = nr_casting_core::assigned_spells(&rows);
         guard.generation = generation;
+        guard.hands = hands;
     }
     guard
 }

@@ -1253,7 +1253,7 @@ impl App {
                 // The panel's own settings get a row of their own, above the buttons: sharing one
                 // line with four buttons made a row that ran out of width on a narrower panel and
                 // read as one long sentence of controls.
-                vspace(ui, 10.0);
+                vspace(ui, SECTION_GAP);
                 // Always visible: hiding the switch that gets you out of the mode would be a trap.
                 // Flipping it applies immediately, in both directions.
                 let mut balanced_box = model.balance == Balance::Attuned;
@@ -1280,8 +1280,8 @@ impl App {
                     scale_choice = Some(choice);
                 }
                 // Space above *and* below the settings row, so it reads as its own band rather than
-                // as the first half of the buttons' row.
-                vspace(ui, 10.0);
+                // as the first half of the buttons' row - the same distance as every other section.
+                vspace(ui, SECTION_GAP);
                 if ui.button("refresh") {
                     model.reload();
                 }
@@ -1636,6 +1636,11 @@ pub(crate) fn help_line(ui: &Ui, text: &str) {
 ///
 /// `ui.spacing()` is one `ItemSpacing.y` (scaled with the UI), which is not what the layout wants
 /// here: the character block asks for 10 px margins and 5 px between its lines, whatever the scale.
+/// The gap between the panel's sections, in pixels: one number, so a row cannot end up with a gap
+/// that is visibly different from the one above it. `vspace` subtracts the item spacing ImGui adds
+/// by itself, so this is the whole distance between two rows.
+pub(crate) const SECTION_GAP: f32 = 10.0;
+
 pub(crate) fn vspace(ui: &Ui, px: f32) {
     let spacing = ui.clone_style().item_spacing[1];
     ui.dummy([0.0, (px - spacing).max(0.0)]);

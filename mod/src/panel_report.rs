@@ -6,7 +6,7 @@
 
 use imgui::Ui;
 
-use crate::window::{help_line, vspace};
+use crate::window::{help_line, vspace, SECTION_GAP};
 
 /// What a click did, and where the prompt ended up.
 pub(crate) struct ReportRow {
@@ -20,9 +20,11 @@ pub(crate) struct ReportRow {
 pub(crate) fn draw(ui: &Ui, prompt: bool) -> ReportRow {
     let mut row = ReportRow { diagnostics: false, start_run: false, prompt };
 
-    // Its own row, whatever the row above ended with: the previous item is a combo, which leaves
-    // the cursor mid-line.
-    ui.new_line();
+    // Its own row, at the same distance as every other section. This used to call `new_line`,
+    // which put the cursor a whole *line* below the row above - and that row ends in a combo, taller
+    // than a button, so the gap came out visibly larger than the one above it and grew the content
+    // past the window when the panel was resized.
+    vspace(ui, SECTION_GAP);
 
     if prompt {
         help_line(

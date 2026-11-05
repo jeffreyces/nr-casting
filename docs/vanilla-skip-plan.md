@@ -9,10 +9,13 @@ them". Settled with the user, then tests, then code.
    `param_id` in real memory slots, which empties them for the game, shrinks the attuned list that
    balanced mode reads, and fights re-attuning. Skipping reaches the same outcome - pressing up only
    ever lands on an unassigned spell - without editing the player's character data.
-2. **Scope is the character, not the hands.** A spell counts as assigned if any saved layout for this
-   character has it in a row. Swapping a staff therefore does not reshuffle the wheel, which is what
-   the reporter described ("my 7 main spells across two staves"). Per-copy overrides count too: the
-   set is built with the same resolution the cast path uses.
+2. **Scope is the pair in hand.** *Corrected after testing:* the first version counted every saved
+   row for the character, and a player with two staves cleared a spell from the staff in hand and it
+   still never appeared in the wheel — it was in a row belonging to the other staff, or to another
+   copy's override. The wheel is asking "what do the buttons I am holding own", so the set is the
+   resolved row of each equipped weapon (full-then-base, the same rule the cast path uses). Swapping
+   to a weapon with no rows therefore makes the wheel offer everything, which is what a player
+   expects when the panel owns nothing on it.
 3. **Everything assigned ⇒ vanilla.** If no unassigned spell is left, the game cycles exactly as it
    does today, and the log says so once. The wheel must never lock.
 4. **Pad and keyboard both.** Not by matching a button: by watching the *effect*. The selection index

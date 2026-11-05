@@ -21,11 +21,6 @@ static STORE: OnceLock<Mutex<HashMap<i32, Category>>> = OnceLock::new();
 
 /// A panic while holding the store would otherwise poison it and, with `panic = "abort"`,
 /// take the process with it. The data is plain values, so recovering the guard is safe.
-/// A copy of the saved layouts, for callers that need to look at all of them at once.
-pub(crate) fn rows_snapshot() -> HashMap<i32, Category> {
-    store_lock().clone()
-}
-
 fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, Category>> {
     STORE
         .get_or_init(|| Mutex::new(HashMap::new()))
