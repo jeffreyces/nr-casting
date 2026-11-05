@@ -1305,6 +1305,35 @@ pub fn skip_target(
     next_unassigned(current, spells, assigned).filter(|target| *target != current)
 }
 
+/// Which spells the vanilla wheel should not offer.
+///
+/// Two reasons to hide one, and they are different questions:
+///
+/// 1. **the buttons already own it** - it is assigned on a weapon in hand, so pressing up to reach a
+///    spell you can cast with one button is the clutter this feature exists to remove;
+/// 2. **it cannot be cast with what is in hand** - incantations while holding a staff. The game would
+///    put them on the wheel and then refuse the cast; hiding them is what a player asks for when they
+///    unequip a seal ("the incantations weren't present, that was better").
+///
+/// A spell whose school is unknown is never hidden by (2): a wrong guess here hides a spell the
+/// player can really cast, which is the worse error. If neither hand is a catalyst at all, (2) does
+/// nothing - with nothing equipped the wheel is the game's again.
+pub fn wheel_hidden(
+    spells: &[i32],
+    assigned: &std::collections::HashSet<i32>,
+    capability: CatalystSchools,
+    school_of: impl Fn(i32) -> School,
+) -> std::collections::HashSet<i32> {
+    let mut hidden = std::collections::HashSet::new();
+    for spell in spells.iter().copied().filter(|spell| *spell > 0) {
+        let uncastable = capability != CatalystSchools::NONE && !capability.wants(school_of(spell));
+        if assigned.contains(&spell) || uncastable {
+            hidden.insert(spell);
+        }
+    }
+    hidden
+}
+
 /// Copy `height` rows of `row_bytes` bytes from a mapped texture into a DIB's pixels.
 ///
 /// The two pitches differ by construction: a mapped D3D11 staging texture reports its own
@@ -1447,6 +1476,31 @@ mod tests {
 
     fn assigned(ids: &[i32]) -> HashSet<i32> {
         ids.iter().copied().collect()
+    }
+
+    #[test]
+    fn the_wheel_hides_what_the_buttons_own_and_what_the_hands_cannot_cast() {
+        use crate::School;
+        // A staff in hand: sorceries yes, incantations no.
+        let staff = crate::CatalystSchools::SORCERY;
+        let spells = [4000, 5000, 6000];
+        let school = |id: i32| match id {
+            4000 => School::Sorcery,
+            5000 => School::Incantation,
+            _ => School::Unknown,
+        };
+        let owned = assigned(&[4000]);
+        let hidden = crate::wheel_hidden(&spells, &owned, staff, school);
+        // The assigned sorcery and the uncastable incantation are both out; the unknown stays in.
+        assert!(hidden.contains(&4000), "{hidden:?}");
+        assert!(hidden.contains(&5000), "{hidden:?}");
+        assert!(!hidden.contains(&6000), "unknown school must stay offered");
+        // With nothing equipped, only assignments hide anything: the wheel is the game's again.
+        let none = crate::wheel_hidden(&spells, &owned, crate::CatalystSchools::NONE, school);
+        assert_eq!(none, owned);
+        // Empty entries are not spells and never enter the set.
+        let empty = crate::wheel_hidden(&[-1, -1], &owned, staff, school);
+        assert!(empty.is_empty(), "{empty:?}");
     }
 
     #[test]

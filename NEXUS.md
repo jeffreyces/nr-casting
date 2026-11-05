@@ -145,7 +145,8 @@ where you put Origin Skills lives in the game's own button settings and cannot b
 
 [code]vanilla_skips_assigned = on[/code]
 makes the game's own wheel step over the spells this panel assigns, so pressing up only lands on the
-ones you kept for the default cast. Nothing is removed from your memory slots — those spells stay
+ones you kept for the default cast. It also steps over the spells your catalysts cannot cast —
+incantations while you hold a staff — so unequipping a seal takes its incantations out of the wheel. Nothing is removed from your memory slots — those spells stay
 attuned and still cast from their own buttons — and if every attuned spell is assigned the wheel
 cycles normally. Independent of [code]balance[/code], applies immediately, off by default.
 

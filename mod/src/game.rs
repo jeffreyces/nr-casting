@@ -337,6 +337,20 @@ pub(crate) fn set_selected_index(index: usize) -> bool {
     magic.selected_slot == index as i32
 }
 
+/// What the two hands can cast between them.
+///
+/// The union, not the intersection: the wheel is one list for both hands, so a spell the left-hand
+/// seal can cast is castable.
+fn hands_capability() -> nr_casting_core::CatalystSchools {
+    let (left, right) = crate::weapon_ids().unwrap_or((0, 0));
+    let a = crate::overlay::weapon_schools(left);
+    let b = crate::overlay::weapon_schools(right);
+    nr_casting_core::CatalystSchools {
+        sorcery: a.sorcery || b.sorcery,
+        incantation: a.incantation || b.incantation,
+    }
+}
+
 /// Skip the spells the panel owns when the game cycles its wheel. Runs on the game's frame clock.
 pub(crate) fn wheel_tick() {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -364,15 +378,26 @@ pub(crate) fn wheel_tick() {
         return;
     }
     let assigned = assigned_cache();
-    let assigned = &assigned.spells;
-    let Some(target) = nr_casting_core::skip_target(wheel.current, &wheel.spells, assigned) else {
+    // What the wheel should not offer: what the buttons in hand already own, and what these
+    // catalysts cannot cast at all. The second half is why unequipping a seal hides the incantations
+    // again - the game would list them and then refuse the cast.
+    let hidden = nr_casting_core::wheel_hidden(
+        &wheel.spells,
+        &assigned.spells,
+        hands_capability(),
+        crate::overlay::spell_school_static,
+    );
+    let Some(target) = nr_casting_core::skip_target(wheel.current, &wheel.spells, &hidden) else {
         // Nothing to do. "Everything is assigned" is worth one line, so a player who presses up and
         // sees the wheel behave normally knows why rather than filing a bug.
-        let on_assigned = assigned.contains(&wheel.spells[wheel.current]);
-        let nowhere = nr_casting_core::next_unassigned(wheel.current, &wheel.spells, assigned).is_none();
-        if on_assigned && nowhere && !WARNED_ALL.swap(true, Ordering::Relaxed) {
+        let on_hidden = hidden.contains(&wheel.spells[wheel.current]);
+        let nowhere = nr_casting_core::next_unassigned(wheel.current, &wheel.spells, &hidden).is_none();
+        if on_hidden && nowhere && !WARNED_ALL.swap(true, Ordering::Relaxed) {
             WHEEL_ALL_ASSIGNED.fetch_add(1, Ordering::Relaxed);
-            crate::log("wheel: every attuned spell is assigned - the game's own cycling is left alone");
+            crate::log(
+                "wheel: no spell is left to offer here (everything attuned is assigned or cannot be \
+                 cast with these catalysts) - the game's own cycling is left alone",
+            );
         }
         return;
     };

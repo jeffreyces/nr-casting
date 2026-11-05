@@ -80,9 +80,11 @@ that hand. Four needs `y_bumper = on` plus a rebind of the class skills; see abo
 panel's buttons and keep one or two for the game's own default cast, the wheel still lists all of
 them. `vanilla_skips_assigned = on` makes the game's own cycling step over the spells the panel owns,
 so pressing up (or the keyboard cycle key) only lands on the ones you have not assigned. Nothing is
-removed from your memory slots: those spells stay attuned and still cast from their own buttons. If
-every attuned spell is assigned, the wheel cycles normally. It is independent of `balance`, applies
-immediately, and defaults to off.
+removed from your memory slots: those spells stay attuned and still cast from their own buttons. It
+also hides the spells the catalysts **in your hands cannot cast** — incantations while you hold only a
+staff — so unequipping a seal takes its incantations out of the wheel rather than leaving spells you
+can never cast. If nothing is left to offer, the wheel cycles normally. It is independent of
+`balance`, applies immediately, and defaults to off.
 
 The mouse uses the same eight slots with no separate configuration, and it *always* uses its own
 layer: the mod steers the selected spell and the game's own click performs the cast, with or without

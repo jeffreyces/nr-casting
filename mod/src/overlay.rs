@@ -352,13 +352,9 @@ impl Panel {
     /// the policy understands, with `Unknown` for anything it cannot classify so an odd port row is
     /// never greyed for a mismatch we invented.
     pub fn spell_school(&self, id: i32) -> nr_casting_core::School {
-        match self.spells.iter().find(|spell| spell.id == id) {
-            Some(spell) if spell.school.contains("Sorcery") => nr_casting_core::School::Sorcery,
-            Some(spell) if spell.school.contains("Incantation") => {
-                nr_casting_core::School::Incantation
-            }
-            _ => nr_casting_core::School::Unknown,
-        }
+        // One rule, one place: the wheel filter runs on the frame thread and cannot borrow this
+        // catalogue, so the lookup lives in a function both callers share.
+        spell_school_static(id)
     }
 
     /// What this weapon's hand can cast, in the policy's terms.
@@ -855,6 +851,37 @@ fn parse_spells(text: &str) -> Vec<Spell> {
     }
     out.sort_by_cached_key(|spell| spell.name.to_lowercase());
     out
+}
+
+/// A spell's school from the shipped table, without needing the panel's catalogue.
+///
+/// The catalogue reads the same file, so this is the same data rather than a second opinion - and
+/// the wheel's filter needs it on the frame thread, where the catalogue (which belongs to the panel)
+/// is not available.
+pub fn spell_school_static(id: i32) -> nr_casting_core::School {
+    use std::sync::OnceLock;
+    static MAP: OnceLock<std::collections::HashMap<i32, nr_casting_core::School>> = OnceLock::new();
+    let map = MAP.get_or_init(|| {
+        load_spells()
+            .into_iter()
+            .map(|spell| (spell.id, school_from_label(&spell.school)))
+            .collect()
+    });
+    map.get(&id)
+        .copied()
+        .unwrap_or(nr_casting_core::School::Unknown)
+}
+
+/// The table spells the school out (`Sorcery`, `Incantation`); anything else is unclassified and is
+/// never treated as a mismatch.
+fn school_from_label(label: &str) -> nr_casting_core::School {
+    if label.contains("Sorcery") {
+        nr_casting_core::School::Sorcery
+    } else if label.contains("Incantation") {
+        nr_casting_core::School::Incantation
+    } else {
+        nr_casting_core::School::Unknown
+    }
 }
 
 fn load_spells() -> Vec<Spell> {

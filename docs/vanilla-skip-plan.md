@@ -23,6 +23,11 @@ them". Settled with the user, then tests, then code.
    free one. This needs no knowledge of the keyboard's cycle key, survives remaps, and is one rule
    instead of two.
 5. **Independent of `balance`, default off**, live-reloadable like every other ini key.
+6. **A spell the hands cannot cast is hidden too.** *Added after testing:* pair scope alone brought
+   incantations back into the wheel when the seal was unequipped, which the reporter preferred
+   hidden. The rule is one question - "would the game refuse this cast right now" - and the answer is
+   already in the catalyst capability read from the weapon rows. Unknown school is never hidden, and
+   with no catalyst equipped only assignments hide anything.
 
 ## Why effect-based rather than swallowing the input
 
