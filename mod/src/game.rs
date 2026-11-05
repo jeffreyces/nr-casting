@@ -305,6 +305,55 @@ pub(crate) fn log_entries() {
     }
 }
 
+/// The entries around `idx`, logged in the same breath as a steer write.
+///
+/// Writing one slot and seeing its *neighbour* change would mean the view we steer and the game's
+/// wheel disagree about the stride. Writing one slot and seeing a distant slot change a moment
+/// later means the game copies it. Those need opposite fixes, so both are logged rather than guessed.
+fn log_entry_neighbours(idx: usize) {
+    let Some(magic) = magic_data_verified() else {
+        return;
+    };
+    let at = |i: usize| magic.entries.get(i).map(|e| e.param_id).unwrap_or(-2);
+    crate::logging::debug!(
+        "steer: after writing entry {idx}: slots {}..{} read [{}, {}, {}]",
+        idx.saturating_sub(1),
+        idx + 1,
+        at(idx.saturating_sub(1)),
+        at(idx),
+        at(idx + 1)
+    );
+}
+
+/// The last wheel we saw, so any change made while we are not casting can be named.
+static LAST_WHEEL: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
+
+/// Name every slot that changed while no steer was in flight.
+///
+/// This is the observer that was missing for the whole "the mod replaced my spell" thread: our own
+/// writes are restored and verified, so the displacement either comes from the game or from another
+/// mod, and this says which slot, from what, to what, and when.
+pub(crate) fn watch_wheel() {
+    if BORROW_ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(magic) = magic_data_verified() else {
+        return;
+    };
+    let now: Vec<i32> = magic.entries.iter().map(|e| e.param_id).collect();
+    let mut last = LAST_WHEEL.lock().unwrap_or_else(|e| e.into_inner());
+    if last.len() == now.len() {
+        for (slot, (was, is)) in last.iter().zip(now.iter()).enumerate() {
+            if was != is {
+                crate::log(&format!(
+                    "spell: slot {slot} changed {was} -> {is} with no steer in flight"
+                ));
+            }
+        }
+    }
+    *last = now;
+}
+
 /// Does the selection already point at `spell`?
 pub(crate) fn selection_is(spell: i32) -> bool {
     let Some(magic) = magic_data() else {
@@ -610,6 +659,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
     }
     STEER_OK.fetch_add(1, Ordering::Relaxed);
     remember_steered(spell);
+    log_entry_neighbours(idx);
     // The menu's `selected_magic_item` is deliberately left alone: the cast reads
     // `EquipMagicData`, that field is a display cache (it sat at the "no item" sentinel while
     // casting worked fine), and writing it is one more piece of shared state to fight another

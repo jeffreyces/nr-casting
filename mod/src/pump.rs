@@ -84,6 +84,7 @@ unsafe extern "system" fn peek_detour(
             crate::game::wheel_tick();
         }
         // Cheap when nothing is being watched: one mutex read and a return.
+        crate::game::watch_wheel();
         crate::game::watch_restored_entry();
     }
     out
