@@ -267,6 +267,26 @@ fn restore_one(magic: &mut eldenring::cs::EquipMagicData, snapshot: &Borrow) -> 
                     magic.entries.get(snapshot.idx).map(|e| e.param_id).unwrap_or(-2)
                 ));
             }
+            // Casting makes the game re-point the wheel at the spell it just cast: the selection
+            // lands on the entry that really holds that spell, not on the one we borrowed, and the
+            // wheel visibly jumps - and then the skip steps off that assigned spell as it should.
+            // Put the selection back where the player left it, but only when it moved onto the spell
+            // we steered, so a player cycling during the cast is never undone.
+            let selected = magic.selected_slot;
+            if selected >= 0 && selected as usize != snapshot.idx {
+                let moved_onto_our_cast = magic
+                    .entries
+                    .get(selected as usize)
+                    .is_some_and(|e| e.param_id == snapshot.steered);
+                if moved_onto_our_cast {
+                    magic.selected_slot = snapshot.idx as i32;
+                    crate::logging::debug!(
+                        "steer: wheel sat on the cast spell {} at entry {selected}; selection put back to entry {}",
+                        snapshot.steered,
+                        snapshot.idx
+                    );
+                }
+            }
             true
         }
         Some(entry) => {
