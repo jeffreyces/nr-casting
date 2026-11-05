@@ -380,10 +380,16 @@ impl Panel {
             return;
         }
         crate::store_set(weapon, slot, id);
-        crate::log(&format!(
-            "panel: slot {slot} on {weapon} = spell {id} ({})",
-            self.label(id)
-        ));
+        // A cleared row logs as cleared: `label(-1)` would read "(unknown -1)", which looks like a
+        // bug in the log rather than the thing the player asked for.
+        if id <= 0 {
+            crate::log(&format!("panel: slot {slot} on {weapon} cleared"));
+        } else {
+            crate::log(&format!(
+                "panel: slot {slot} on {weapon} = spell {id} ({})",
+                self.label(id)
+            ));
+        }
     }
 
     pub fn slot_value(&self, weapon: i32, slot: usize) -> i32 {

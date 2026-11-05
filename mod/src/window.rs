@@ -1250,35 +1250,12 @@ impl App {
                 // A section like the help text below it: a separator, the row, a separator. No
                 // frame of its own - the extra box only made the panel look smaller.
                 ui.separator();
-                // Breathing room of its own: the row sits between two rules, and without a margin
-                // its buttons and the dropdown crowd the separators above and below.
+                // The panel's own settings get a row of their own, above the buttons: sharing one
+                // line with four buttons made a row that ran out of width on a narrower panel and
+                // read as one long sentence of controls.
                 vspace(ui, 10.0);
-                if ui.button("refresh") {
-                    model.reload();
-                }
-                ui.same_line();
-                // Two characters with the same name, slot and appearance cannot be told apart, so
-                // the file is shared; this clears it for the one that is loaded.
-                if ui.button("reset slots") {
-                    crate::store::clear_character();
-                    model.reload();
-                }
-                ui.same_line();
-                // Back to the size and spot a first run would use: the way to see the first-open
-                // layout again (and to recover from a panel dragged off the screen) without
-                // hand-editing the ini.
-                if ui.button("reset layout") {
-                    reset_layout = true;
-                }
-                ui.same_line();
-                if ui.button("close") {
-                    // Handled after the frame: closing mid-frame would drop the state.
-                    close_clicked = true;
-                }
-                ui.same_line();
-                // The mode switch, beside the other panel setting that changes what the panel
-                // shows. Always visible: hiding the switch that gets you out of the mode would be
-                // a trap. Flipping it applies immediately, in both directions.
+                // Always visible: hiding the switch that gets you out of the mode would be a trap.
+                // Flipping it applies immediately, in both directions.
                 let mut balanced_box = model.balance == Balance::Attuned;
                 if ui.checkbox("balanced", &mut balanced_box) {
                     balance_toggle = Some(if balanced_box {
@@ -1301,6 +1278,31 @@ impl App {
                 ui.same_line();
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
                     scale_choice = Some(choice);
+                }
+                // Space above *and* below the settings row, so it reads as its own band rather than
+                // as the first half of the buttons' row.
+                vspace(ui, 10.0);
+                if ui.button("refresh") {
+                    model.reload();
+                }
+                ui.same_line();
+                // Two characters with the same name, slot and appearance cannot be told apart, so
+                // the file is shared; this clears it for the one that is loaded.
+                if ui.button("reset slots") {
+                    crate::store::clear_character();
+                    model.reload();
+                }
+                ui.same_line();
+                // Back to the size and spot a first run would use: the way to see the first-open
+                // layout again (and to recover from a panel dragged off the screen) without
+                // hand-editing the ini.
+                if ui.button("reset layout") {
+                    reset_layout = true;
+                }
+                ui.same_line();
+                if ui.button("close") {
+                    // Handled after the frame: closing mid-frame would drop the state.
+                    close_clicked = true;
                 }
                 // The reports get their own row: they are about handing over evidence, not about
                 // editing an assignment, and one of them is disabled for minutes at a time.
@@ -1426,7 +1428,13 @@ impl App {
                 HandAction::Assign(index, spell_id) => {
                     let slot = SLOTS[index];
                     let weapon = self.model.weapon_of(slot);
-                    if self.model.balance == Balance::Attuned
+                    // Clearing is always allowed, in every mode: the gate exists to stop a spell
+                    // being assigned that cannot be cast, and "nothing" can always be cast (the
+                    // press passes through to the game).
+                    if spell_id == EMPTY_SLOT {
+                        self.model.panel.assign(weapon, slot.weapon_slot, EMPTY_SLOT);
+                        Some("slot cleared")
+                    } else if self.model.balance == Balance::Attuned
                         && !self.model.attuned.contains(&spell_id)
                     {
                         self.note = format!(
@@ -1445,7 +1453,12 @@ impl App {
                     self.note = note.to_string();
                 }
                 self.model.reload();
-                self.remeasure = true;
+                // Deliberately *not* `remeasure`: picking a spell does not change the layout - every
+                // row is still one line - but re-measuring re-latches the natural height from a
+                // frame whose text was mid-update, which is what made the panel step by a couple of
+                // pixels every time a slot was clicked, including when the same spell was chosen
+                // again. Height is re-latched on layout events only: first open, scale, reset,
+                // "list everything".
             }
         }
         if let Some(mode) = balance_toggle {
@@ -1867,9 +1880,22 @@ fn slot_combo(
                 chosen = Some(*spell_id);
             }
         }
+        // "none" last, and separated: every list needs a way to say "nothing", and without it a
+        // slot can only be changed, never emptied. `-1` is what an empty row already means in the
+        // slot file, so this writes no new concept into the store.
+        ui.separator();
+        if imgui::Selectable::new("none##clear")
+            .selected(current <= 0)
+            .build(ui)
+        {
+            chosen = Some(EMPTY_SLOT);
+        }
     }
     chosen
 }
+
+/// What the dropdown yields for "none": the value an empty row already holds.
+const EMPTY_SLOT: i32 = -1;
 
 /// Map the virtual keys the text fields need onto ImGui's key indices.
 fn map_key(vk: u16) -> Option<usize> {
