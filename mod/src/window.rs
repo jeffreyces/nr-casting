@@ -1280,6 +1280,11 @@ impl App {
                     skip_toggle = Some(skip_box);
                 }
                 ui.same_line();
+                // A divider between "what the panel offers" and "how big it draws": the two
+                // checkboxes are features, the dropdown is display, and on one line they read as
+                // three settings of the same kind.
+                ui.text("|");
+                ui.same_line();
                 ui.text("UI scale");
                 ui.same_line();
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {

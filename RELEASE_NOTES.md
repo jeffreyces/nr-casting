@@ -1,49 +1,59 @@
-# v0.2.23 — ERD Tools works alongside the panel, and the log stops carrying paths
+# v0.2.24 — the game's own wheel can skip the spells your buttons already own
 
-One compatibility fix, one privacy fix, one diagnostics fix.
+One feature, one fix that matters, and the panel's settings row.
 
 **Upgrade is the DLL.**
 
+## New
+
+- **The game's own spell wheel can skip the spells your buttons own.** `vanilla_skips_assigned = on`
+  (off by default, applies immediately, independent of `balance`). Pressing up - pad or keyboard -
+  only lands on the spells you kept for the default cast, so the spells bound across your staves no
+  longer crowd the wheel you use for the rest. Nothing is written into your memory slots: the
+  assigned spells stay attuned and still cast from their own buttons.
+  - "Assigned" means any of the six weapon slots you are **carrying**, not just the two in your
+    hands: switching weapons mid-fight does not change what the wheel offers, and a spell bound to
+    your spare staff stays out of it.
+  - It also steps over what the catalysts in your hands cannot cast - incantations while you hold a
+    staff, sorceries while you hold a seal - because the game would list them and then refuse the
+    cast. Unequipping a seal takes its incantations out of the wheel.
+  - If every attuned spell is assigned, the wheel cycles normally and the log says so once.
+  - Casting from a bound button leaves the wheel on the spell you had selected, so the next press of
+    up carries on from where you were.
+- **A slot can be left empty on purpose.** Every dropdown now ends with `none`, so one slot can be
+  unassigned without clearing the others.
+
 ## Fixed
 
-- **ERD Tools no longer crashes when the panel opens.** With both loaded, opening the panel killed
-  the game a second or two later, inside ERD's own code. Reproduced locally and bisected by
-  capability rather than by guesswork — window only, plus a D3D11 device, plus a swap chain that is
-  never presented: all fine; a single `Present`: crash, at a different ERD offset each time. Turning
-  every hook in this mod off did **not** stop it, so the input detours were never involved. ERD hooks
-  the present path process-wide, and a second swap chain presenting in the same process leaves its
-  per-frame code reading stale state.
-  The panel therefore no longer owns a swap chain at all: it renders into a texture, copies that to a
-  DIB and blits it into its own window, so it calls no `Present`. Cost is one GPU-to-CPU copy per
-  drawn frame — reported as `present ok (copy under 1 ms)` at 1623x720 — and nothing at all while the
-  panel is closed. Opening costs about 130 ms the first time (device, then surface, then the font
-  atlas) and 4-5 ms afterwards; closing is 0 ms, with the game's next frame arriving in the same
-  millisecond.
-- **The log no longer carries your paths.** `nr_casting_probe.log` was written unredacted; the
-  existing redactor only ran on the diagnostics report. Redaction now happens at the log writer, so no
-  call site can reintroduce it: a path inside a mod manager's folder keeps only its tail from `me3`
-  onward (`me3\config\profiles\<profile>\<mod>\nr_casting`), and every other path becomes `<path>`.
-  The account segment, the manager's own folder and the drive letter all go.
-- **Crash lines name the module that actually faulted.** A report read `in Elden_Ring_g` while the
-  base address belonged to `erdGameTools.dll`, because the header kept the end of a 96-character read
-  of the module path and `GetModuleFileNameW` truncates from the front. It now uses the same
-  `MAX_PATH` lookup the frame list below it already used, so the line reads
-  `in erdGameTools.dll (base …, offset 0xa64f9)`.
+- **A memorised spell could be displaced when two casts overlapped.** The mod points the game's
+  selected magic slot at the spell a button casts and puts the original back when the input is
+  released. That bookkeeping held **one** record, so two casts close enough together - both
+  shoulders pressed at once - meant the second record replaced the first and the first slot was
+  never put back: it kept the mod's spell until it was re-attuned by hand.
+  It is now one record per steered slot, the write and its record happen under a single lock, every
+  restore is read back, and a slot that changes while no cast is in flight is named in the log. A
+  spell sitting in two memory slots at once - which the game's own menu cannot produce - is reported
+  on sight, because it is the fingerprint of exactly this failure.
+- **The wheel no longer jumps to another spell after a cast.** Casting makes the game re-point the
+  wheel at the spell just cast, which is by definition an assigned spell, so the skip stepped off it
+  and left the wheel on a spell the player did not choose. The selection is now put back where the
+  player left it.
 
 ## Changed
 
-- **The log's first line names the build**: `=== nr_casting 0.2.23 (built …)`. Several builds share a
-  version during a test cycle, and "which build was that?" was previously unanswerable from the log.
-- **Open, close and present costs are logged**: `panel: open in 133 ms`, `panel: close in 0 ms`, and
-  the per-second panel line reports the copy cost. A lag report is now a number rather than a
-  description.
-- Build artefacts that had once been committed under the crate's `target` directory are no longer in
-  the repository.
+- **The panel's own settings sit on their own row**, above the buttons: `balanced`,
+  `skip assigned in wheel`, a divider, then `UI scale`. Every section break is the same distance and
+  the panel's height is measured from it, so the help text and the bottom row no longer clip when the
+  window is resized.
+- **Diagnostics say what the cast path did**, one number per meaning: magic-slot writes that read
+  back, writes that did not, casts refused while others were still in flight, restores that did not
+  land, and restores that found the slot already changed. The wheel line reports moves, the
+  everything-assigned case and pauses; opening the panel logs the wheel plus the six carried weapon
+  slots.
 
 ## Verified
 
-118 unit tests green (2 for the row copy between two pitches, 2 for the redaction rule). `cargo xwin
-check --target x86_64-pc-windows-msvc` clean. ERD Tools was loaded alongside in a local session with
-the panel opened repeatedly and the game alive throughout; ERD's own log shows its overlay
-initialising and its menu installed, and no crash line was written. The blit path is **not** exercised
-on native Windows in this release — it was tested under Proton only.
+125 unit tests green. `cargo xwin check --target x86_64-pc-windows-msvc` clean. Played locally
+through the whole cycle: the selected spell stayed selected through repeated casts of a bound spell,
+the 11th memory slot held its spell through overlapping presses, and the wheel skipped assigned and
+uncastable spells with a spare staff equipped and then removed.
