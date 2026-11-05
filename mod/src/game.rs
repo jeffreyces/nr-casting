@@ -289,6 +289,20 @@ pub(crate) fn log_entries() {
     };
     let ids: Vec<i32> = magic.entries.iter().map(|e| e.param_id).collect();
     crate::logging::debug!("spell: entries = {ids:?} (selected {})", magic.selected_slot);
+    // A spell cannot legitimately occupy two memory slots, so a duplicate is the fingerprint of a
+    // steer write that was never put back - ours from an older build, or another mod's. Saying so
+    // saves the next investigation from starting at "the mod replaced my spell" all over again.
+    for (i, id) in ids.iter().enumerate() {
+        if *id <= 0 {
+            continue;
+        }
+        if let Some(j) = ids.iter().skip(i + 1).position(|other| other == id) {
+            crate::log(&format!(
+                "spell: {id} is in slots {i} and {} - a steer write was never put back; re-memorise it at a grace",
+                i + 1 + j
+            ));
+        }
+    }
 }
 
 /// Does the selection already point at `spell`?
