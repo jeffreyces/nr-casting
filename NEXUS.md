@@ -145,10 +145,15 @@ where you put Origin Skills lives in the game's own button settings and cannot b
 
 [code]vanilla_skips_assigned = on[/code]
 makes the game's own wheel step over the spells this panel assigns, so pressing up only lands on the
-ones you kept for the default cast. It also steps over the spells your catalysts cannot cast —
-incantations while you hold a staff — so unequipping a seal takes its incantations out of the wheel. Nothing is removed from your memory slots — those spells stay
+ones you kept for the default cast. "Assigned" means any of the six weapon slots you are carrying,
+not just the two in your hands, so switching weapons mid-fight does not change what the wheel
+offers and a spell bound to your spare staff stays out of it. It also steps over the spells your
+catalysts cannot cast — incantations while you hold a staff — so unequipping a seal takes its
+incantations out of the wheel. Nothing is removed from your memory slots — those spells stay
 attuned and still cast from their own buttons — and if every attuned spell is assigned the wheel
-cycles normally. Independent of [code]balance[/code], applies immediately, off by default.
+cycles normally. Casting from a bound button leaves the wheel on the spell you had selected, so the
+next press of up carries on from where you were. Independent of [code]balance[/code], applies
+immediately, off by default.
 
 [code]hooks = off[/code]
 installs nothing and casting stops; it exists only to measure the game with the DLL loaded and idle.
@@ -159,9 +164,9 @@ installs nothing and casting stops; it exists only to measure the game with the 
 
 Elden Ring already casts on R1 and L1 with a catalyst in that hand — it casts whichever spell is
 [i]selected[/i]. The mod rewrites the R2 and L2 reports into shoulder presses, then points the
-selected magic slot at the spell bound to that input for the duration of the press, restoring it
-the moment the input is released. Two presses on the same catalyst therefore reach two different
-spells, and a full spell wheel is never displaced.
+selected magic slot at the spell bound to that input for the duration of the press, restoring both
+the slot and the wheel selection the moment the input is released. Two presses on the same catalyst
+therefore reach two different spells, and a full spell wheel is never displaced.
 
 [line]
 
