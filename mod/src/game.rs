@@ -110,6 +110,12 @@ fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
     let mut borrowed = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
     if borrowed.is_none() {
         let entry = &magic.entries[idx];
+        crate::logging::debug!(
+            "steer: borrowing entry {} holding spell {} (charges {})",
+            idx,
+            entry.param_id,
+            entry.charges
+        );
         *borrowed = Some(Borrow {
             idx,
             param_id: entry.param_id,
@@ -175,6 +181,17 @@ pub(crate) fn release_borrowed() -> bool {
             Some(entry) if entry.param_id == snapshot.steered => {
                 entry.param_id = snapshot.param_id;
                 entry.charges = snapshot.charges;
+                crate::logging::debug!(
+                    "steer: restored entry {} to spell {} (after steering {})",
+                    snapshot.idx,
+                    snapshot.param_id,
+                    snapshot.steered
+                );
+                *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = Some((
+                    snapshot.idx,
+                    snapshot.param_id,
+                    crate::logging::uptime_ms() as u64 + WATCH_MS,
+                ));
                 true
             }
             Some(entry) => {
@@ -213,6 +230,39 @@ pub(crate) fn forget_borrowed() {
     *slot = None;
     BORROW_ACTIVE.store(false, Ordering::Relaxed);
     STEERED.store(-1, Ordering::Relaxed);
+}
+
+/// An entry whose restored value is being watched, and when the watch ends.
+///
+/// Our own write is restored (the trace says so), so if the player still sees a displaced spell the
+/// change happens *after* us - a save, a menu, another mod. Watching the entry for a few seconds is
+/// the only way to tell "the game put it back its own way" from "we never really restored it".
+static WATCH: std::sync::Mutex<Option<(usize, i32, u64)>> = std::sync::Mutex::new(None);
+/// How long an entry is watched after a restore.
+const WATCH_MS: u64 = 10_000;
+
+/// Look once per frame at an entry we just restored, and report any later change.
+pub(crate) fn watch_restored_entry() {
+    let Some((idx, expected, until)) = *WATCH.lock().unwrap_or_else(|e| e.into_inner()) else {
+        return;
+    };
+    if (crate::logging::uptime_ms() as u64) > until {
+        *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        return;
+    }
+    let Some(magic) = magic_data_verified() else {
+        return;
+    };
+    let Some(entry) = magic.entries.get(idx) else {
+        return;
+    };
+    if entry.param_id != expected {
+        crate::log(&format!(
+            "steer: entry {idx} was restored to {expected} and is now {} - something else wrote it",
+            entry.param_id
+        ));
+        *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
 }
 
 /// Does the selection already point at `spell`?
