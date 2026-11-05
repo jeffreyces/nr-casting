@@ -29,7 +29,17 @@ struct Borrow {
     steered: i32,
 }
 
-static BORROWED: Mutex<Option<Borrow>> = Mutex::new(None);
+/// One borrow per steered entry, not one for the whole mod.
+///
+/// Two casts can overlap - both hands pressed near enough together, a mouse cast next to a pad
+/// cast - and with a single record the second one *replaced* the first one's snapshot, so only one
+/// of the two entries was ever put back and the other kept our spell for good. That is exactly how
+/// a player's memorised slot got displaced, and the log showed it as two steers 17 ms apart with a
+/// single restore. A list costs a few bytes and makes the loss impossible.
+static BORROWED: Mutex<Vec<Borrow>> = Mutex::new(Vec::new());
+/// More simultaneous steers than a player can meaningfully pull. Past this a cast is refused rather
+/// than risking a place: refusing one cast is recoverable, losing a memorised spell is not.
+const MAX_BORROWS: usize = 4;
 /// Non-blocking mirror of `BORROWED.is_some()` for the pad poll. The poll path runs on the game's
 /// input thread and must never queue behind the panel thread's lock.
 static BORROW_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -108,33 +118,56 @@ fn borrow_selected(magic: &eldenring::cs::EquipMagicData) -> Option<usize> {
         0
     };
     let mut borrowed = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
-    if borrowed.is_none() {
-        let entry = &magic.entries[idx];
-        crate::logging::debug!(
-            "steer: borrowing entry {} holding spell {} (charges {})",
-            idx,
-            entry.param_id,
-            entry.charges
-        );
-        *borrowed = Some(Borrow {
-            idx,
-            param_id: entry.param_id,
-            charges: entry.charges,
-            steered: 0,
-        });
-        BORROW_ACTIVE.store(true, Ordering::Relaxed);
+    // Already steering this entry: its original is what is recorded, and re-snapshotting now would
+    // save our own value as the "original" - the exact way a place gets lost.
+    if borrowed.iter().any(|b| b.idx == idx) {
+        return Some(idx);
     }
+    if borrowed.len() >= MAX_BORROWS {
+        STEER_REFUSED.fetch_add(1, Ordering::Relaxed);
+        crate::logging::debug!(
+            "steer: {} casts still in flight, refusing {} instead of risking their places",
+            borrowed.len(),
+            idx
+        );
+        return None;
+    }
+    let entry = &magic.entries[idx];
+    crate::logging::debug!(
+        "steer: borrowing entry {} holding spell {} (charges {})",
+        idx,
+        entry.param_id,
+        entry.charges
+    );
+    borrowed.push(Borrow {
+        idx,
+        param_id: entry.param_id,
+        charges: entry.charges,
+        steered: 0,
+    });
+    BORROW_ACTIVE.store(true, Ordering::Relaxed);
     Some(idx)
 }
 
 /// Remember what `select_spell` wrote into the borrowed entry.
-fn remember_steered(spell: i32) {
+fn remember_steered(idx: usize, spell: i32) {
     STEERED.store(spell, Ordering::Relaxed);
     if let Ok(mut slot) = BORROWED.lock() {
-        if let Some(borrow) = slot.as_mut() {
+        if let Some(borrow) = slot.iter_mut().find(|b| b.idx == idx) {
             borrow.steered = spell;
         }
     }
+}
+
+/// The original value of every entry we are currently steering.
+///
+/// Readers show the player's wheel, not the spell we are about to cast, or the gate would approve
+/// the very spell it is supposed to stop.
+fn borrowed_originals() -> std::collections::HashMap<usize, i32> {
+    BORROWED
+        .lock()
+        .map(|guard| guard.iter().map(|b| (b.idx, b.param_id)).collect())
+        .unwrap_or_default()
 }
 
 /// Put back whatever `borrow_selected` overwrote.
@@ -159,15 +192,15 @@ pub(crate) fn release_borrowed() -> bool {
     if nr_casting_core::armed_until(now_ms(), BORROW_HOLD_UNTIL.load(Ordering::Relaxed)) {
         return false;
     }
-    let snapshot = {
+    let snapshots = {
         let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
-        slot.take()
+        std::mem::take(&mut *slot)
     };
-    BORROW_ACTIVE.store(false, Ordering::Relaxed);
-    STEERED.store(-1, Ordering::Relaxed);
-    let Some(snapshot) = snapshot else {
+    if snapshots.is_empty() {
+        BORROW_ACTIVE.store(false, Ordering::Relaxed);
+        STEERED.store(-1, Ordering::Relaxed);
         return false;
-    };
+    }
     // From here the pointer is about to be walked: everything below this line is game memory,
     // whatever it returns.
     //
@@ -176,7 +209,30 @@ pub(crate) fn release_borrowed() -> bool {
     // warp, a death) lost the record of what to put back, and our steered spell stayed in the
     // player's memorised list with nothing left to undo it. The teardown path calls
     // `forget_borrowed`, so this cannot retry forever against a world that is really gone.
-    let restored = match magic_data_verified() {
+    let mut unrestored: Vec<Borrow> = Vec::new();
+    let mut touched = false;
+    for snapshot in snapshots {
+        if !restore_one(&snapshot) {
+            unrestored.push(snapshot);
+        }
+        touched = true;
+    }
+    if unrestored.is_empty() {
+        BORROW_ACTIVE.store(false, Ordering::Relaxed);
+        STEERED.store(-1, Ordering::Relaxed);
+    } else {
+        if let Ok(mut slot) = BORROWED.lock() {
+            *slot = unrestored;
+        }
+        BORROW_ACTIVE.store(true, Ordering::Relaxed);
+    }
+    touched
+}
+
+/// Put one borrowed entry back. `false` means the world was not readable and the record must be
+/// kept for another attempt.
+fn restore_one(snapshot: &Borrow) -> bool {
+    match magic_data_verified() {
         Some(magic) => match magic.entries.get_mut(snapshot.idx) {
             Some(entry) if entry.param_id == snapshot.steered => {
                 entry.param_id = snapshot.param_id;
@@ -219,24 +275,14 @@ pub(crate) fn release_borrowed() -> bool {
             None => false,
         },
         None => false,
-    };
-    if !restored {
-        // Put the record back and try again on the next poll: the world may be mid-load rather than
-        // gone, and the difference matters - one is a hiccup, the other is a spell of the player's
-        // replaced for good.
-        if let Ok(mut slot) = BORROWED.lock() {
-            *slot = Some(snapshot);
-        }
-        BORROW_ACTIVE.store(true, Ordering::Relaxed);
     }
-    true
 }
 
 /// Drop the borrow without touching game memory. For a world that is going away: the object is
 /// being freed, so there is nothing left to restore and no thread we may write from.
 pub(crate) fn forget_borrowed() {
     let mut slot = BORROWED.lock().unwrap_or_else(|e| e.into_inner());
-    *slot = None;
+    slot.clear();
     BORROW_ACTIVE.store(false, Ordering::Relaxed);
     STEERED.store(-1, Ordering::Relaxed);
 }
@@ -479,17 +525,12 @@ fn read_wheel() -> Option<Wheel> {
     if current < 0 || current as usize >= len {
         return None;
     }
-    let borrowed = BORROWED
-        .lock()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|b| (b.idx, b.param_id)));
+    let originals = borrowed_originals();
     let mut spells = Vec::with_capacity(len);
     for (index, entry) in magic.entries.iter().enumerate() {
         let mut id = entry.param_id;
-        if let Some((borrowed_index, original)) = borrowed {
-            if borrowed_index == index {
-                id = original;
-            }
+        if let Some(original) = originals.get(&index) {
+            id = *original;
         }
         spells.push(id);
     }
@@ -658,7 +699,7 @@ pub(crate) fn select_spell(spell: i32) -> bool {
         return false;
     }
     STEER_OK.fetch_add(1, Ordering::Relaxed);
-    remember_steered(spell);
+    remember_steered(idx, spell);
     log_entry_neighbours(idx);
     // The menu's `selected_magic_item` is deliberately left alone: the cast reads
     // `EquipMagicData`, that field is a display cache (it sat at the "no item" sentinel while
@@ -1067,17 +1108,12 @@ pub(crate) fn attuned_generation() -> u32 {
 /// the count is what the report prints, and the game does not let the same spell be attuned twice.
 pub(crate) fn attuned_spells() -> Option<Vec<i32>> {
     let magic = magic_data_verified()?;
-    let borrowed = BORROWED
-        .lock()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|b| (b.idx, b.param_id)));
+    let originals = borrowed_originals();
     let mut spells: Vec<i32> = Vec::with_capacity(magic.entries.len());
     for (idx, entry) in magic.entries.iter().enumerate() {
         let mut id = entry.param_id;
-        if let Some((borrowed_idx, original)) = borrowed {
-            if borrowed_idx == idx {
-                id = original;
-            }
+        if let Some(original) = originals.get(&idx) {
+            id = *original;
         }
         if id > 0 && !spells.contains(&id) {
             spells.push(id);
