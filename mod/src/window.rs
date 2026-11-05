@@ -1011,6 +1011,12 @@ impl App {
                 gfx.last_present = Instant::now();
             }
         }
+        if open {
+            // What the game holds, at the moment the player starts arranging slots: if the memory
+            // menu and this list ever disagree, every conclusion about "the mod replaced my spell"
+            // is being drawn from the wrong array.
+            crate::game::log_entries();
+        }
         self.shown = open;
         self.model.panel.set_visible(open);
         unsafe {

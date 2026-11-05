@@ -181,6 +181,15 @@ pub(crate) fn release_borrowed() -> bool {
             Some(entry) if entry.param_id == snapshot.steered => {
                 entry.param_id = snapshot.param_id;
                 entry.charges = snapshot.charges;
+                // Read the entry back: a restore that did not land is the whole bug, and writing it
+                // without checking is how it could go unnoticed.
+                let landed = magic
+                    .entries
+                    .get(snapshot.idx)
+                    .is_some_and(|e| e.param_id == snapshot.param_id);
+                if !landed {
+                    RESTORE_REFUSED.fetch_add(1, Ordering::Relaxed);
+                }
                 crate::logging::debug!(
                     "steer: restored entry {} to spell {} (after steering {})",
                     snapshot.idx,
@@ -250,6 +259,11 @@ pub(crate) fn watch_restored_entry() {
         *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = None;
         return;
     }
+    // Our own steer lands a few ms after the borrow, so a check made while a borrow is live reports
+    // our own value as a third party's. The watch only speaks when we are not mid-cast.
+    if BORROW_ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
     let Some(magic) = magic_data_verified() else {
         return;
     };
@@ -263,6 +277,18 @@ pub(crate) fn watch_restored_entry() {
         ));
         *WATCH.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
+}
+
+/// The twelve memorised entries as the game holds them, oldest slot first.
+///
+/// Logged once when the panel opens: the wheel the player sees and the entries we steer must be the
+/// same list, and this is the cheapest way to prove it against what the memory menu shows.
+pub(crate) fn log_entries() {
+    let Some(magic) = magic_data_verified() else {
+        return;
+    };
+    let ids: Vec<i32> = magic.entries.iter().map(|e| e.param_id).collect();
+    crate::logging::debug!("spell: entries = {ids:?} (selected {})", magic.selected_slot);
 }
 
 /// Does the selection already point at `spell`?
