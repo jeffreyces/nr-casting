@@ -9,7 +9,11 @@ them". Settled with the user, then tests, then code.
    `param_id` in real memory slots, which empties them for the game, shrinks the attuned list that
    balanced mode reads, and fights re-attuning. Skipping reaches the same outcome - pressing up only
    ever lands on an unassigned spell - without editing the player's character data.
-2. **Scope is the pair in hand.** *Corrected after testing:* the first version counted every saved
+2. **Scope is every weapon carried (six slots).** *Corrected twice by testing.* First version was
+   the whole character's saved rows; second was the pair in hand; the settled rule is the character's
+   `equipment_param_ids` slots 0..=5 - three left, three right - because switching hands mid-fight
+   must not change what the wheel offers, and a spell bound to the spare staff is still spoken for.
+   The pair in hand stays the *cast* path's question, not the wheel's. Original note: the first version counted every saved
    row for the character, and a player with two staves cleared a spell from the staff in hand and it
    still never appeared in the wheel — it was in a row belonging to the other staff, or to another
    copy's override. The wheel is asking "what do the buttons I am holding own", so the set is the

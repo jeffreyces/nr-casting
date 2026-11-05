@@ -79,7 +79,10 @@ that hand. Four needs `y_bumper = on` plus a rebind of the class skills; see abo
 **Keeping assigned spells out of the vanilla wheel.** If you assign most of your spells to the
 panel's buttons and keep one or two for the game's own default cast, the wheel still lists all of
 them. `vanilla_skips_assigned = on` makes the game's own cycling step over the spells the panel owns,
-so pressing up (or the keyboard cycle key) only lands on the ones you have not assigned. Nothing is
+so pressing up (or the keyboard cycle key) only lands on the ones you have not assigned. "Owns" means
+any of the six weapon slots the character is carrying — not just the two in your hands — so switching
+between your staves mid-fight does not change what the wheel offers, and a spell bound on your spare
+staff stays out of it. Nothing is
 removed from your memory slots: those spells stay attuned and still cast from their own buttons. It
 also hides the spells the catalysts **in your hands cannot cast** — incantations while you hold only a
 staff — so unequipping a seal takes its incantations out of the wheel rather than leaving spells you

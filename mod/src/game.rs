@@ -244,10 +244,10 @@ pub(crate) fn wheel_counts() -> (u32, u32, u32) {
     )
 }
 
-/// The assigned set with what it was built from: the store's generation and the pair in hand.
+/// The assigned set with what it was built from: the store's generation and the equipped weapons.
 struct Assigned {
     generation: u32,
-    hands: (i32, i32),
+    carried: [i32; 6],
     spells: std::collections::HashSet<i32>,
 }
 
@@ -259,31 +259,43 @@ fn assigned_cache() -> std::sync::MutexGuard<'static, Assigned> {
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<Assigned>> = OnceLock::new();
     let generation = crate::store::generation();
-    // Scope is the pair in hand, not the whole character. A player with two staves cleared a spell
-    // from the staff they were holding and it still never appeared in the wheel, because it was
-    // still in a row belonging to the other staff - or to another copy's override, which is filed on
-    // the full id. "What do the buttons I am holding own" is the question the wheel is asking.
-    let hands = crate::weapon_ids().unwrap_or((0, 0));
+    // Scope is every weapon the character is **carrying**, all six slots - not the two in hand.
+    // Switching hands mid-fight must not change what the wheel offers, and a spell assigned to the
+    // staff in your second slot is still a spell one of your buttons owns. The two-in-hand answer
+    // stays where it belongs: the cast path, which is what actually casts.
+    let carried = equipped_weapons();
     let cache = CACHE.get_or_init(|| {
         Mutex::new(Assigned {
             generation: u32::MAX,
-            hands: (0, 0),
+            carried: [0; 6],
             spells: std::collections::HashSet::new(),
         })
     });
     let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.generation != generation || guard.hands != hands {
+    if guard.generation != generation || guard.carried != carried {
         let mut rows = std::collections::HashMap::new();
-        for weapon in [hands.0, hands.1] {
+        for weapon in carried {
             if let Some(row) = crate::store::store_get(weapon) {
                 rows.insert(weapon, row);
             }
         }
         guard.spells = nr_casting_core::assigned_spells(&rows);
         guard.generation = generation;
-        guard.hands = hands;
+        guard.carried = carried;
     }
     guard
+}
+
+/// Every weapon in the character's six slots, three per hand.
+///
+/// `equipment_param_ids` holds all of them (`ChrAsmSlot` 0..=5, `WeaponLeft1` to `WeaponRight3`);
+/// `active_weapon_slot` says which is in hand, and that is the cast path's question, not this one.
+fn equipped_weapons() -> [i32; 6] {
+    let Some(pgd) = game_data() else {
+        return [0; 6];
+    };
+    let ids = &pgd.equipment.chr_asm.equipment_param_ids;
+    [ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]]
 }
 
 /// The memorised list and where the game's selection points, read in one pass.
