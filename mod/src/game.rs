@@ -544,6 +544,14 @@ pub(crate) fn wheel_tick() {
     if crate::UI_OPEN.load(Ordering::Relaxed) {
         return;
     }
+    // A cast in flight is not the player cycling the wheel. Our steer writes an assigned spell into
+    // the selected entry, so the skip would read "the selection is on something assigned" and step
+    // off it mid-cast - and the next poll of the same held press then steers the *new* selection,
+    // which is how one press left the wheel on a different spell. Stand down until the borrow is
+    // released; the entry is ours for exactly that window.
+    if BORROW_ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
     let now = crate::logging::uptime_ms() as u64;
     if now < WHEEL_PAUSE_UNTIL.load(Ordering::Relaxed) {
         return;
@@ -599,6 +607,14 @@ pub(crate) fn wheel_tick() {
     if set_selected_index(target) {
         WHEEL_WROTE.store(target as i32, Ordering::Relaxed);
         WHEEL_MOVED.fetch_add(1, Ordering::Relaxed);
+        // Named, because the count alone cannot say whether the wheel moved off a spell the player
+        // chose or off one a cast had just put there - and the second one is a bug, not the feature.
+        crate::logging::debug!(
+            "wheel: moved selection {} -> {target} (slot {} held {} which the panel owns)",
+            wheel.current,
+            wheel.current,
+            wheel.spells.get(wheel.current).copied().unwrap_or(-1)
+        );
     }
 }
 
