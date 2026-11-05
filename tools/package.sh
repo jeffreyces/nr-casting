@@ -28,80 +28,11 @@ cp "$BUILD/nr_casting.dll" "$OUT/"
 # Name tables are compiled into the DLL from mod/data/. Regenerate them (tools/gen-*.py) and
 # rebuild when the game adds spells or weapons; they are not shipped as separate files.
 
+# The ini is one template file in the repo, shared with the mod's own fallback (config.rs includes
+# the same bytes), so the shipped defaults cannot drift from the ones a missing file gets. Written
+# only when absent: this folder is also the live install and holds the player's settings.
 if [[ ! -f "$OUT/nr_casting.ini" ]]; then
-cat > "$OUT/nr_casting.ini" <<'INI'
-; nr-casting — four spells per catalyst (bumper, trigger, Y + trigger, Y + bumper)
-[ui]
-; Open the assignment panel on the hotkey. Set off for casting only (no window at all).
-overlay = on
-; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
-hotkey = F8
-; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
-show_all = off
-; Balanced mode. free = assign any spell the panel offers. attuned = only the spells you have
-; memorised in the game's own spell menu can be assigned, so the mod uses your memory slots instead
-; of replacing them; a row whose spell is no longer attuned is greyed, kept, and its input belongs
-; to the game again. Saved when you toggle it in the panel.
-balance = free
-; Panel font size: auto picks the largest scale that fits the window, so dragging the corner grows
-; the text with it; 100 / 125 / 150 / 175 / 200% pins it instead (the ini accepts up to 300%).
-; Saved when you change it in the panel.
-ui_scale = auto
-; Panel window size: auto opens at the design size for the screen and fits its height to the content.
-; Saved when you resize the panel.
-panel_size = auto
-; Panel window position: auto opens at the default spot. Saved when you drag the panel.
-panel_pos = auto
-; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off by default:
-; on, it rewrites the selection ~30x a second and fights your D-pad scrolling.
-hud_mirror = off
-; Skip the spells this panel already owns when the game cycles its spell wheel (D-pad up, or the
-; keyboard key). They stay attuned and still cast from their own buttons - the wheel just never
-; stops on one. If every attuned spell is assigned, the game cycles normally.
-vanilla_skips_assigned = off
-
-[input]
-; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
-; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. On mouse and keyboard the same gesture is
-; Super (Windows key) + click.
-bind_modifier = L3
-; Hold this and click to bind on mouse and keyboard. Super, Menu, F9, F10, F11, F12 or none.
-; Super is grabbed by KDE/GNOME on Linux, so Menu or a function key is the safe choice there.
-bind_modifier_kb = Super
-; How many reports a Y chord spends with Y released before the shoulder press that casts. Higher is
-; more forgiving of the game's own weapon-swap latch, lower is faster to cast. 2 is the default.
-chord_stage = 2
-
-[recluse]
-; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
-; auto = ours unless the Recluse mod is loaded and this character is a Recluse,
-;        in which case the chords pass through to the class port (its 4 / 5 keys)
-; on   = always ours (even on a Recluse character)
-; off  = never ours
-y_bumper = auto
-; Character ids that count as a Recluse: the port's character model is c8131.
-
-[logging]
-; Install the input detours at all. Leave on. off is a stutter experiment, not a way to play:
-; with no detours the mod cannot cast, but the report then shows what the game's frame timing
-; looks like with the DLL loaded and doing nothing - the comparison a loaded mod cannot make
-; any other way. Use it for one session, compare the bundle with a normal run, then set it back.
-; While bisecting a stutter, these two switch the *hook groups* on their own. Leave them on.
-; pad_hook = on, raw_hook = on, pointer_hook = on is the normal build; turning one off is how a
-; report can say which group's presence is responsible rather than which group's code.
-hooks = on
-raw_hook = on
-pointer_hook = on
-; Frame clock from IDXGISwapChain::Present (once per frame, more accurate than the pad poll).
-; Off by default: the address discovery crashes inside dxgi.dll under Proton/vkd3d.
-present_clock = off
-; Log every cast, not just captures and errors
-debug_log = off
-; Perf log: one line when a window lost a frame and otherwise every 5 minutes, with the pad-poll
-; interval (the game's frame time, as our hook sees it) and the longest time our own code spent
-; inside it. Leave it on: it is the only setting that records stutter as it happens.
-perf_log = on
-INI
+  cp "$ROOT/mod/data/nr_casting.ini" "$OUT/nr_casting.ini"
 fi
 
 cat > "$OUT/nr-casting.me3" <<'PROFILE'

@@ -181,6 +181,7 @@ overlay = on             ; on | off — the panel window (casting works either w
 hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB
 show_all = off           ; list spells the character cannot cast yet (planning mode)
 balance = free           ; free | attuned — attuned = only memorised spells can be assigned
+vanilla_skips_assigned = off  ; on = the game's wheel skips the spells this panel owns
 ui_scale = auto          ; auto | 125 | 150% | 1.5 | 200% — panel text and widget size (100%-300%)
 panel_size = auto        ; auto | 1800x1240 — panel window size, saved when you resize it
 panel_pos = auto         ; auto | 1140,431 — panel corner, saved when you move it
@@ -190,12 +191,16 @@ hud_mirror = off         ; on = force the game's wheel to slot 1 (fights your ow
 bind_modifier = L3       ; L3 | R3 | LB | RB | DPAD_UP | DPAD_DOWN | none
 bind_modifier_kb = Super ; Super | Menu | F9 | F10 | F11 | F12 | none — held with a click
 chord_stage = 2          ; reports a chord spends with Y released before casting (2 safe, 1 faster)
+pad_hook = on            ; on | off — install the XInput hook at all (diagnostic)
 
 [recluse]
 y_bumper = auto          ; auto | on | off — who gets Y+R1 / Y+L1
-vanilla_skips_assigned = off  ; on = the game's wheel skips the spells this panel assigns
 
 [logging]
+hooks = on               ; on | off — install the input detours (off = comparison only)
+raw_hook = on            ; on | off — mouse and keyboard raw input, part of hooks
+pointer_hook = on        ; on | off — confine the pointer while the panel is open
+present_clock = off      ; on | off — use dxgi Present as the frame clock (crashes under Proton)
 debug_log = off          ; log every cast, not just captures and errors
 perf_log = on            ; a timing line when a frame is lost, or every 5 minutes otherwise
 ```

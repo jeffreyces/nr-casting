@@ -98,27 +98,32 @@ subfolder beside the DLL, so it never clutters a shared mods folder. Deleting th
 [size=5][b]Configuration[/b][/size]
 
 [code][ui]
-overlay = on              ; show the panel at all
-hotkey = F8               ; key that opens it
-show_all = off            ; list spells you cannot cast yet
-balance = free            ; free = any spell, attuned = only memorised ones
-ui_scale = auto           ; auto follows the window, a number pins it
-panel_size = auto         ; window size, saved when you stop dragging
-panel_pos = auto          ; window corner, saved the same way
-hud_mirror = off          ; force the wheel to slot 1
+overlay = on                  ; show the panel at all
+hotkey = F8                   ; key that opens it
+show_all = off                ; list spells you cannot cast yet
+balance = free                ; free = any spell, attuned = only memorised ones
+vanilla_skips_assigned = off  ; the game's wheel skips the spells this panel owns
+ui_scale = auto               ; auto follows the window, a number pins it
+panel_size = auto             ; window size, saved when you stop dragging
+panel_pos = auto              ; window corner, saved the same way
+hud_mirror = off              ; force the wheel to slot 1
 
 [input]
 bind_modifier = L3        ; hold + a spell input to bind the wheel's spell
 bind_modifier_kb = Super  ; the same gesture on mouse and keyboard
-chord_stage = 2           ; reports spent releasing Y before a cast
+chord_stage = 2           ; reports spent releasing Y before a cast
+pad_hook = on             ; off = no pad hook at all (diagnostic)
 
 [recluse]
-y_bumper = auto           ; who gets Y+R1 / Y+L1: auto, on or off
+y_bumper = auto           ; who gets Y+R1 / Y+L1: auto, on or off
 
 [logging]
 hooks = on                ; off = no input detours (comparison only)
-debug_log = off           ; every cast logged
-perf_log = on             ; a line on a lost frame, else every 5 min[/code]
+raw_hook = on             ; mouse and keyboard raw input, part of hooks
+pointer_hook = on         ; confine the pointer while the panel is open
+present_clock = off       ; dxgi Present as the frame clock (crashes under Proton)
+debug_log = off           ; every cast logged
+perf_log = on             ; a line on a lost frame, else every 5 min[/code]
 
 Everything is optional: delete a line and the default above applies.
 
@@ -127,21 +132,6 @@ is the one worth knowing. Only spells you have memorised in the game's own spell
 assigned, so the mod works within your memory slots instead of replacing them. A slot whose spell you
 no longer have attuned is greyed rather than cleared — reassign it from its own dropdown, or re-attune
 the spell and it comes back by itself.
-
-[code]y_bumper = auto[/code]
-takes [b]Y+R1[/b] / [b]Y+L1[/b] unless a class port is loaded and the character is one of its classes:
-there the chord goes to the port instead, which uses [b]Y+RB[/b] / [b]Y+LB[/b] by default and hides
-those buttons from the game while it does. Both mods want the same chord, so [code]auto[/code] yields
-and that hand keeps three spells rather than four.
-[code]on[/code]
-always takes them,
-[code]off[/code]
-gives vanilla two-handing back.
-
-To get the fourth slot on a class character, set [code]y_bumper = on[/code] and move the class skills
-off the chord in [b]Options > Button Settings > Origin Skills[/b] ([b]X+RB[/b] / [b]X+LB[/b] is the
-usual choice). The port reads that menu, so it follows you. The mod cannot make this choice for you:
-where you put Origin Skills lives in the game's own button settings and cannot be read.
 
 [code]vanilla_skips_assigned = on[/code]
 makes the game's own wheel step over the spells this panel assigns, so pressing up only lands on the
@@ -152,8 +142,28 @@ catalysts cannot cast — incantations while you hold a staff — so unequipping
 incantations out of the wheel. Nothing is removed from your memory slots — those spells stay
 attuned and still cast from their own buttons — and if every attuned spell is assigned the wheel
 cycles normally. Casting from a bound button leaves the wheel on the spell you had selected, so the
-next press of up carries on from where you were. Independent of [code]balance[/code], applies
-immediately, off by default.
+next press of up carries on from where you were. Independent of
+[code]balance[/code],
+applies immediately, off by default.
+
+[code]y_bumper = auto[/code]
+takes [b]Y+R1[/b] / [b]Y+L1[/b] unless a class port is loaded and the character is one of its classes:
+there the chord goes to the port instead, which uses [b]Y+RB[/b] / [b]Y+LB[/b] by default and hides
+those buttons from the game while it does. Both mods want the same chord, so
+[code]auto[/code]
+yields
+and that hand keeps three spells rather than four.
+[code]on[/code]
+always takes them,
+[code]off[/code]
+gives vanilla two-handing back.
+
+To get the fourth slot on a class character, set
+[code]y_bumper = on[/code]
+and move the class skills
+off the chord in [b]Options > Button Settings > Origin Skills[/b] ([b]X+RB[/b] / [b]X+LB[/b] is the
+usual choice). The port reads that menu, so it follows you. The mod cannot make this choice for you:
+where you put Origin Skills lives in the game's own button settings and cannot be read.
 
 [code]hooks = off[/code]
 installs nothing and casting stops; it exists only to measure the game with the DLL loaded and idle.
@@ -173,7 +183,9 @@ therefore reach two different spells, and a full spell wheel is never displaced.
 [size=5][b]Compatibility[/b][/size]
 [list]
 [*][b]me3[/b] — supported, including me3 Manager. [b]Vortex[/b] also works: it deploys the DLL like any
-native mod, and the shipped [code].me3[/code] profile is only needed for me3.[/*]
+native mod, and the shipped
+[code].me3[/code]
+profile is only needed for me3.[/*]
 [*][b]Frame-generation and upscaling mods[/b] (FSR/FG) [url=https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766]https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766[/url]:
 [code]d3d12.dll[/code]
 [code]dxgi.dll[/code]

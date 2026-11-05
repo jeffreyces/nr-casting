@@ -701,63 +701,11 @@ fn read() -> Config {
         // used if that one is missing, so editing the shipped file always takes effect.
         let file = ini_file();
         if !file.exists() {
-            let defaults = "\
-; nr-casting — four spells per catalyst (bumper, trigger, Y + trigger, Y + bumper)
-[ui]
-; Open the assignment panel on the hotkey. Set this to off for casting only — no window at all.
-overlay = on
-; Key that opens the assignment panel (F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, TAB)
-hotkey = F8
-; List spells the character cannot cast yet (planning mode). Saved when you toggle it in the panel.
-; Ignored while balance = attuned: planning stays planning, but selecting an unattuned spell is
-; refused rather than assigned.
-show_all = off
-; Balanced mode. free = assign any spell the panel offers. attuned = only the spells you have
-; memorised in the game's own spell menu can be assigned, so the mod uses your memory slots
-; instead of replacing them. Saved when you toggle it in the panel.
-balance = free
-; Panel size of text and widgets: auto follows the panel's own size, so the UI grows with the
-; monitor it opens on and with the window when you drag its corner. Set 125 / 150% / 1.5 / 200%
-; to pin it. Saved when you change it in the panel.
-ui_scale = auto
-; Panel window size, saved when you resize the panel. auto sizes it from the screen; WxH pins it.
-panel_size = auto
-panel_pos = auto
-; Force the game's own spell wheel to slot 1 so its HUD shows what R1 will cast. Off: the wheel
-; stays yours (on, it rewrites the selection ~30x a second and fights your D-pad scrolling).
-hud_mirror = off
-; Skip the spells this panel already owns when the game cycles its spell wheel (D-pad up, or the
-; keyboard key). Those spells stay attuned and still cast from their own buttons - the wheel just
-; never stops on one. If every attuned spell is assigned, the game cycles normally.
-vanilla_skips_assigned = off
-
-[input]
-; Hold this and press R1/R2/L1/L2 to bind the spell currently selected in the game to that slot.
-; L3, R3, LB, RB, DPAD_UP, DPAD_DOWN or none. The same gesture on mouse and keyboard is
-; Super (Windows key) + click: Super + LMB / Shift / Ctrl / Alt.
-bind_modifier = L3
-; Install the XInput hook at all. on = pad casting works as documented. off = the game's controller
-; calls never enter this DLL: pad casting is gone, mouse casting is untouched. This is a diagnostic
-; for stutter reports that only appear with a controller connected and disappear when it is
-; unplugged, because unplugging removes both the game's calls and our hook at once.
-pad_hook = on
-
-[recluse]
-; Who gets Y+R1 / Y+L1, the fourth spell. Recluse uses exactly those two chords.
-; auto = ours unless the Recluse mod is loaded and this character is a Recluse,
-;        in which case the chords pass through to the class port (its 4 / 5 keys)
-; on   = always ours (even on a Recluse character)
-; off  = never ours
-y_bumper = auto
-; Character ids that count as a Recluse: the port's character model is c8131.
-
-[logging]
-; Log every cast, not just captures and errors.
-debug_log = off
-; Perf log: one line every 10 s with the pad-poll interval (the game's frame time, as our hook
-; sees it) and the longest time our own code spent inside it. Use it to report stutter.
-perf_log = off
-";
+            // One template file, shared with the packaged zip (`tools/package.sh` copies it):
+            // two copies had already drifted - `pad_hook` existed in only one, and `perf_log`
+            // defaulted to off in one and on in the other, so the shipped ini depended on which
+            // path wrote it.
+            let defaults = include_str!("../data/nr_casting.ini");
             match std::fs::write(&file, defaults) {
                 Ok(()) => note_self_write(defaults.as_bytes()),
                 Err(e) => {
