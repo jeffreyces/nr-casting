@@ -1,0 +1,26 @@
+name: CI
+
+# Every push to the default branch builds and packages exactly what a release would, so a break is
+# found in minutes instead of at the next tag. It replaces two things that were badly shaped:
+#
+#   - a weekly `schedule` on the Release workflow, which existed to keep the ~1.2 GB MSVC cache
+#     alive (GitHub evicts an entry after 7 days without a restore, and a tag run cannot see
+#     another tag's entry). A push to main keeps it warm as a side effect;
+#   - nothing else watching main at all, which is how a compile break from a docs commit sat
+#     undetected for eight hours until that cron happened to run.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml

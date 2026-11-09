@@ -1,0 +1,169 @@
+name: Build
+
+# The one place this repository builds the Windows DLL. It is a reusable workflow, so the same
+# steps serve two entry points with different names and different consequences:
+#
+#   ci.yml       every push to main  - "does this still compile and package?"
+#   release.yml  a v* tag            - the same build, then publish
+#
+# One definition is the point: a green local build, a green CI build and a released build mean the
+# same thing, and there is no second copy of the cross-compile setup to drift.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  # Needed to drop a cache entry that restored but is unusable (see the verify step).
+  actions: write
+
+env:
+  CARGO_XWIN: v0.23.1
+  # The key alone decides whether the ~1.2 GB MSVC payload is reused, so it names the tool and
+  # the architecture it was fetched for. Bump the trailing revision when the pinned SDK/CRT
+  # implicitly changes, or to abandon an entry that turned out to be incomplete.
+  XWIN_CACHE_KEY: cargo-xwin-v0.23.1-linux-x86_64-v2
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    # 4 vCPU VM rather than the 1 vCPU `ubuntu-slim` container: this job pulls a ~1.2 GB MSVC
+    # toolchain payload and then links with fat LTO, and on a cold slim run that combination
+    # does not fit in the 15-minute cap that runner enforces.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # Everything downloaded at build time: the cross-compiler driver and the MSVC CRT/SDK
+      # payload (~1.2 GB). Restore and save are separate steps so the payload survives a failed
+      # or cancelled run — a plain `actions/cache` only saves on success, so one bad run would
+      # pay for the download twice.
+      - name: Restore cargo-xwin and the MSVC payload
+        id: xwin-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/bin/cargo-xwin
+            ~/.cache/cargo-xwin
+          key: ${{ env.XWIN_CACHE_KEY }}
+          # The revision in the key exists to abandon a bad entry, not to force a 1.2 GB
+          # download: fall back to the newest entry for the same tool and platform and let the
+          # verify step decide whether it is usable. Tag-scoped runs cannot see other tags'
+          # caches, so the default branch is what keeps this warm for releases - which is now a
+          # side effect of CI running on every push, instead of a scheduled job whose name said
+          # "Release" while it published nothing.
+          restore-keys: |
+            cargo-xwin-${{ env.CARGO_XWIN }}-linux-x86_64-
+            cargo-xwin-${{ env.CARGO_XWIN }}-
+            cargo-xwin-
+
+      # A cache entry can exist and still be useless: a run cancelled mid-download saves whatever
+      # was on disk, `cargo xwin cache xwin` then re-downloads, and the bad entry stays forever
+      # because a cache hit skips the save. Ask the payload's own completion marker (`DONE`, first
+      # line = architectures) instead of trusting the key.
+      - name: Verify the restored MSVC payload
+        id: xwin-verify
+        env:
+          MATCHED_KEY: ${{ steps.xwin-cache.outputs.cache-matched-key }}
+        run: |
+          echo "restored cache key: ${MATCHED_KEY:-none}"
+          done="$HOME/.cache/cargo-xwin/xwin/DONE"
+          if [ -f "$done" ] && head -1 "$done" | grep -qw x86_64; then
+            echo "usable=true" >> "$GITHUB_OUTPUT"
+            echo "MSVC payload is complete ($(($(wc -l < "$done") - 1)) payloads, $(head -1 "$done"))"
+          else
+            echo "usable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::MSVC payload missing or incomplete — re-downloading and re-saving"
+            rm -rf "$HOME/.cache/cargo-xwin/xwin"
+          fi
+
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mod
+
+      # Prebuilt static musl binary: no `cargo install`, which would compile the tool itself.
+      # A restored cache can hold any version, so compare versions instead of checking existence.
+      - name: Install cargo-xwin
+        run: |
+          have=$(cargo-xwin --version 2>/dev/null | awk '{print $2}' | sed 's/^v//' || true)
+          if [ "$have" != "${CARGO_XWIN#v}" ]; then
+            url="https://github.com/rust-cross/cargo-xwin/releases/download/${CARGO_XWIN}/cargo-xwin-${CARGO_XWIN}.x86_64-unknown-linux-musl.tar.gz"
+            curl -sSL "$url" | tar -xz -C "$HOME/.cargo/bin"
+            chmod +x "$HOME/.cargo/bin/cargo-xwin"
+          fi
+          cargo-xwin --version
+
+      # cargo-xwin brings the MSVC CRT and SDK but not a compiler or linker: clang builds the C
+      # dependency (libudis86-sys), lld-link links, llvm-lib makes import libraries.
+      - name: Install LLVM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends clang lld llvm
+          clang --version | head -1
+
+      # Its own step on purpose: a cold run spends most of its wall clock here, and inside the
+      # build step every slow download looks like a hung compile. A complete payload is a no-op.
+      - name: Fetch the MSVC CRT and SDK
+        id: xwin-fetch
+        run: cargo xwin cache xwin
+
+      # `cache-matched-key` is the entry that was *actually* restored: with restore-keys it can be
+      # an older key than the one we asked for, and deleting the primary key would leave the bad
+      # entry in place to be matched again on the next run.
+      - name: Drop an unusable cache entry
+        if: steps.xwin-verify.outputs.usable != 'true' && steps.xwin-cache.outputs.cache-matched-key != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MATCHED_KEY: ${{ steps.xwin-cache.outputs.cache-matched-key }}
+        run: |
+          echo "dropping unusable entry: $MATCHED_KEY"
+          gh cache delete "$MATCHED_KEY" --repo "${{ github.repository }}" --ref "${{ github.ref }}" \
+            || gh cache delete "$MATCHED_KEY" --repo "${{ github.repository }}"
+
+      # Save what a *successful* fetch produced whenever there was no exact hit: an entry matched
+      # through restore-keys is promoted to the current key, so the next run is an exact hit, and
+      # a cold run seeds it. Skipping the save on a hit is what let a cancelled run's partial
+      # entry live forever.
+      - name: Save cargo-xwin and the MSVC payload
+        if: always() && steps.xwin-fetch.outcome == 'success' && steps.xwin-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          key: ${{ env.XWIN_CACHE_KEY }}
+          path: |
+            ~/.cargo/bin/cargo-xwin
+            ~/.cache/cargo-xwin
+
+      # A release tag that disagrees with the crate version ships a DLL nobody can identify.
+      - name: Check the tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' mod/Cargo.toml | head -1)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match mod/Cargo.toml version $version"
+            exit 1
+          fi
+
+      - name: Build and package
+        run: ./tools/package.sh
+
+      - name: Assemble the archive
+        run: |
+          name="nr-casting-${GITHUB_REF_NAME:-dev}"
+          mkdir -p out
+          cp -r dist/nr_casting "out/$name"
+          (cd out && zip -qr "$name.zip" "$name")
+          ls -l out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nr-casting
+          path: out/*.zip
+          if-no-files-found: error
