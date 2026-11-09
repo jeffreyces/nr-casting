@@ -6,7 +6,11 @@ dist/
 
 # Runtime files the mod writes beside its DLL
 *.log
+# Player settings must never be committed - but the TEMPLATE is a shipped file and is named the
+# same, so the ignore rule matched it too and the compiler's include_str! pointed at a file that
+# only existed on the author's disk. Keep the template tracked explicitly.
 nr_casting.ini
+!mod/data/nr_casting.ini
 nr_casting_slots.txt
 nr_casting_offsets.txt
 nr_casting_catalogue.txt

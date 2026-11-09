@@ -31,6 +31,13 @@ cp "$BUILD/nr_casting.dll" "$OUT/"
 # The ini is one template file in the repo, shared with the mod's own fallback (config.rs includes
 # the same bytes), so the shipped defaults cannot drift from the ones a missing file gets. Written
 # only when absent: this folder is also the live install and holds the player's settings.
+# The template is `include_str!`d by the crate, so it must be IN the repository, not just on this
+# disk: an ignore rule matched its name, `git add -A` skipped it silently, and every local build
+# passed while CI failed to compile the moment it checked out the repo. Fail here instead.
+if ! git -C "$ROOT" ls-files --error-unmatch mod/data/nr_casting.ini >/dev/null 2>&1; then
+  echo "error: mod/data/nr_casting.ini is not tracked by git - the shipped build would not compile" >&2
+  exit 1
+fi
 if [[ ! -f "$OUT/nr_casting.ini" ]]; then
   cp "$ROOT/mod/data/nr_casting.ini" "$OUT/nr_casting.ini"
 fi
