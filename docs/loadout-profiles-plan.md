@@ -1,6 +1,6 @@
 # Loadout profiles — assignments only
 
-Status: **settled design, not implemented.** Complements `docs/rebound-modifier-plan.md` (independent
+Status: **settled design, not implemented.** Target version: **0.3.0**. Complements `docs/rebound-modifier-plan.md` (independent
 work; neither blocks the other).
 
 ## What a profile is
@@ -126,8 +126,7 @@ profile_modifier = Ctrl
 4. `rawinput.rs`: the hotkey branch with its guards.
 5. Panel: title, grey block, profile row + separator, `save as` / `rename` / `delete`.
 6. Docs: README, NEXUS, ini template, release notes; troubleshooting note about downgrades.
-7. Version bump once the user has played it. Suggested `0.3.0` (new feature + file format), for the
-   user to confirm.
+7. Version bump to **`0.3.0`** once the user has played it (new feature + a file-format change).
 
 ## Principle alignment
 
