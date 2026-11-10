@@ -30,8 +30,8 @@ own spell menu can be assigned, so the mod works within your memory slots instea
 them.[/*]
 [*][b]Loadout profiles[/b] — save a whole assignment sheet under a name — boss, exploring,
 spellblade — and switch between them mid-game with [b]Ctrl+1[/b] .. [b]Ctrl+9[/b], from the panel or in
-the world, without swapping the catalyst in your hand. Each profile carries its own [code]balance[/code]
-and wheel-skip switches, and the list shows which each one will switch to.[/*]
+the world, without swapping the catalyst in your hand. Each profile carries its own balanced-mode and
+wheel-skip switches, and the list shows which each one will switch to.[/*]
 [*][b]Per character[/b] — assignments are filed under the character's name, so the same catalyst on
 two characters keeps two sets of spells (and a character is never handed spells it cannot cast).[/*]
 [*][b]Nothing edited[/b] — no regulation changes, no save edits, no data files. Your assignments
