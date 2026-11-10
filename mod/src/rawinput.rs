@@ -261,9 +261,9 @@ pub(crate) fn profile_hotkey_tick() {
     if !crate::config::load().raw_hook {
         return;
     }
-    if crate::UI_OPEN.load(Ordering::Relaxed) {
-        return;
-    }
+    // Deliberately no `UI_OPEN` refusal: switching while the panel is open is how a player checks a
+    // profile without closing it first. A cast in flight is still refused - that is the one moment
+    // the live sheet must not move.
     let modifier_down = match crate::config::profile_modifier() {
         nr_casting_core::HotkeyModifier::Ctrl => key_down(VK_CONTROL),
         nr_casting_core::HotkeyModifier::Alt => key_down(VK_MENU),

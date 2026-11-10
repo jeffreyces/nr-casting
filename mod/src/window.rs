@@ -172,7 +172,7 @@ struct Model {
     /// The profiles as (name, hotkey digit), the live one's name, and what the panel last said
     /// about a profile action. Rebuilt only when the store's generation moves - a list of nine
     /// short strings per frame would be an allocation for data that changes on a button press.
-    profiles: Vec<(String, Option<u8>)>,
+    profiles: Vec<(String, Option<u8>, String)>,
     profile_active: String,
     profile_gen: u32,
     profile_prompt: Option<ProfilePrompt>,
@@ -184,6 +184,7 @@ struct Model {
 #[derive(Clone, Copy, PartialEq)]
 enum ProfilePrompt {
     SaveAs,
+    Create,
     Rename,
     Delete,
 }
@@ -192,6 +193,7 @@ enum ProfilePrompt {
 enum ProfileAction {
     Switch(String),
     SaveAs(String),
+    Create(String),
     Rename(String),
     Delete,
     Bind(u8),
@@ -221,6 +223,7 @@ impl Model {
                 Ok(())
             }
             ProfileAction::SaveAs(name) => crate::store::save_profile_as(&name),
+            ProfileAction::Create(name) => crate::store::create_profile(&name),
             ProfileAction::Rename(name) => crate::store::rename_profile(&self.profile_active, &name),
             ProfileAction::Delete => crate::store::delete_profile(&self.profile_active).map(|_| ()),
             ProfileAction::Bind(digit) => {
@@ -1209,6 +1212,16 @@ impl App {
         // Recomputed each frame so the search box takes effect immediately.
         model.refresh_candidates();
         model.refresh_profiles();
+        // A profile carries its own mode, and a hotkey switch publishes it. The checkbox follows the
+        // live value instead of describing the mode the rows were last drawn under - otherwise a
+        // switch with the panel open would leave the panel claiming balanced mode was off while every
+        // free-mode assignment reads as unbound.
+        let live_balance = crate::config::balance();
+        if live_balance != model.balance {
+            model.balance = live_balance;
+            model.reload();
+            self.remeasure = true;
+        }
         let candidates = Rc::clone(&model.candidates);
         let candidates_right = Rc::clone(&model.candidates_right);
 
@@ -1242,8 +1255,8 @@ impl App {
                 let hotkey = model
                     .profiles
                     .iter()
-                    .find(|(name, _)| *name == model.profile_active)
-                    .and_then(|(_, digit)| *digit)
+                    .find(|(name, _, _)| *name == model.profile_active)
+                    .and_then(|(_, digit, _)| *digit)
                     .map(|digit| {
                         format!(
                             " ({})",
@@ -1401,9 +1414,10 @@ impl App {
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
                     scale_choice = Some(choice);
                 }
-                // The second gameplay row: which sheet is live, and what to do with it. A rule under
-                // it, because everything below belongs to the panel itself (refresh, close,
-                // diagnostics) rather than to a loadout.
+                // The second gameplay row: which sheet is live, and what to do with it. Its own band,
+                // with the same gap the diagnostics row gets above the buttons, and a rule under it
+                // because everything below belongs to the panel itself.
+                vspace(ui, SECTION_GAP);
                 if let Some(action) = profile_row(
                     ui,
                     &model.profiles,
@@ -1976,7 +1990,7 @@ fn hand_column(
 /// inside a draw pass.
 fn profile_row(
     ui: &Ui,
-    profiles: &[(String, Option<u8>)],
+    profiles: &[(String, Option<u8>, String)],
     active: &str,
     prompt: &mut Option<ProfilePrompt>,
     buf: &mut String,
@@ -1987,13 +2001,14 @@ fn profile_row(
     ui.same_line();
     ui.set_next_item_width(ui.frame_height() * 8.0);
     if let Some(_combo) = ui.begin_combo("##profile", active) {
-        for (name, digit) in profiles {
+        for (name, digit, flags) in profiles {
             let label = match digit {
                 Some(digit) => format!(
-                    "{name} ({})##profile_{name}",
-                    nr_casting_core::hotkey_label(crate::config::profile_modifier(), *digit)
+                    "{name} ({}{})##profile_{name}",
+                    nr_casting_core::hotkey_label(crate::config::profile_modifier(), *digit),
+                    flags
                 ),
-                None => format!("{name}##profile_{name}"),
+                None => format!("{name} ({flags})##profile_{name}"),
             };
             if imgui::Selectable::new(label)
                 .selected(name == active)
@@ -2002,6 +2017,11 @@ fn profile_row(
             {
                 action = Some(ProfileAction::Switch(name.clone()));
             }
+        }
+        // A fresh sheet, not a copy: `save as` forks the live setup, this one starts empty.
+        if imgui::Selectable::new("create new...##profile_create").build(ui) {
+            *prompt = Some(ProfilePrompt::Create);
+            buf.clear();
         }
     }
 
@@ -2013,8 +2033,8 @@ fn profile_row(
     ui.set_next_item_width(ui.frame_height() * 4.0);
     let current_digit = profiles
         .iter()
-        .find(|(name, _)| name == active)
-        .and_then(|(_, digit)| *digit);
+        .find(|(name, _, _)| name == active)
+        .and_then(|(_, digit, _)| *digit);
     let preview = match current_digit {
         Some(digit) => format!(
             "{}+{digit}##profile_key",
@@ -2026,7 +2046,7 @@ fn profile_row(
         for digit in 1..=9u8 {
             let taken = profiles
                 .iter()
-                .any(|(name, bound)| name != active && *bound == Some(digit));
+                .any(|(name, bound, _)| name != active && *bound == Some(digit));
             let label = format!(
                 "{}+{digit}{}##profile_key_{digit}",
                 crate::config::profile_modifier().as_str(),
@@ -2066,9 +2086,13 @@ fn profile_row(
     }
 
     match *prompt {
-        Some(ProfilePrompt::SaveAs) | Some(ProfilePrompt::Rename) => {
-            let save = *prompt == Some(ProfilePrompt::SaveAs);
-            ui.text(if save { "new name" } else { "rename to" });
+        Some(ProfilePrompt::SaveAs) | Some(ProfilePrompt::Create) | Some(ProfilePrompt::Rename) => {
+            let kind = *prompt;
+            ui.text(match kind {
+                Some(ProfilePrompt::Rename) => "rename to",
+                Some(ProfilePrompt::Create) => "new profile",
+                _ => "copy as",
+            });
             ui.same_line();
             ui.set_next_item_width(ui.frame_height() * 8.0);
             imgui::InputText::new(ui, "##profile_name", buf)
@@ -2077,10 +2101,10 @@ fn profile_row(
             ui.same_line();
             if ui.button("ok") && !buf.trim().is_empty() {
                 let name = buf.trim().to_string();
-                action = Some(if save {
-                    ProfileAction::SaveAs(name)
-                } else {
-                    ProfileAction::Rename(name)
+                action = Some(match kind {
+                    Some(ProfilePrompt::Rename) => ProfileAction::Rename(name),
+                    Some(ProfilePrompt::Create) => ProfileAction::Create(name),
+                    _ => ProfileAction::SaveAs(name),
                 });
             }
             ui.same_line();

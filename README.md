@@ -222,7 +222,11 @@ Assignments are made in the panel or with the bind gesture; both write the same 
 
 **Profiles** are named assignment sheets you can switch between without opening the panel. The row
 under the `balanced` toggle holds the list, each sheet's hotkey, and `save as` / `rename` / `delete`;
-`Ctrl+1` to `Ctrl+9` switches in the world, and the live one is always shown top right. A profile
+`create new` at the bottom of the list starts an empty sheet, while `save as` copies the live one.
+The list marks each profile's mode (`default (Ctrl+1, free)`, `boss (Ctrl+2, attuned, skip)`) because
+switching publishes that profile's `balanced` and wheel-skip values - a free-mode assignment can read
+as unbound under an attuned profile. `Ctrl+1` to `Ctrl+9` switch in the world *and* with the panel
+open, and the live one is always shown top right (Ctrl+1 belongs to `default` unless you move it). A profile
 carries its own `balanced` and `skip assigned in wheel` values, so a boss setup and an exploration
 setup can differ in more than the spells. `default` cannot be renamed or deleted; deleting the sheet
 you are on lands you back on `default`. Profiles never change your equipment, memory slots or save.

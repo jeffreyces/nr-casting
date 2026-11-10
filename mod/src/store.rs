@@ -221,6 +221,10 @@ pub(crate) fn reload_store() {
     let path = slots_path();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let mut profiles = nr_casting_core::parse_profiles(&text);
+    // A fresh install, and a file from before hotkeys existed, both give `default` no digit - which
+    // then let the NEXT profile take Ctrl+1. The default is always reachable, so it claims the
+    // first digit when no sheet claims one.
+    let default_gained_hotkey = nr_casting_core::ensure_default_hotkey(&mut profiles);
     let has_marker = text
         .lines()
         .any(|line| line.trim_start().starts_with("# format 3"));
@@ -247,7 +251,14 @@ pub(crate) fn reload_store() {
     }
     // Stamp the profile marker the first time a version that understands it reads the file, so a
     // later downgrade is visible in the file rather than silent.
-    if rewritten {
+    if default_gained_hotkey {
+        log(&format!(
+            "profile: '{}' is on {}+1",
+            nr_casting_core::DEFAULT_PROFILE,
+            config::profile_modifier().as_str()
+        ));
+    }
+    if rewritten || default_gained_hotkey {
         if let Err(e) = std::fs::write(&path, nr_casting_core::format_profiles(&profiles)) {
             log(&format!("slots: FAILED to rewrite {}: {e}", path.display()));
         }
@@ -496,13 +507,28 @@ pub(crate) fn active_profile_name() -> String {
         .unwrap_or_else(|| nr_casting_core::DEFAULT_PROFILE.to_string())
 }
 
-/// Every profile as (name, hotkey digit), in file order, for the panel's dropdown.
-pub(crate) fn profile_list() -> Vec<(String, Option<u8>)> {
+/// Every profile as (name, hotkey digit, flag note), in file order, for the panel's dropdown.
+///
+/// The flag note is what the sheet will switch `balance` and the wheel skip to. It is in the label
+/// because a profile carrying its own mode is otherwise invisible: a switch can turn balanced mode on
+/// and make a free-mode assignment read as unbound, which looks like a broken cast until the reason is
+/// on screen.
+pub(crate) fn profile_list() -> Vec<(String, Option<u8>, String)> {
     store_lock()
         .profiles
         .sheets
         .iter()
-        .map(|sheet| (sheet.name.clone(), sheet.hotkey))
+        .map(|sheet| {
+            let mut note = String::new();
+            match sheet.balance {
+                Some(mode) => note.push_str(&format!(", {}", mode.as_str())),
+                None => note.push_str(", as-is"),
+            }
+            if sheet.skip_assigned == Some(true) {
+                note.push_str(", skip");
+            }
+            (sheet.name.clone(), sheet.hotkey, note)
+        })
         .collect()
 }
 
@@ -531,7 +557,7 @@ pub(crate) fn switch_profile(name: &str) -> bool {
     // the panel thread. The memorised list did not change anyway - only which rows are live - and
     // the cast path re-reads it on its own net.
     log(&format!(
-        "profile: -> {} ({} weapons{})",
+        "profile: -> {} ({} weapons{}{}{})",
         sheet.name,
         sheet.rows.len(),
         match sheet.hotkey {
@@ -540,6 +566,16 @@ pub(crate) fn switch_profile(name: &str) -> bool {
                 nr_casting_core::hotkey_label(config::profile_modifier(), digit)
             ),
             None => ", no hotkey".to_string(),
+        },
+        // A profile carries its own mode and wheel switch, so a switch that changes them says so in
+        // the same line - the player is about to see spells the mod calls unbound otherwise.
+        match sheet.balance {
+            Some(mode) => format!(", balance {}", mode.as_str()),
+            None => ", balance as-is".to_string(),
+        },
+        match sheet.skip_assigned {
+            Some(on) => format!(", wheel skip {}", if on { "on" } else { "off" }),
+            None => ", wheel skip as-is".to_string(),
         }
     ));
     true
@@ -595,6 +631,50 @@ pub(crate) fn save_profile_as(name: &str) -> Result<(), &'static str> {
 /// How many weapon rows the live profile holds, for the panel and the log.
 pub(crate) fn active_row_count() -> usize {
     store_lock().rows.len()
+}
+
+/// Create a profile with **no assignments** and switch to it.
+///
+/// The dropdown's "create new": a fresh sheet for a loadout the player is about to build, as opposed
+/// to `save as`, which copies the live one and is the way to fork an existing setup. The empty sheet
+/// inherits the live `balance`/`skip` values so the switches do not move under the player while they
+/// start assigning.
+pub(crate) fn create_profile(name: &str) -> Result<(), &'static str> {
+    if !nr_casting_core::profile_name_ok(name) {
+        return Err("a name is printable ASCII, up to 24 characters, without separators");
+    }
+    let mut store = store_lock();
+    if store.profiles.index_of(name).is_some() {
+        return Err("a profile with that name already exists");
+    }
+    if store.profiles.sheets.len() >= nr_casting_core::MAX_PROFILES {
+        return Err("nine profiles is the limit");
+    }
+    store.profiles.sheets.push(Sheet {
+        name: name.to_string(),
+        balance: Some(config::balance()),
+        skip_assigned: Some(config::skip_assigned()),
+        hotkey: None,
+        rows: Vec::new(),
+    });
+    let index = store.profiles.sheets.len() - 1;
+    if let Some(digit) = nr_casting_core::autobind_digit(&store.profiles) {
+        let _ = nr_casting_core::bind_digit(&mut store.profiles, index, digit);
+    }
+    store.active = index;
+    store.rows.clear();
+    commit(&mut store);
+    let hotkey = store.profiles.sheets[index].hotkey;
+    drop(store);
+    config::set_profile_name(name);
+    log(&format!(
+        "profile: created '{name}' empty ({})",
+        match hotkey {
+            Some(digit) => nr_casting_core::hotkey_label(config::profile_modifier(), digit),
+            None => "no hotkey".to_string(),
+        }
+    ));
+    Ok(())
 }
 
 /// Rename a profile. `default` keeps its name: every unknown active name resolves to it.

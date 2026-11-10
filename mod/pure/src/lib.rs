@@ -1705,6 +1705,26 @@ fn parse_on_off(text: &str) -> Option<bool> {
     }
 }
 
+/// Give the default profile a hotkey when nothing in the file has one.
+///
+/// A file written before hotkeys existed, and a fresh install, both parse to a `default` sheet with
+/// no digit - which then made the *next* profile take Ctrl+1, so the first thing a player created
+/// answered to the key the default should have had. The default is always reachable, so it gets the
+/// first digit whenever no sheet claims one. Returns whether it changed anything.
+pub fn ensure_default_hotkey(profiles: &mut Profiles) -> bool {
+    if profiles.sheets.iter().any(|sheet| sheet.hotkey.is_some()) {
+        return false;
+    }
+    let index = profiles
+        .index_of(DEFAULT_PROFILE)
+        .unwrap_or(0);
+    if profiles.sheets.get(index).is_none() {
+        return false;
+    }
+    profiles.sheets[index].hotkey = Some(1);
+    true
+}
+
 /// The lowest digit no profile is using, for a newly created profile.
 pub fn autobind_digit(profiles: &Profiles) -> Option<u8> {
     (1..=MAX_PROFILES as u8).find(|digit| profiles.for_digit(*digit).is_none())
@@ -3475,6 +3495,27 @@ mod profile_tests {
         let profiles = parse_profiles("[profile default]\n33090010 = 1, 2, -1, -1\n");
         assert_eq!(profiles.sheets[0].balance, None);
         assert_eq!(profiles.sheets[0].skip_assigned, None);
+    }
+
+    #[test]
+    fn the_default_profile_claims_the_first_digit_when_nothing_has_one() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[ROW_A]));
+        assert!(ensure_default_hotkey(&mut profiles));
+        assert_eq!(profiles.sheets[0].hotkey, Some(1));
+        // A second call is a no-op: something already holds a digit.
+        assert!(!ensure_default_hotkey(&mut profiles));
+    }
+
+    #[test]
+    fn a_hotkey_already_in_the_file_is_left_alone() {
+        let mut profiles = Profiles::default();
+        let mut boss = sheet("boss", &[ROW_A]);
+        boss.hotkey = Some(2);
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[]));
+        profiles.sheets.push(boss);
+        assert!(!ensure_default_hotkey(&mut profiles));
+        assert_eq!(profiles.sheets[1].hotkey, Some(2));
     }
 
     #[test]
