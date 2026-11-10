@@ -23,11 +23,14 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 echo "pre-push: clippy nr_casting_core (host, all targets, -D warnings)"
 cargo clippy --manifest-path mod/pure/Cargo.toml --all-targets -- -D warnings || exit 1
 
+dll_linted=1
 if ! cargo xwin --version >/dev/null 2>&1; then
     echo "pre-push: cargo-xwin is not installed - the DLL crate was not linted"
-    exit 0
+    dll_linted=0
 fi
 
+[ "$dll_linted" -eq 1 ] || dll_linted=0
+if [ "$dll_linted" -eq 1 ]; then
 echo "pre-push: clippy nr_casting (x86_64-pc-windows-msvc, all targets, -D warnings)"
 log=/tmp/nr_casting_prepush.log
 set +e
@@ -44,10 +47,36 @@ if [ "$status" -ne 0 ]; then
         echo "          not linted. That is a toolchain problem, not a finding; CI lints it on"
         echo "          every push. To re-run by hand once the toolchain builds:"
         echo "          cargo xwin clippy --manifest-path mod/Cargo.toml --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
-        exit 0
+        # Falls through to the audit below rather than exiting: an early exit here skipped the
+        # dependency check on exactly the pushes that carry a tag, which are the ones that matter.
+    else
+        echo "pre-push: clippy failed for nr_casting (exit $status)"
+        exit 1
     fi
-    echo "pre-push: clippy failed for nr_casting (exit $status)"
-    exit 1
+fi
+fi
+
+# Dependency advisories. The machine-wide runner would do this itself, and this file replaces it, so
+# it has to here: on any push that moves a lockfile, and on every tag (a release is when an advisory
+# matters most). The global runner passes both facts in.
+lock_changed=0
+if [ -n "${LINT_PUSH_FILES:-}" ] && [ -f "${LINT_PUSH_FILES}" ]; then
+    lock_changed=$(grep -c 'Cargo\.lock$' "$LINT_PUSH_FILES" || true)
+fi
+if [ "${LINT_PUSH_RELEASE:-0}" = 1 ] || [ "${lock_changed:-0}" -gt 0 ]; then
+    if command -v cargo-audit >/dev/null 2>&1 || cargo audit --version >/dev/null 2>&1; then
+        echo "pre-push: cargo audit"
+        for lock in $(git ls-files '*Cargo.lock'); do
+            case "$lock" in vendor/* | */vendor/*) continue ;; esac
+            dir=$(dirname "$lock")
+            (cd "$dir" && cargo audit --quiet) || {
+                echo "pre-push: cargo audit found an advisory in $dir"
+                exit 1
+            }
+        done
+    else
+        echo "pre-push: cargo-audit is not installed - dependencies not checked"
+    fi
 fi
 
 echo "pre-push: lint clean"
