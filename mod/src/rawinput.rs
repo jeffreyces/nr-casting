@@ -444,13 +444,12 @@ fn visit_record(record: &mut [u8]) {
                 unsafe { steer_click(record) }
             }
         }
-        Some(RAW_TYPE_KEYBOARD) => {
+        Some(RAW_TYPE_KEYBOARD)
             // Same reasoning as the `GetAsyncKeyState` side: the raw stream is where the game
             // tracks held modifiers, so Shift has to be released in both places.
-            if raw_keyboard(record).is_some() && raw_hide_shift(record) {
+            if raw_keyboard(record).is_some() && raw_hide_shift(record) => {
                 stats::shift_hidden();
             }
-        }
         _ => {}
     }
 }
@@ -459,25 +458,25 @@ fn visit_record(record: &mut [u8]) {
 /// same on the pad, and the counters simply stay at zero.
 pub(crate) fn install() {
     unsafe {
-        let module = GetModuleHandleA(b"user32.dll\0".as_ptr());
+        let module = GetModuleHandleA(c"user32.dll".as_ptr().cast());
         if module.is_null() {
             crate::log("input: user32 not found; keyboard/mouse path disabled");
             return;
         }
         hook(
-            GetProcAddress(module, b"GetAsyncKeyState\0".as_ptr()),
+            GetProcAddress(module, c"GetAsyncKeyState".as_ptr().cast()),
             key_detour as *const (),
             &KEY_TRAMPOLINE,
             "GetAsyncKeyState",
         );
         hook(
-            GetProcAddress(module, b"GetRawInputData\0".as_ptr()),
+            GetProcAddress(module, c"GetRawInputData".as_ptr().cast()),
             raw_data_detour as *const (),
             &RAW_DATA_TRAMPOLINE,
             "GetRawInputData",
         );
         hook(
-            GetProcAddress(module, b"GetRawInputBuffer\0".as_ptr()),
+            GetProcAddress(module, c"GetRawInputBuffer".as_ptr().cast()),
             raw_buffer_detour as *const (),
             &RAW_BUFFER_TRAMPOLINE,
             "GetRawInputBuffer",

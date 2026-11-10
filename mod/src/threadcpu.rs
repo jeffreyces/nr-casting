@@ -69,7 +69,7 @@ unsafe fn thread_times(handle: usize) -> Option<(u64, u64)> {
         return None;
     }
     // FILETIME counts 100 ns units; two u32 words per value.
-    Some((kernel.0 as u64 / 10, user.0 as u64 / 10))
+    Some((kernel.0 / 10, user.0 / 10))
 }
 
 /// The thread handle, opened once per thread id.

@@ -564,11 +564,10 @@ unsafe fn import_slot_is_ours() -> bool {
     let cached = HOOK_SLOT.load(Ordering::Relaxed);
     if cached != 0 {
         let slot = cached as *const *mut u8;
-        if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>()) {
-            if *slot == detour as *const () as *mut u8 {
+        if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>())
+            && *slot == detour as *const () as *mut u8 {
                 return true;
             }
-        }
     }
     match game_import_slot() {
         Ok(slot) if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>()) => {
@@ -979,8 +978,8 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     // version handed the clock to the message pump mid-phase, which injected a two-second "gap"
     // and moved that phase's p50 by 5 ms.)
     crate::perf::report(perf_started);
-    if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) {
-        if ret == 0 {
+    if !state.is_null() && HOOK_READY.load(Ordering::Relaxed)
+        && ret == 0 {
             crate::rawinput::note_pad_ok();
             let n = crate::stats::pad_ok();
             if n == 1 {
@@ -1015,7 +1014,6 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
         // more: they are steered in the raw-input layer and performed by the game's own click, so
         // there is nothing to synthesise (and a synthetic pad report alongside a real click was
         // one way to get two actions out of one press).
-    }
     ret
 }
 

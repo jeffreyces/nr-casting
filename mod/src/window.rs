@@ -1916,6 +1916,9 @@ fn balance_summary(attuned: &[i32], rows: &[RowState]) -> String {
     )
 }
 
+// Ten plain values for one row builder: every one of them is panel state the caller already holds,
+// and a struct would exist only to be constructed at the call site and destructured here.
+#[allow(clippy::too_many_arguments)]
 fn hand_column(
     ui: &Ui,
     heading: &str,
@@ -2012,11 +2015,6 @@ fn hand_column(
     }
     chosen
 }
-
-/// The panel's UI-scale picker: auto plus a few pinned multipliers.
-///
-/// Returns the new choice (outer `Some`) when the player picked one, `None` when nothing changed.
-/// `auto` is what auto would pick right now, so the row says what it is doing.
 
 /// The profile row: which sheet is live, and the four things a player does with one.
 ///
@@ -2155,7 +2153,7 @@ fn profile_row(
         Some(ProfilePrompt::Delete) => {
             ui.text_colored(
                 ui.clone_style().colors[StyleColor::Text as usize],
-                &format!("delete '{active}'?"),
+                format!("delete '{active}'?"),
             );
             ui.same_line();
             if ui.button("yes") {
@@ -2585,8 +2583,8 @@ pub fn start() {
         // This thread pumps its own messages; its `PeekMessageW` calls are not the game's frames.
         crate::pump::ignore_current_thread();
         let config = crate::config::load();
-        let install = (config.hooks && config.pointer_hook).then(|| crate::pointer::install());
-        match install.unwrap_or_else(|| Ok(())) {
+        let install = (config.hooks && config.pointer_hook).then(crate::pointer::install);
+        match install.unwrap_or(Ok(())) {
             Ok(()) => crate::log("pointer: detours installed"),
             Err(e) => crate::log(&format!("pointer: FAILED to install detours: {e}")),
         }

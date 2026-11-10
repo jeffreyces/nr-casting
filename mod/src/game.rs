@@ -233,8 +233,7 @@ pub(crate) fn release_borrowed() -> bool {
     let live = !list.is_empty();
     drop(list);
     BORROW_ACTIVE.store(live, Ordering::Relaxed);
-    if !live {
-    }
+    
     true
 }
 
@@ -828,7 +827,7 @@ fn sample_now() {
 }
 
 pub(crate) fn player() -> Option<&'static eldenring::cs::PlayerIns> {
-    let Some(raw) = raw_player() else { return None };
+    let raw = raw_player()?;
     let cached = CHAR.load(Ordering::Relaxed);
     let due = now_ms().wrapping_sub(CHAR_CHECKED.load(Ordering::Relaxed)) >= RECHECK_MS;
     if cached == raw && !due {

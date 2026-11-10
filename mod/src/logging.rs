@@ -131,6 +131,9 @@ pub(crate) fn try_log(msg: &str) {
 /// must not block (the fault may have happened while the logger's mutex was held — `try_lock`
 /// drops the line instead of deadlocking the process). The formatting itself lives in
 /// `nr_casting_core::fault_line` so it can be tested without a game.
+// Mirrors `nr_casting_core::fault_line` field for field, and runs inside the exception handler where
+// a struct argument would add a copy for no gain. Kept as parameters deliberately.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn log_fault(
     ms: u64,
     code: u32,

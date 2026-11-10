@@ -191,7 +191,7 @@ pub fn start_writer() {
         let elapsed = PENDING[5].load(Ordering::Relaxed);
         let cpu_peak = PENDING[6].load(Ordering::Relaxed);
         let cost_mean = PENDING[7].load(Ordering::Relaxed);
-        let mean = if polls > 0 { sum / polls } else { 0 };
+        let mean = sum.checked_div(polls).unwrap_or(0);
         let open = PENDING_OPEN.load(Ordering::Relaxed);
         crate::log(&format!(
             "perf: {polls} input ticks in {:.1}s, gap mean {}ms max {}ms ({} over 32ms), \

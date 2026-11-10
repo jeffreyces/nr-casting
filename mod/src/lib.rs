@@ -441,12 +441,6 @@ fn run() {
 }
 
 /// The DLLs in this process that are neither Windows' nor ours, with their load bases.
-///
-/// Every compatibility report so far reduces to "which other DLL is loaded": proxy DLLs for
-/// frame generation, another overlay, a class-port mod. Naming them in the log turns that from
-/// a guessing game into a line somebody can paste into a bug report, and the base is what lets a
-/// `crash:` line ("in X.dll (base …, offset …)") be matched to a module.
-
 /// Every loaded module with its full path, so a report can say which DLLs came from the game's own
 /// folder (a proxy, an overlay, a wrapper) rather than from Windows.
 pub(crate) fn module_paths() -> Vec<(String, String)> {

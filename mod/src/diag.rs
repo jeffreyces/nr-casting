@@ -91,7 +91,7 @@ pub fn write_bundle(reason: &str) -> Result<(PathBuf, usize), String> {
 /// Keep the folder tidy: one report is useful, a pile of them is clutter. Newest five survive.
 fn prune_old(keep: usize) {
     let folder = crate::config::data_dir();
-    let Ok(entries) = std::fs::read_dir(&folder) else {
+    let Ok(entries) = std::fs::read_dir(folder) else {
         return;
     };
     let mut reports: Vec<std::path::PathBuf> = entries
@@ -296,7 +296,7 @@ fn graphics(modules: &[(String, String)]) -> String {
         // Only the first few megabytes: a wrapper's own name and version strings live in the
         // resources near the front, and a 200 MB DLL should not be read in full to answer "which
         // wrapper is this".
-        let Ok(file) = std::fs::File::open(&path) else {
+        let Ok(file) = std::fs::File::open(path) else {
             continue;
         };
         let mut bytes = Vec::new();
@@ -307,7 +307,7 @@ fn graphics(modules: &[(String, String)]) -> String {
         }
         // The size from the file, not the bytes we read: the read is capped at 8 MiB for speed and
         // reporting the cap as the size was nonsense (six 8 MiB files on a 220 MiB exe).
-        let size = std::fs::metadata(&path)
+        let size = std::fs::metadata(path)
             .map(|m| m.len())
             .unwrap_or(bytes.len() as u64);
         let markers = nr_casting_core::wrapper_markers(&bytes);
@@ -650,7 +650,7 @@ fn log_tail() -> String {
     // not UTF-8, and one such sequence made the entire tail disappear from a report that then said
     // `(empty)` while its own header named the log - which is exactly the file the reporter needed
     // us to see.
-    let bytes = match std::fs::read(&path) {
+    let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) => return format!("(could not read {}: {e})", path.display()),
     };

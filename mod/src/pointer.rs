@@ -266,11 +266,6 @@ unsafe extern "system" fn capture_detour(hwnd: *mut u8) -> *mut u8 {
     original(hwnd)
 }
 
-
-///
-
-
-
 pub(crate) fn hook(
     name: &std::ffi::CStr,
     module: *mut u8,
