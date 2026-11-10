@@ -169,9 +169,3 @@ written an hour earlier):
   counts only.
 - **Two holders of "the same" toggle:** the ini keys and the live sheet. Every path that changes one
   writes the other, so they cannot disagree for longer than one publish.
-
-## Left for later
-
-- `docs/rebound-modifier-plan.md` still waits on the reporter's remap list; it is unrelated to this
-  feature.
-- Publishing 0.3.0 (tag + CI + asset check) has not been done.

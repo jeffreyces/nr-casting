@@ -228,7 +228,7 @@ starts free with the wheel skip off, like a fresh install; `save as` copies the 
 marks each profile's mode (`default (Ctrl+1, free)`, `boss (Ctrl+2, attuned, skip)`) because
 switching publishes that profile's `balanced` and wheel-skip values - a free-mode assignment can read
 as unbound under an attuned profile. Flipping either switch while a profile is live records it into
-that profile, so `save as` carries the pair and a switch away and back keeps your change. `Ctrl+1` to `Ctrl+9` switch in the world *and* with the panel
+that profile, so `save as` carries the pair and a switch away and back keeps your change. Typing a name and pressing Enter confirms it. `Ctrl+1` to `Ctrl+9` switch in the world *and* with the panel
 open, and the live one is always shown top right (Ctrl+1 belongs to `default` unless you move it). A profile
 carries its own `balanced` and `skip assigned in wheel` values, so a boss setup and an exploration
 setup can differ in more than the spells. `default` cannot be renamed or deleted; deleting the sheet

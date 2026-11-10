@@ -152,12 +152,12 @@ applies immediately, off by default.
 
 [code]profile = default[/code]
 picks which assignment profile is live. A profile is a named sheet of assignments with its own
-[code]balance[/code] and [code]vanilla_skips_assigned[/code] values - so a boss setup and an
-exploration setup can differ in more than spells - and so can [code]balance[/code], which is why each
-profile is listed with its mode. Flipping a switch while a profile is live records it into that
-profile; every profile holds its own pair and nothing inherits the previous one. [b]create new[/b]
-starts free with the wheel skip off, like a fresh install. [b]create new[/b] at the bottom of the list starts an empty sheet,
-[b]save as[/b] copies the live one. Switch on the panel's profile row or with [b]Ctrl+1[/b] ..
+[code]balance[/code] and [code]vanilla_skips_assigned[/code] values, which is why each profile is
+listed with its mode. Flipping a switch while a profile is live records it into that profile - every
+profile holds its own pair, and nothing inherits the previous one. [b]create new[/b] at the bottom of
+the list starts an empty sheet with free balance and the wheel skip off, like a fresh install;
+[b]save as[/b] copies the live one, and typing a name then pressing Enter confirms it.
+Switch on the panel's profile row or with [b]Ctrl+1[/b] ..
 [b]Ctrl+9[/b], in the world or with the panel open (the modifier is [code]profile_modifier[/code]);
 the live one is shown top right, and [b]Ctrl+1[/b] belongs to [code]default[/code] until you move it. Profiles never touch your equipment, memory slots or save, and
 [code]default[/code] can be neither renamed nor deleted.
@@ -224,6 +224,9 @@ needs Seamless Co-op itself.[/*]
 
 [size=5][b]Notes[/b][/size]
 [list]
+[*]The page, the panel and the docs say [b]Nightreign Casting Plus[/b]; the archive, the DLL and the
+loader profile keep their [code]nr_casting[/code] names, so an update replaces the DLL and nothing
+else moves.[/*]
 [*]Removing the mod is a clean revert: delete the DLL and the profile, and the game is back to
 vanilla. Nothing was added to your save file, and no game data was modified.[/*]
 [*]Spell and weapon names come from your own game's text at load (a few thousand names, about
