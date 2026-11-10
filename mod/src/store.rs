@@ -591,26 +591,23 @@ pub(crate) fn switch_profile(name: &str) -> bool {
     // No `refresh_attuned` here: it reads game memory, and a profile switch can be triggered from
     // the panel thread. The memorised list did not change anyway - only which rows are live - and
     // the cast path re-reads it on its own net.
+    // A profile carries its own mode and wheel switch, so a switch that changes them says so in the
+    // same line - the player is about to see spells the mod calls unbound otherwise. One string, not
+    // four nested ones.
+    let hotkey = match sheet.hotkey {
+        Some(digit) => nr_casting_core::hotkey_label(config::profile_modifier(), digit),
+        None => "no hotkey".to_string(),
+    };
     log(&format!(
-        "profile: -> {} ({} weapons{}{}{})",
+        "profile: -> {} ({} weapons, {}, balance {}, wheel skip {})",
         sheet.name,
         sheet.rows.len(),
-        match sheet.hotkey {
-            Some(digit) => format!(
-                ", {}",
-                nr_casting_core::hotkey_label(config::profile_modifier(), digit)
-            ),
-            None => ", no hotkey".to_string(),
-        },
-        // A profile carries its own mode and wheel switch, so a switch that changes them says so in
-        // the same line - the player is about to see spells the mod calls unbound otherwise.
-        match sheet.balance {
-            Some(mode) => format!(", balance {}", mode.as_str()),
-            None => ", balance as-is".to_string(),
-        },
+        hotkey,
+        sheet.balance.map_or("as-is", |mode| mode.as_str()),
         match sheet.skip_assigned {
-            Some(on) => format!(", wheel skip {}", if on { "on" } else { "off" }),
-            None => ", wheel skip as-is".to_string(),
+            Some(true) => "on",
+            Some(false) => "off",
+            None => "as-is",
         }
     ));
     true
