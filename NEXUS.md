@@ -267,7 +267,7 @@ This mod exists because people tried it, broke it, and told me what it should do
 [*]A friend, for the idea that started it: being able to cast the spells you chose, from bindings you chose, instead of whatever the game assigned.[/*]
 [*][url=https://next.nexusmods.com/profile/arguskos]arguskos[/url] for helping diagnose the performance issues - the frame-time work that turned a stuttering mod into one that costs nothing per frame - and for using it on stream at [url=https://www.twitch.tv/bloodydoves]bloodydoves[/url].[/*]
 [*][url=https://next.nexusmods.com/profile/Lilbvshx]Lilbvshx[/url] for the keyboard and mouse support idea.[/*]
-[*][url=https://next.nexusmods.com/profile/HoboKingNiklz]HoboKingNiklz[/url] for the idea of more than the first four spells - up to eight, on the Y + bindings.[/*]
+[*][url=https://next.nexusmods.com/profile/HoboKingNiklz]HoboKingNiklz[/url] for the idea of more than the first two spells per catalyst - four each, eight in total, on the Y + bindings.[/*]
 [*][url=https://next.nexusmods.com/profile/Fanudoshka]Fanudoshka[/url] for the idea behind balanced mode and skipping assigned spells in the wheel.[/*]
 [*][url=https://next.nexusmods.com/profile/Flaffy13]Flaffy13[/url] for supporting NR Casting alongside [url=https://www.nexusmods.com/eldenring/mods/11410]Nightreign Characters Full Port[/url], which is the class port this was built against.[/*]
 [*][url=https://next.nexusmods.com/profile/Gunin812]Gunin812[/url] for the idea of loadout profiles.[/*]
