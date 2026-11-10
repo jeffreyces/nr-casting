@@ -198,7 +198,10 @@ pub(crate) fn set_character(name: &str, id: u32) {
     crate::game::refresh_attuned();
     prune_uncastable();
     log(&format!(
-        "slots: character {name} (id {id}) -> {} / profile {}",
+        // `|` rather than a slash before the profile name: the redactor at the log sink treats a
+        // bare `/...` run as another path and swallowed the rest of this line, which hid the very
+        // answer the line exists to give.
+        "slots: character {name} (id {id}) -> {} | profile {}",
         slots_path().display(),
         active_profile_name()
     ));
