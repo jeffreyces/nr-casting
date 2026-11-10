@@ -31,6 +31,9 @@ is lost, and nothing needs editing.
   lands you back on `default`.
 - **Profiles are the same list for every character.** Each character keeps its own file, because the
   spells it can cast differ.
+- **The panel answers the keyboard.** Every list scrolls with the arrow keys, Enter applies the
+  highlighted row and Escape backs out, so a spell list longer than its box no longer needs the mouse.
+  This is keyboard only: the pad is deliberately not wired to the panel.
 
 ## Changed
 
@@ -42,8 +45,12 @@ is lost, and nothing needs editing.
 
 ## Verified
 
-142 unit tests green (17 for the profile model: parsing, round-trip, autobind, refusals, renaming,
-deleting, the hotkey guards). `cargo xwin check --target x86_64-pc-windows-msvc` clean.
+145 unit tests green (17 for the profile model: parsing, round-trip, autobind, refusals, renaming,
+deleting and the hotkey guards; 3 for the panel's key batches: a tap shorter than a frame, a held key,
+a release with no press). `cargo xwin check --target x86_64-pc-windows-msvc` clean.
+
+The panel keyboard work was played on Linux under Proton (keyboard only, as shipped). Not exercised:
+a native Windows session, and the pad - it is not wired to the panel.
 
 ## Known limitation
 
