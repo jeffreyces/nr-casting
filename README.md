@@ -100,7 +100,9 @@ Shift + click arrives as a plain click and casts instead of being read as the ga
 Ctrl and Alt are ignored by the game already, which is why they can carry slots too.
 
 The panel is Dear ImGui drawn into a borderless window of the mod's own, with its own D3D11 device
-created the first time you open it. It is deliberately *not* an overlay on the game's swap chain:
+created the first time you open it. The mouse is not the only way in: every list answers the arrow
+keys, Enter commits the highlighted row and Escape backs out, so a spell list longer than its box can
+be worked from the keyboard alone. The pad is not wired to the panel. It is deliberately *not* an overlay on the game's swap chain:
 a second `Present` hook stops a co-resident class port's HUD from drawing (verified with
 `ERNativeUI.dll`), even when that hook draws nothing at all.
 

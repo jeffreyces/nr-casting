@@ -409,8 +409,10 @@ struct Input {
     wheel: f32,
     chars: Vec<char>,
     keys: Vec<(usize, bool)>,
-    /// The pad's button mask at the last frame, so a press can be told from a held button.
-    pad: u16,
+    /// Keys whose release arrived in the same frame batch as the press, so it is held for one more
+    /// frame. Without this a tap shorter than a frame never looks pressed, and a menu can only be
+    /// moved with a held key.
+    release_next: Vec<usize>,
 }
 
 /// Device, swap chain and ImGui state. Created on the first open, never during play.
@@ -1710,18 +1712,24 @@ impl App {
             for character in self.input.chars.drain(..) {
                 io.add_input_character(character);
             }
-            for (key, down) in self.input.keys.drain(..) {
-                io.keys_down[key] = down;
+            // A tap can arrive as down+up inside one batch - the queue is drained once per frame,
+            // and a key press is shorter than a frame at any sane repeat rate. Writing only the last
+            // event left ImGui believing the key was never pressed (Enter could not commit a combo
+            // row; a held arrow worked, which is what hid it). So: a release that follows its own
+            // press in the same batch is held back one frame, and every press is visible once.
+            for key in self.input.release_next.drain(..) {
+                io.keys_down[key] = false;
             }
-            // The pad enters the panel as key presses, so there is one navigation path and not two.
-            // The mask is the detour's own snapshot of the poll the game just made.
-            let pad = crate::input::pad_buttons();
-            for change in nr_casting_core::pad_nav_changes(pad, self.input.pad) {
-                if let Some((nav, down)) = change {
-                    io.keys_down[pad_nav_key(nav) as usize] = down;
+            for (key, down) in self.input.keys.drain(..) {
+                if down {
+                    io.keys_down[key] = true;
+                } else if io.keys_down[key] {
+                    self.input.release_next.push(key);
+                } else {
+                    io.keys_down[key] = false;
                 }
             }
-            self.input.pad = pad;
+
         }
         gfx.last_frame = Instant::now();
 
@@ -2244,19 +2252,6 @@ const EMPTY_SLOT: i32 = -1;
 /// `Accept` and `Cancel` are Enter and Escape on purpose: the panel already answers both (a text box
 /// confirms with Enter), so a pad user gets the same behaviour without pad-specific branches inside
 /// the widgets.
-fn pad_nav_key(nav: nr_casting_core::PadNav) -> imgui::Key {
-    use imgui::Key;
-    use nr_casting_core::PadNav;
-    match nav {
-        PadNav::Up => Key::UpArrow,
-        PadNav::Down => Key::DownArrow,
-        PadNav::Left => Key::LeftArrow,
-        PadNav::Right => Key::RightArrow,
-        PadNav::Accept => Key::Enter,
-        PadNav::Cancel => Key::Escape,
-    }
-}
-
 /// Map the virtual keys the text fields need onto ImGui's key indices.
 fn map_key(vk: u16) -> Option<usize> {
     use imgui::Key;

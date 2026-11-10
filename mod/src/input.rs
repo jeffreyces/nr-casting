@@ -1040,14 +1040,6 @@ static Y_BUMPER: AtomicBool = AtomicBool::new(true);
 /// The button mask of the previous poll, so a press edge can be told from a held button.
 static LAST_BUTTONS: AtomicU16 = AtomicU16::new(0);
 
-/// The pad's raw button mask from the last poll, for the panel's navigation.
-///
-/// Read off the snapshot the detour already takes, not by polling XInput from the panel thread: that
-/// would be a second device read and a second source of truth. Zero while the hook is out of the path
-/// (`pad_hook = off`), which is why the panel's pad navigation depends on it.
-pub(crate) fn pad_buttons() -> u16 {
-    LAST_BUTTONS.load(Ordering::Relaxed)
-}
 
 pub(crate) fn y_bumper() -> bool {
     Y_BUMPER.load(Ordering::Relaxed)
