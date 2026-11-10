@@ -413,6 +413,8 @@ struct Input {
     /// frame. Without this a tap shorter than a frame never looks pressed, and a menu can only be
     /// moved with a held key.
     release_next: Vec<usize>,
+    /// Set when the panel closes: the ImGui context survives, so its key state must start clean.
+    forget_keys: bool,
 }
 
 /// Device, swap chain and ImGui state. Created on the first open, never during play.
@@ -1105,6 +1107,15 @@ impl App {
             crate::game::log_entries();
         }
         self.shown = open;
+        if !open {
+            // The ImGui context deliberately survives a close, and so does its key state - but a key
+            // still held when the window hides never delivers its release, because a hidden window
+            // receives no messages. It then looks permanently down on the next open: a highlight
+            // that moves and an activation that never fires again. Every open starts with no keys.
+            self.input.keys.clear();
+            self.input.release_next.clear();
+            self.input.forget_keys = true;
+        }
         self.model.panel.set_visible(open);
         unsafe {
             if open {
@@ -1717,6 +1728,10 @@ impl App {
             // event left ImGui believing the key was never pressed (Enter could not commit a combo
             // row; a held arrow worked, which is what hid it). So: a release that follows its own
             // press in the same batch is held back one frame, and every press is visible once.
+            if self.input.forget_keys {
+                self.input.forget_keys = false;
+                io.keys_down = [false; 512];
+            }
             for key in self.input.release_next.drain(..) {
                 io.keys_down[key] = false;
             }
@@ -1728,18 +1743,6 @@ impl App {
                 } else {
                     io.keys_down[key] = false;
                 }
-            }
-            // Enter picks the highlighted row.
-            //
-            // Dear ImGui 1.84 maps keyboard navigation as Enter -> `NavInput_Input` and Space ->
-            // `NavInput_Activate` (imgui.cpp, "Update Keyboard->Nav inputs mapping"), and only
-            // `Activate` runs a focused item. Held on its own, Enter therefore cannot commit a row
-            // no matter what the panel does: the highlight moves and Enter is ignored. Mirroring
-            // Enter onto Space gives the layout everyone expects - Enter runs whatever is
-            // highlighted - without a per-widget branch, and text fields are unaffected because
-            // they read typed characters rather than these key states.
-            if io.keys_down[imgui::Key::Enter as usize] {
-                io.keys_down[imgui::Key::Space as usize] = true;
             }
 
         }
@@ -2365,12 +2368,23 @@ unsafe extern "system" fn wnd_proc(
                         return Some(LRESULT(0));
                     }
                     if let Some(key) = map_key(vk) {
+                        let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
                         // Bounded: a stuck focus can deliver auto-repeat for as long as nobody
                         // builds a frame, and this vector is only drained by one.
                         if app.input.keys.len() < 256 {
-                            app.input
-                                .keys
-                                .push((key, msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN));
+                            app.input.keys.push((key, down));
+                            // Enter must run the highlighted row. Dear ImGui 1.84 maps keyboard
+                            // navigation as Enter -> `NavInput_Input` and Space -> `NavInput_Activate`
+                            // (imgui.cpp, "Update Keyboard->Nav inputs mapping"), and only `Activate`
+                            // runs a focused item - so Enter on its own moves a highlight and does
+                            // nothing with it. Enter's press *and* release are fed in as Space, which
+                            // is what ImGui acts on. Both edges matter: a mirror that only pressed
+                            // left Space down for good, and the second Enter in a session did nothing.
+                            // Space itself is not mapped above (text fields take it as a character),
+                            // so there is nothing to collide with.
+                            if vk == 0x0D {
+                                app.input.keys.push((imgui::Key::Space as usize, down));
+                            }
                         }
                     }
                     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && vk == 0x1B {
