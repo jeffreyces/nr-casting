@@ -71,20 +71,20 @@ without one.[/*]
 [size=5][b]Installation[/b][/size]
 [list=1]
 [*]Extract the archive anywhere outside the game folder.[/*]
-[*]Keep the four files together — the profile already points at the DLL beside it.[/*]
-[*]Launch, passing the profile by path:
+[*]Keep the four files together — the loader profile already points at the DLL beside it.[/*]
+[*]Launch, passing the loader profile by path:
 [code]me3 launch -g eldenring -p "C:\mods\nr-casting\nr-casting.me3"[/code]
 [/*]
 [/list]
 
-No editing needed: me3 resolves the profile's relative DLL path against the profile's own folder.
+No editing needed: me3 resolves the loader profile's relative DLL path against the profile's own folder.
 
 Using [b]me3 Manager[/b]? Add the mod through the manager and point it at
 [code]nr_casting.dll[/code]
 
-the manager writes its own profile.
+the manager writes its own loader profile.
 
-Keeping the profile in me3's profile folder instead? Then give
+Keeping the loader profile in me3's loader-profile folder instead? Then give
 [code]path[/code]
 the DLL's full location in [b]single quotes[/b], so backslashes stay literal:
 [code]path = 'C:\mods\nr-casting\nr_casting.dll'[/code]
@@ -201,7 +201,7 @@ therefore reach two different spells, and a full spell wheel is never displaced.
 [*][b]me3[/b] — supported, including me3 Manager. [b]Vortex[/b] also works: it deploys the DLL like any
 native mod, and the shipped
 [code].me3[/code]
-profile is only needed for me3.[/*]
+loader profile is only needed for me3.[/*]
 [*][b]Frame-generation and upscaling mods[/b] (FSR/FG) [url=https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766]https://www.patreon.com/huutaiii/posts/erss-fg-free-v4-125972766[/url]:
 [code]d3d12.dll[/code]
 [code]dxgi.dll[/code]
@@ -227,7 +227,7 @@ needs Seamless Co-op itself.[/*]
 [*]The page, the panel and the docs say [b]Nightreign Casting Plus[/b]; the archive, the DLL and the
 loader profile keep their [code]nr_casting[/code] names, so an update replaces the DLL and nothing
 else moves.[/*]
-[*]Removing the mod is a clean revert: delete the DLL and the profile, and the game is back to
+[*]Removing the mod is a clean revert: delete the DLL and the loader profile, and the game is back to
 vanilla. Nothing was added to your save file, and no game data was modified.[/*]
 [*]Spell and weapon names come from your own game's text at load (a few thousand names, about
 20 ms), so nothing is unpacked and no name list ships with the DLL.[/*]

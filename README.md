@@ -107,7 +107,7 @@ a second `Present` hook stops a co-resident class port's HUD from drawing (verif
 ## Install
 
 **me3** is the supported loader (Mod Engine 2 is discontinued upstream; development moved to
-me3). The shipped profile needs no editing:
+me3). The shipped loader profile needs no editing:
 
 ```
 mods/nr-casting/
@@ -121,11 +121,11 @@ mods/nr-casting/
 me3 launch -g eldenring -p "C:\mods\nr-casting\nr-casting.me3"
 ```
 
-me3 resolves a relative native path against the **profile's own folder**, so keeping the DLL
-next to the profile is all it takes. Passing the profile by path also means it does not have to
-live in me3's profile directory.
+me3 resolves a relative native path against the **loader profile's own folder**, so keeping the DLL
+next to the loader profile is all it takes. Passing the loader profile by path also means it does not have to
+live in me3's loader-profile directory.
 
-If you would rather keep the profile with me3's others (`%APPDATA%\me3\profiles\`), give the
+If you would rather keep the loader profile with me3's others (`%APPDATA%\me3\profiles\`), give the
 `path` line the DLL's absolute location — in **single quotes**, so Windows backslashes stay
 literal:
 
@@ -135,7 +135,7 @@ path = "C:/mods/nr-casting/nr_casting.dll"       # or forward slashes
 ```
 
 The path ends at the `.dll` file, not at the folder holding it. Adding the DLL through
-**me3 Manager** works too: the manager writes its own profile.
+**me3 Manager** works too: the manager writes its own loader profile.
 
 A release is four files — `nr_casting.dll`, `nr-casting.me3`, `nr_casting.ini`, `INSTALL.txt`.
 Everything else the mod needs it generates itself in an **`nr_casting/` subfolder beside the
@@ -160,14 +160,14 @@ takes effect even if an older copy sits in the subfolder.
 ### Installing through the ME3 Manager
 
 The graphical [ME3 Manager](https://github.com/2Pz/me3-manager) is a front end over the same me3:
-it writes the `.me3` profile for you and lists the DLL under `[[natives]]` (relative to the
-profile, or by absolute path when the file lives outside its mods folder). Nothing in the DLL
-reads the profile, so a Manager install and a hand-written one behave identically — the mod finds
+it writes the `.me3` loader profile for you and lists the DLL under `[[natives]]` (relative to the
+loader profile, or by absolute path when the file lives outside its mods folder). Nothing in the DLL
+reads the loader profile, so a Manager install and a hand-written one behave identically — the mod finds
 its own folder from its module path and writes its files there.
 
 Two Manager behaviours are worth knowing:
 
-- **`start_online` is a profile field.** me3 keeps matchmaking off by default; if you turn that
+- **`start_online` is a loader profile field.** me3 keeps matchmaking off by default; if you turn that
   option on in the Manager, the game runs online and this mod is not supported there.
 - **Updating a mod replaces its folder**, so `nr_casting.ini` and the `nr_casting_slots_*.txt` files go with
   it. Copy them somewhere safe before updating, or keep the assignments in a folder you point me3
@@ -321,7 +321,7 @@ CPU, and a per-second record of the frame gaps over the last five minutes.
 - **It redacts on the way out — and the log does it too.** Every file path is replaced with `<path>`
   — directory, file name and all — with one deliberate exception: a path inside a mod manager's
   folder keeps its tail from `me3` on (`me3\config\profiles\<profile>\<mod>\nr_casting`), because
-  that names the profile and the mod and says nothing about the machine. The account segment, the
+  that names the loader profile and the mod and says nothing about the machine. The account segment, the
   manager's own folder above it and the drive all go. Your user name becomes `%USER%` where it
   appears outside a path, and the character's name and the id in its slot file name become
   `<character>`. The same rule runs on `nr_casting_probe.log` as it is written, so a log pasted into
@@ -515,7 +515,7 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 | layer | notes |
 |---|---|
 | me3 | supported, tested |
-| Vortex | reported working: it deploys the DLL like any native mod and the shipped `.me3` profile is not needed for it |
+| Vortex | reported working: it deploys the DLL like any native mod and the shipped `.me3` loader profile is not needed for it |
 | frame-generation / upscaling proxies (FSR/FG `d3d12.dll`, `dxgi.dll`, `erss-fg.dll`) | they own frame presentation; the panel may not appear, casting still works |
 | class ports with their own HUD (`ERNativeUI.dll` and friends) | no conflict: the panel is its own window, so their HUD keeps drawing |
 | Mod Engine 2 | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special |
@@ -585,4 +585,4 @@ keys: `NR_CASTING_AUTO_PANEL_MS`, `NR_CASTING_PANEL_NODEVICE`, `NR_CASTING_PANEL
 If the panel never appears, look for `panel:` — `panel: no panel graphics; staying closed` or
 `panel: D3D11 device creation failed` mean the window could not get a device (casting is
 unaffected), and `panel: first frame presented` confirms it drew. If nothing loads at all, the
-profile path is the first suspect: the log will not exist.
+loader profile path is the first suspect: the log will not exist.

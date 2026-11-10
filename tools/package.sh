@@ -49,7 +49,7 @@ profileVersion = "v1"
 game = "eldenring"
 
 # Keep this file next to nr_casting.dll and the relative path below works as-is: me3 resolves
-# it against the profile's own folder, so nothing needs editing.
+# it against the loader profile's own folder, so nothing needs editing.
 #
 # Only if you move the DLL somewhere else, put its absolute path here. Use single quotes so
 # Windows backslashes stay literal — 'C:\mods\nr-casting\nr_casting.dll' — or forward slashes.
@@ -74,21 +74,21 @@ INSTALL — the short way (no editing)
    1. Extract this zip into a real folder first (anywhere outside the game
       directory), then keep these four files together there. Do not launch from
       a 7-Zip or WinRAR preview window: those unpack to a temporary folder that
-      is deleted when the archive is closed, and the profile then points at a
+      is deleted when the archive is closed, and the loader profile then points at a
       file that no longer exists.
 
-   2. Launch, passing the profile BY PATH:
+   2. Launch, passing the loader profile BY PATH:
 
          me3 launch -g eldenring -p "C:\mods\nr-casting\nr-casting.me3"
 
-      The DLL path inside the profile is relative, and me3 resolves it against the
-      profile's own folder. That is why the two files must stay together, and why
+      The DLL path inside the loader profile is relative, and me3 resolves it against the
+      loader profile's own folder. That is why the two files must stay together, and why
       nothing needs editing.
 
       Linux:  me3 launch -g eldenring -p "/home/you/mods/nr-casting/nr-casting.me3"
 
 
-INSTALL — the long way (profile inside me3's profile folder)
+INSTALL — the long way (loader profile inside me3's profile folder)
 
    Copy nr-casting.me3 into:
 
@@ -109,7 +109,7 @@ INSTALL — the long way (profile inside me3's profile folder)
 INSTALL — me3 Manager (the graphical one)
 
    Add the mod through the manager and point it at nr_casting.dll. The manager
-   writes its own profile, so nr-casting.me3 is not needed there.
+   writes its own loader profile, so nr-casting.me3 is not needed there.
 
    Two things to know about the manager:
      - it has a "start online" toggle. Leave it off; this mod is offline only.
@@ -162,16 +162,16 @@ IF IT DOES NOT WORK
        never loaded, so the game ran vanilla. me3's own log says why, one line
        above the launch: "specified path does not exist or is inaccessible",
        and its attach config reads "natives: []". That is almost always a
-       profile pointing into a temporary extraction folder (7-Zip, WinRAR) that
+       loader profile pointing into a temporary extraction folder (7-Zip, WinRAR) that
        has since been deleted - extract the zip somewhere permanent and pass
-       the profile from there.
+       the loader profile from there.
      - the panel could not get a D3D11 device. Casting still works. Look for a
        "panel:" line saying "no panel graphics" or "device creation failed".
      - a mod that also ships an overlay, or rewrites the spell wheel, can fight
        the panel and the cast steering.
 
    Nothing here touches your save file or the game's data: remove the DLL and the
-   profile and the game is back to vanilla.
+   loader profile and the game is back to vanilla.
 
 Never launch with EAC / online play: this mod requires the offline launch.
 TXT
