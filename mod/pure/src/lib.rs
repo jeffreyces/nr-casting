@@ -1510,13 +1510,23 @@ pub struct Profiles {
 }
 
 impl Sheet {
-    fn new(name: &str) -> Self {
+    /// A sheet with nothing decided: no rows, no switch values, no hotkey.
+    pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
             balance: None,
             skip_assigned: None,
             hotkey: None,
             rows: Vec::new(),
+        }
+    }
+
+    /// A sheet that is live from the moment it exists, so both switches are concrete.
+    pub fn with_switches(name: &str, balance: Balance, skip_assigned: bool) -> Self {
+        Self {
+            balance: Some(balance),
+            skip_assigned: Some(skip_assigned),
+            ..Self::new(name)
         }
     }
 }

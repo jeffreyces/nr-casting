@@ -1,179 +1,177 @@
 # Loadout profiles — assignments only
 
-Status: **settled design, not implemented.** Target version: **0.3.0**. Complements `docs/rebound-modifier-plan.md` (independent
-work; neither blocks the other).
+Status: **implemented in 0.3.0** and played. Shipped in six commits (`b2289e1` feature, `6937a73`,
+`98ce27c`, `a4ed3e7`, `ef630d8`, `5d6baf3` from the playtest rounds), plus the audit pass recorded at
+the end of this file. Complements `docs/rebound-modifier-plan.md` (independent work; neither blocks
+the other). This document is the record of what the code does, corrected where the playtest
+overturned an assumption — the old "to build" wording is gone.
 
 ## What a profile is
 
-A named **assignment sheet**: which spell each of the eight inputs casts, plus that sheet's
-`balance` and `skip assigned in wheel` values. Nothing else. It does not touch the player's
-equipment, memory slots, inventory or save: the weapons a profile applies to are whatever the player
-already has equipped, exactly as today.
+A named **assignment sheet**: which spell each of the eight inputs casts, plus that sheet's own
+`balance` and `vanilla_skips_assigned` values. Nothing else. It never touches the player's equipment,
+memory slots, inventory or save: the weapons a profile applies to are whatever the player already has
+equipped.
 
-Global across characters: one set of sheets, so switching to an alt does not lose the set, and the
-class port's own Y-chord rows stay the same for every character in that sheet.
+Global in content — the same list of sheets is offered for every character — but each character keeps
+its own file, because the spells it can cast differ.
 
-## Settled decisions
+## Settled decisions (as built)
 
 | # | Decision |
 |---|---|
-| 1 | **Display name only.** The panel title and the docs/Nexus page say **Nightreign Casting Plus**. The DLL, zip, repo and `me3` profile names keep `nr_casting` — renaming those breaks every existing install's profile path, the update path, and the settings/slot file prefixes. |
-| 2 | **Grey profile block, top right**, on the same band as the title, right-aligned, in the same faded grey as the "not applicable" rows. Reads `Profile: default (Ctrl+1)`; the parenthesised binding is the profile's own. |
-| 3 | **Hotkeys autobind.** `default` is `Ctrl+1`; a new profile takes the lowest free digit. Only an explicit user change alters a profile's binding, and only then does the panel text change. |
-| 4 | **Active profile lives in the ini** (`profile = default`); the sheets live in the existing per-character slot file, because the ini is settings and the slot file is assignment data. |
-| 5 | **Nine profiles.** `default` always exists and cannot be deleted or renamed. Deleting the active profile switches to `default` first. |
-| 6 | **Keyboard switching only.** No pad chord for this feature. |
-| 7 | **Wheel skip unchanged** — it already reads the assigned set through the cache, which the switch invalidates. |
-| 8 | Edits autosave into the active profile (today's behaviour); `save as` copies the current sheet to a new name; there is no "unsaved changes" state. |
-| 9 | Profile names: ASCII printable, ≤ 24 chars, no path separators. Rename allowed for non-default profiles. |
+| 1 | **Display name only.** The panel title and the docs/Nexus page say **Nightreign Casting Plus**. DLL, zip, repo and `me3` profile names keep `nr_casting`, so installs, profile paths and the update path are unaffected. |
+| 2 | **Grey profile block, top right**, on the title band, right-aligned, in the faded grey the disabled rows use: `Profile: travel (Ctrl+4)`. State, not a control. |
+| 3 | **Hotkeys autobind.** `default` holds `Ctrl+1` from the first launch (`ensure_default_hotkey`, stamped on load); a new profile takes the lowest free digit; a digit another profile holds is refused, never stolen. Changing one is the panel's `key` combo. |
+| 4 | **The active name lives in the ini** (`profile = …`); the sheets and their switch values live in the per-character slot file. |
+| 5 | **Nine profiles.** `default` cannot be renamed or deleted. Deleting the active profile lands on `default`. |
+| 6 | **Keyboard switching only.** No pad chord. |
+| 7 | **Wheel skip unchanged** — it reads the assigned set through the cache, which the switch invalidates. |
+| 8 | Edits autosave into the active profile; there is no "unsaved changes" state. |
+| 9 | Profile names: printable ASCII, ≤ 24 chars, no path separators, unique. Rename allowed for non-default. |
 | 10 | A weapon with no row in a profile has **no assignment** (rows greyed). Never a substituted spell. |
 | 11 | Per-copy weapon overrides are stored in the sheet like today, same row format. |
-| 13 | **Every sheet holds concrete switch values.** A sheet with no `balance`/`skip_assigned` line is stamped with the live values once, on load. "As-is" made a switch inherit whatever the previous profile published - turn both switches off on one, switch to `default`, and `default` looked switched off too without anything having been written to it. `create new` starts at balance **free** and wheel skip **off**, i.e. a fresh install, and publishes that pair when it becomes live. |
-| 14 | **The active name is only ever written by a switch.** A missing name falls back to `default` in memory and says so, but must not write the ini: the store starts on the shared pre-character file, so a name missing there can appear in the character's file a second later - writing the fallback lost the player's choice on every restart. Pressing Enter in the name box acts as OK. |
-| 12 | **The switches belong to the sheet, in both directions.** `save as` copies the live `balance` and wheel-skip values into the new sheet, `create new` starts from the live ones, and flipping either switch while a sheet is live records it **into that sheet** (`store::record_active_flags`). Without the last half the ini and the sheet drifted, and switching away and back reverted the player's change - found in the first playtest. |
+| 12 | **The switches belong to the sheet, in both directions.** `save as` copies the live pair; `create new` starts at free/off; and flipping either switch while a sheet is live records it **into that sheet** (`store::record_active_flags`). Playtest 1 found only the first half existed. |
+| 13 | **Every sheet holds concrete switch values.** A sheet with neither line is stamped once, on load, from the live values. "As-is" made a switch inherit whatever the previous profile published — turn both off on one sheet, switch to `default`, and `default` looked switched off without anything being written to it. Playtest 2 found this. |
+| 14 | **The active name is written by a switch and nothing else.** A name missing from the file in hand falls back to `default` **in memory only** and says so: the store starts on the shared pre-character file, so a name absent there can appear in the character's file a second later. Writing the fallback lost the player's choice on every restart. Playtest 3 found this. |
+| 15 | **`create new` is a fresh sheet**: no rows, balance free, wheel skip off, like a new install — and it publishes that pair when it becomes live. `save as` is the one that copies. |
+| 16 | **Enter in the name box confirms**, like `ok`. |
+| 17 | **The panel's mode controls follow a switch**: the `balanced` checkbox and the wheel-skip checkbox read the live values, so a hotkey switch with the panel open cannot leave the panel describing the previous sheet. |
 
 ## Files
 
 ### Slot file (`nr_casting_slots_<character>.txt`)
 
 ```
-# format = 2
-# weapon_param_id = bumper, trigger, y_trigger, y_bumper
+# weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell
+# layout 2: a row on the full param id overrides that copy only
+# format 3: [profile <name>] sections; weapon rows belong to the section above them
 
 [profile default]
-balance = attuned
-skip_assigned = on
-33090010 = 4431, 4430, -1, 4400
-33240000 = 4381, -1, -1, 4710
-
-[profile boss]
+hotkey = 1
 balance = free
 skip_assigned = off
-33090010 = 4400, 4430, 4431, 4710
+33090000 = -1, 4110, 4710, 4400
+
+[profile boss]
+hotkey = 2
+balance = attuned
+skip_assigned = on
+33090000 = 4301, 4080, 4021, 4200
 ```
 
-- **Migration:** a file without `# format =` has no sections and is read as `[profile default]`;
-  every row in it keeps working, and the first save writes the marker and the section header.
-- **Downgrade caveat:** an older build of the mod ignores lines it cannot parse, so it would read the
-  *union* of all profiles as one sheet. Acceptable (the old build cannot switch profiles anyway), but
-  it must be written down in the README's troubleshooting rather than discovered.
+- **Migration:** a file with no sections is read as `[profile default]`, rewritten once with the
+  markers, and its rows and switch values are stamped (decision 13). Nothing is lost.
+- **Downgrade caveat:** an older build ignores lines it cannot parse and so reads the *union* of all
+  sheets as one. It cannot switch profiles anyway; documented in the README's troubleshooting.
 
 ### ini
 
 ```
 [ui]
-; Which profile is live. Only the name lives here; the rows and the per-profile
-; balance/skip flags live in the slot file beside the DLL.
-profile = default
-; Modifier for the profile hotkeys (Ctrl + digit). Ctrl, Alt, Shift or Super.
-profile_modifier = Ctrl
+profile = default          ; which sheet is live (rows and switches live in the slot file)
+profile_modifier = Ctrl    ; Ctrl | Alt | Shift | Super, held with a digit to switch
 ```
 
 ## Runtime
 
-- `store.rs` grows a `Sheet { rows, balance, skip }` and a small `Profiles` map. `store_get` /
-  `store_set` read and write the **active** sheet only; nothing else in the mod knows profiles
-  exist.
-- Switching a profile bumps `generation()`, which the panel, the wheel skip and the assigned-set
-  cache already key on. So the skip and the panel follow the switch with no extra wiring.
-- Switching publishes the sheet's `balance` and `skip_assigned` into the live config **and** persists
-  the ini, the same path the panel's own toggles take. A profile therefore reproduces the whole
-  gameplay setup, not just the rows.
-- Refusals: a switch is ignored while the panel is open or a cast is in flight, and a second press
-  within 250 ms is ignored (key repeat). Both log once per session, not per press.
+- `store::Store` holds three things: `profiles` (the file model, ordered, last row wins), `active`
+  (index), and `rows` (the live sheet as a map, which is what the cast path reads). `store_get` /
+  `store_set` touch only `rows`; `save_store` folds `rows` back into `profiles.sheets[active]` before
+  formatting, so the two shapes cannot disagree on disk.
+- Every write goes through `commit` under the store lock: save, then bump `generation()`. The panel,
+  the wheel skip and the input path's `bound_mask` cache all key on that generation, so a switch needs
+  no other wiring.
+- `switch_profile` publishes the sheet's switch values into the live config (the same path the panel's
+  toggles take), writes the ini, and logs one line: name, row count, hotkey, both switch values.
+- No game-memory read happens on a switch: `refresh_attuned` was deliberately removed from this path,
+  because a switch can be triggered from the panel thread. The memorised list did not change anyway.
 
 ## Input
 
-- `rawinput.rs` already polls `GetAsyncKeyState` for Ctrl/Shift/Alt/Super and has the world-vs-menu
-  guard the bind gesture uses. Profile switching is one more branch on that same poll: modifier held
-  + digit `1..9` → switch to the profile whose binding is that digit.
-- The modifier is `profile_modifier` in the ini (default `Ctrl`), live-reloadable.
-- Not read: the game's own keybinds. If a player has assigned `Ctrl+1` to something in Elden Ring,
-  both act. Documented in the README, not guessed around.
+- `rawinput::profile_hotkey_tick`, called from the frame clock: one `GetAsyncKeyState` for the
+  modifier, then the nine digits only while it is held.
+- Refusals, all from `hotkey_allowed`: **a cast in flight** and **key repeat (250 ms)**. The panel
+  being open is deliberately *not* a refusal — switching with the panel open is how a player checks a
+  sheet (decision 17 makes the panel follow).
+- Not read: the game's own keybinds. If the player bound `Ctrl+1` in Elden Ring, both act; documented.
 
 ## Panel
 
-- Title: **Nightreign Casting Plus**.
-- Top right, same band as the title: `Profile: boss (Ctrl+2)` in the faded grey already used for
-  disabled rows.
-- Below the `balanced` checkbox, a profile row: `[ profile dropdown ]  save as  rename  delete`, and
-  **a separator line under that row**, so the two gameplay-specific rows (`balanced`, profile) are
-  visually separated from the other controls.
-- The dropdown lists sheets in file order with their bindings; `save as` prompts for a name in the
-  panel (ImGui input text, no native dialog).
+- Title **Nightreign Casting Plus**; the live profile right-aligned on that band in faded grey.
+- Under the `balanced` toggle, its own band (same gap as the diagnostics row) holds: the profile
+  dropdown (each entry labelled with its hotkey and its switch values), `key` combo, `save as`,
+  `rename`, `delete`, then a rule separating the two gameplay rows from the panel's other controls.
+- `create new...` is the last entry of the dropdown. `delete` asks for confirmation. `default`'s
+  rename/delete render as disabled text.
+- Any refusal or store error is rendered on the row (`profile_msg`), not just logged.
 
-## Tests to write first (`nr_casting_pure`, red before any wiring)
+## Tests (17 pure tests in `nr_casting_core`)
 
-| Behaviour | Red before |
+| Behaviour | Test |
 |---|---|
-| a file without `# format` parses as `[profile default]` with every row intact | yes |
-| two sections parse into two sheets, no rows leak between them | yes |
-| write → read round-trips rows and flags | yes |
-| missing `balance` / `skip_assigned` in a sheet inherits the ini values | yes |
-| a new profile autobinds the lowest free digit; the tenth profile gets none | yes |
-| an explicit binding wins and survives a reload | yes |
-| a binding already taken by another profile is refused, not stolen | yes |
-| rename keeps the rows and the binding | yes |
-| deleting the active profile falls back to `default` | yes |
-| `default` cannot be deleted or renamed | yes |
-| active name from the ini that no longer exists falls back to `default` | yes |
-| hotkey dispatch: ignored while the panel is open, while a cast is in flight, and within 250 ms | yes |
-| switching bumps the generation, so the assigned set and the wheel skip see the new sheet | yes |
+| old file with no sections parses as `default`, every row intact | `a_file_without_sections_is_the_default_profile` |
+| sections do not leak rows between each other | `sections_do_not_leak_rows_into_each_other` |
+| write → read round-trips rows, switches and bindings | `a_round_trip_keeps_rows_flags_and_bindings` |
+| an unstated switch is left to the caller (then stamped by the store) | `flags_a_sheet_does_not_state_are_left_to_the_ini` |
+| `default` claims digit 1 when nothing has one | `the_default_profile_claims_the_first_digit_when_nothing_has_one` |
+| an existing binding is left alone | `a_hotkey_already_in_the_file_is_left_alone` |
+| a new profile takes the lowest free digit | `a_new_profile_takes_the_lowest_free_digit` |
+| nine profiles exhaust the digits | `nine_profiles_exhaust_the_digits` |
+| an explicit binding survives a reload | `an_explicit_binding_survives_a_reload` |
+| a taken digit is refused; out-of-range refused | `a_digit_another_profile_holds_is_refused` |
+| rename keeps rows and binding | `renaming_keeps_the_rows_and_the_binding` |
+| names are narrow, unique, and `default` is protected | `names_are_narrow_and_unique`, `the_default_profile_is_protected` |
+| deleting the active profile lands on `default` | `deleting_the_active_profile_lands_on_default` |
+| an unknown active name falls back and reports it | `an_unknown_active_name_falls_back_to_the_default_and_says_so` |
+| hotkey refused on cast-in-flight and on repeat | `a_hotkey_is_refused_while_the_panel_is_open_a_cast_runs_or_the_key_repeats` |
+| the label the panel shows is `Ctrl+2` | `the_label_is_what_the_panel_shows` |
 
-## Implementation order (one commit each)
+## Principle alignment — the audit, run after the playtest
 
-1. Pure crate: sheets, parse/write with the format marker, autobind, active resolution, hotkey
-   dispatch decision. Tests first.
-2. `store.rs`: sections, migration, generation bump, `store_get`/`store_set` against the active sheet.
-3. Config: `profile`, `profile_modifier`, publishing a sheet's flags.
-4. `rawinput.rs`: the hotkey branch with its guards.
-5. Panel: title, grey block, profile row + separator, `save as` / `rename` / `delete`.
-6. Docs: README, NEXUS, ini template, release notes; troubleshooting note about downgrades.
-7. Version bump to **`0.3.0`** once the user has played it (new feature + a file-format change).
+Findings from reviewing the shipped diff (the same rubric as any other change, including the code
+written an hour earlier):
 
-## Principle alignment
+| Principle | Finding | Action |
+|---|---|---|
+| DRY / KISS | Three `Sheet { … }` literals in `store.rs` (save-as, create-new) duplicating the field list | **Fixed:** `Sheet::new` / `Sheet::with_switches` in the core crate; the store uses them. |
+| KISS / Documentation | `save_profile_as` logged through a nested `format!` inside a `format!` | **Fixed:** one format string. |
+| Documentation / Robustness | The diagnostics report said nothing about which sheet was live, although the plan said it would | **Fixed:** `profile=active (N weapon rows, M profiles in this file)` — sizes only, because a profile name is text the player typed and the report is pasted into public issues. |
+| Documentation | The log line `slots: character … -> <path> / profile <name>` was swallowed after `<path>`: the redactor treats a bare `/…` run as another path | **Fixed:** separator is `|`. The redactor itself is left as it is (see below). |
+| KISS | `reload_store` had three booleans feeding one rewrite condition | Left as is: each is a distinct log line, and folding them would hide *why* the file was rewritten. |
+| Parameter count | `profile_row` takes six values and returns an action | Left as is: `hand_column` already takes eight in this file, and a struct for one call site is more code than it saves. |
+| Robustness (accepted trade) | A hotkey switch writes the slot file **and** the ini on the frame clock | Left as is, and named in Risks: it is one small write on a deliberate keypress, and the perf log would show it as a lost frame if it ever mattered. The alternative (queue to the panel thread) is machinery for a case we have not measured. |
+| Separation of Concerns | `store.rs` is now ~700 lines (assignments + profiles) | Left as is: rows and profiles are one concern — the rows *belong* to a sheet — and the split would put the "fold the map back before formatting" invariant across two files. |
 
-- **SRP:** profiles are a data/selection concern; the cast path keeps asking `store_get`/`store_set`
-  and learns nothing new.
-- **DRY:** one sheet type, one parser (the existing `id = ...` parser extended to sections), one
-  binding allocator shared by creation and reload.
-- **Open/closed:** a new per-profile setting is a field on `Sheet`, not a new branch in the cast path.
-- **Robustness:** every refusal (panel open, cast in flight, key repeat, taken digit, missing active
-  profile) has a defined behaviour and a log line; a malformed sheet is skipped, not fatal.
-- **Testability:** the whole feature is pure data plus one dispatch decision; only the ini write and
-  the ImGui widgets are untestable on the dev host.
-- **YAGNI:** no equipment swapping, no controller chord, no per-profile UI scale or geometry, no
-  cloud/sharing of sheets.
+## Manual test script (and what the playtest actually found)
 
-Deliberately left alone: the slot file's per-character scoping (profiles are global, the file stays
-per character), and the existing `balance`/`vanilla_skips_assigned` ini keys (they remain the source
-of truth for the *live* values; a profile switch just publishes into them).
-
-## Manual test script
-
-1. Fresh install, no slot file: panel opens on `Profile: default (Ctrl+1)`, assignments behave as
-   today.
-2. Assign two spells, press `Ctrl+2`-free `save as` "boss" → new sheet autobinds `Ctrl+2`, panel
-   block shows `Profile: boss (Ctrl+2)`.
-3. Change one row in "boss", press `Ctrl+1` → the original rows come back; press `Ctrl+2` → the edit is
-   there.
-4. Set "boss" to `balanced` off and skip on, switch to `default` and back → both flags follow.
-5. `Ctrl+2` while the panel is open → nothing happens; while a cast is being pressed → deferred, one
-   line in the log.
-6. Delete "boss" while it is active → lands on `default`, the grey block says so.
-7. Restart the game → the last active profile is live, bindings unchanged.
-8. Hand-edit the ini `profile = nonexistent` → falls back to `default` with one log line.
-9. Wheel skip, with the skip on in one profile and off in the other → follows the switch.
+1. Fresh install → `Profile: default (Ctrl+1)` and the panel opens as before. *(passed; found default
+   had no hotkey, so the first `save as` took Ctrl+1 — decision 3)*
+2. `save as` → autobinds the next digit; the block and the list agree. *(passed)*
+3. Edit rows, switch away and back → the rows follow. *(passed)*
+4. Flip the switches on one sheet, switch away and back → they stay. *(failed first: only the ini was
+   written — decision 12)*
+5. Switch to `default` after flipping them off elsewhere → default must not look flipped.
+   *(failed first: it inherited — decision 13)*
+6. `create new` → fresh sheet: no rows, free, skip off. *(failed first: it inherited — decision 15)*
+7. Switch with the panel open; press Enter in the name box. *(both were requests: decisions 16, 17)*
+8. Restart the game → the last sheet is live. *(failed first: the fallback overwrote the name —
+   decision 14)*
+9. Delete the live sheet → lands on `default`. *(passed)*
+10. Wheel skip follows the sheet's own value. *(passed)*
 
 ## Risks
 
-- **Downgrade merges sheets** (see Files) — documented, not prevented.
-- **Ini churn:** every switch persists the ini. That is one small write per hotkey press; if it ever
-  shows up in the perf log, the switch can publish the live values without touching the file.
-- **A switch mid-combat** changes what the next press casts. Deferred while a cast is in flight, and
-  the grey block always shows which sheet is live.
-- **Profile names are user text** — they stay inside the slot file and the local log; the diagnostics
-  report prints `profile=active (+count)` rather than the name, so a pasted report cannot carry
-  whatever the player typed.
-- **Two things now hold "the same" toggle:** the ini keys and the active sheet. The switch path writes
-  both, so they cannot disagree for more than the duration of one publish.
+- **Downgrade merges sheets** — documented, not prevented.
+- **Ini churn:** every switch persists the ini (one small write per keypress).
+- **A switch mid-combat** changes what the next press casts. Deferred only while a cast is in flight.
+- **Profile names are user text**: they stay in the slot file and the local log; the report carries
+  counts only.
+- **Two holders of "the same" toggle:** the ini keys and the live sheet. Every path that changes one
+  writes the other, so they cannot disagree for longer than one publish.
+
+## Left for later
+
+- `docs/rebound-modifier-plan.md` still waits on the reporter's remap list; it is unrelated to this
+  feature.
+- Publishing 0.3.0 (tag + CI + asset check) has not been done.

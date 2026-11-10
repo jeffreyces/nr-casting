@@ -631,18 +631,9 @@ pub(crate) fn save_profile_as(name: &str) -> Result<(), &'static str> {
     if store.profiles.sheets.len() >= nr_casting_core::MAX_PROFILES {
         return Err("nine profiles is the limit");
     }
-    let rows: Vec<(i32, Category)> = store
-        .rows
-        .iter()
-        .map(|(id, spells)| (*id, *spells))
-        .collect();
-    store.profiles.sheets.push(Sheet {
-        name: name.to_string(),
-        balance: Some(config::balance()),
-        skip_assigned: Some(config::skip_assigned()),
-        hotkey: None,
-        rows,
-    });
+    let mut sheet = Sheet::with_switches(name, config::balance(), config::skip_assigned());
+    sheet.rows = store.rows.iter().map(|(id, spells)| (*id, *spells)).collect();
+    store.profiles.sheets.push(sheet);
     let index = store.profiles.sheets.len() - 1;
     if let Some(digit) = nr_casting_core::autobind_digit(&store.profiles) {
         let _ = nr_casting_core::bind_digit(&mut store.profiles, index, digit);
@@ -653,12 +644,12 @@ pub(crate) fn save_profile_as(name: &str) -> Result<(), &'static str> {
     drop(store);
     config::set_profile_name(name);
     log(&format!(
-        "profile: saved '{name}' ({},{})",
+        "profile: saved '{name}' ({}, {} weapons)",
         match hotkey {
             Some(digit) => nr_casting_core::hotkey_label(config::profile_modifier(), digit),
             None => "no hotkey".to_string(),
         },
-        format!("{} weapons", active_row_count())
+        active_row_count()
     ));
     Ok(())
 }
@@ -692,6 +683,11 @@ pub(crate) fn record_active_flags() {
     ));
 }
 
+/// How many profiles this character's file holds, for the report.
+pub(crate) fn profile_count() -> usize {
+    store_lock().profiles.sheets.len()
+}
+
 /// How many weapon rows the live profile holds, for the panel and the log.
 pub(crate) fn active_row_count() -> usize {
     store_lock().rows.len()
@@ -716,13 +712,11 @@ pub(crate) fn create_profile(name: &str) -> Result<(), &'static str> {
     }
     // A fresh sheet, not an inherited one: nothing assigned, free balance, wheel skip off - what a
     // new install looks like. `save as` is the one that copies the live switches.
-    store.profiles.sheets.push(Sheet {
-        name: name.to_string(),
-        balance: Some(nr_casting_core::Balance::Free),
-        skip_assigned: Some(false),
-        hotkey: None,
-        rows: Vec::new(),
-    });
+    store.profiles.sheets.push(Sheet::with_switches(
+        name,
+        nr_casting_core::Balance::Free,
+        false,
+    ));
     let index = store.profiles.sheets.len() - 1;
     if let Some(digit) = nr_casting_core::autobind_digit(&store.profiles) {
         let _ = nr_casting_core::bind_digit(&mut store.profiles, index, digit);

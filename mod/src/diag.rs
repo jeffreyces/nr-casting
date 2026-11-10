@@ -436,6 +436,14 @@ fn state() -> String {
     }
     // The wheel skip has one number that matters - how often it had to move the selection - and
     // the one that says whether the game was fighting it.
+    // Which sheet was live, by size only: a profile name is text the player typed, and this report
+    // is pasted into public issues. The name stays in the local log, like the character's.
+    let _ = writeln!(
+        out,
+        "profile=active ({} weapon rows, {} profiles in this file)",
+        crate::store::active_row_count(),
+        crate::store::profile_count()
+    );
     let (moved, all_assigned, paused) = crate::game::wheel_counts();
     let _ = writeln!(
         out,
