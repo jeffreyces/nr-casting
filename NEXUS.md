@@ -280,3 +280,11 @@ This mod exists because people tried it, broke it, and told me what it should do
 [*][url=https://next.nexusmods.com/profile/Gunin812]Gunin812[/url] for the idea of loadout profiles.[/*]
 [*][url=https://next.nexusmods.com/profile/ShoahKahn]ShoahKahn[/url] for running this alongside a pile of other mods and suggesting the quality-of-life fixes that came out of it.[/*]
 [/list]
+
+[line]
+
+[size=4][b]Support[/b][/size]
+
+This mod is free and stays free, and nothing in it is gated behind a donation. Thanks to everyone who has used it, reported on it and supported it — Ko-fi is there if you would like to give something back.
+
+[url=https://ko-fi.com/jeffreycespedes]ko-fi.com/jeffreycespedes[/url]
