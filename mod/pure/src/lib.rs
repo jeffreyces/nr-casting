@@ -1470,6 +1470,365 @@ pub fn schools_from_flags(bits_105: u8, bits_106: u8) -> CatalystSchools {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Assignment profiles
+// ---------------------------------------------------------------------------------------------
+
+/// Name the first profile has, and the one that can be neither renamed nor deleted.
+pub const DEFAULT_PROFILE: &str = "default";
+/// How many profiles a player can hold: one per switching digit.
+pub const MAX_PROFILES: usize = 9;
+/// Longest accepted profile name, in bytes.
+pub const PROFILE_NAME_MAX: usize = 24;
+/// A second press of the same chord inside this window is key repeat, not a second switch.
+pub const HOTKEY_DEBOUNCE_MS: u32 = 250;
+/// Marker written into a file that holds more than one sheet.
+///
+/// Without it, a file with `[profile ...]` sections reads to an older build of the mod as the union
+/// of every sheet - which is exactly why the marker exists rather than being inferred from the text.
+pub const PROFILES_MARKER: &str =
+    "# format 3: [profile <name>] sections; weapon rows belong to the section above them";
+
+/// One profile: a named assignment sheet plus the two gameplay flags that belong to it.
+///
+/// `None` on a flag means "inherit the ini", so a sheet written by an older version (which had no
+/// flags) does not silently force a mode on the player.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sheet {
+    pub name: String,
+    pub balance: Option<Balance>,
+    pub skip_assigned: Option<bool>,
+    /// Digit the profile is switched with, `Some(1..=9)` once it has one.
+    pub hotkey: Option<u8>,
+    pub rows: Vec<(i32, Category)>,
+}
+
+/// Every profile in a slot file, in file order.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Profiles {
+    pub sheets: Vec<Sheet>,
+}
+
+impl Sheet {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            balance: None,
+            skip_assigned: None,
+            hotkey: None,
+            rows: Vec::new(),
+        }
+    }
+}
+
+impl Profiles {
+    pub fn index_of(&self, name: &str) -> Option<usize> {
+        self.sheets.iter().position(|sheet| sheet.name == name)
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Sheet> {
+        self.sheets.iter().find(|sheet| sheet.name == name)
+    }
+
+    /// Which sheet is live for the name held in the ini, and whether that name was unknown.
+    ///
+    /// An unknown name (a hand-edited ini, a profile deleted while the game was running) falls back
+    /// to the first sheet - the default - and says so, rather than leaving the mod with no
+    /// assignments at all.
+    pub fn active(&self, name: &str) -> Option<(usize, bool)> {
+        if self.sheets.is_empty() {
+            return None;
+        }
+        match self.index_of(name) {
+            Some(index) => Some((index, false)),
+            None => Some((0, true)),
+        }
+    }
+
+    /// The profile bound to `digit`, if any.
+    pub fn for_digit(&self, digit: u8) -> Option<usize> {
+        self.sheets.iter().position(|sheet| sheet.hotkey == Some(digit))
+    }
+}
+
+/// Whether a name can be used for a profile: printable ASCII, short enough, no path separators.
+///
+/// This is a file-facing value written next to the player's own paths, so the rule is deliberately
+/// narrow: a name cannot invent a directory, a comment character or a line break.
+pub fn profile_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= PROFILE_NAME_MAX
+        && name
+            .chars()
+            .all(|c| c.is_ascii_graphic() || c == ' ')
+        && !name.contains(['/', '\\', '#', '[', ']', '=', '\t'])
+}
+
+/// Parse a slot file that may hold `[profile <name>]` sections.
+///
+/// A file with no section header at all is one sheet named `default`, with every row and setting in
+/// it - that is what every version before profiles wrote, so an upgrade reads today's assignments as
+/// the default profile without touching the file.
+///
+/// Unparseable lines are skipped, never fatal: the file is user-editable. A section whose name is
+/// not usable is skipped together with its rows rather than being merged into its neighbour.
+pub fn parse_profiles(text: &str) -> Profiles {
+    let mut profiles = Profiles::default();
+    let mut current: Option<Sheet> = Some(Sheet::new(DEFAULT_PROFILE));
+
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("[profile") {
+            let name = rest.trim_end_matches(']').trim();
+            if let Some(sheet) = current.take() {
+                if !sheet.rows.is_empty() || sheet.balance.is_some() || sheet.skip_assigned.is_some() {
+                    push_sheet(&mut profiles, sheet);
+                }
+            }
+            current = if profile_name_ok(name) {
+                Some(Sheet::new(name))
+            } else {
+                None
+            };
+            continue;
+        }
+        if line.starts_with('[') {
+            // Another kind of section header: nothing of ours lives outside `[profile ...]`.
+            current = None;
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        let Some(sheet) = current.as_mut() else {
+            continue;
+        };
+        match key {
+            "balance" => sheet.balance = parse_balance(value),
+            "skip_assigned" => sheet.skip_assigned = parse_on_off(value),
+            "hotkey" => sheet.hotkey = value.parse::<u8>().ok().filter(|d| (1..=9).contains(d)),
+            _ => {
+                let Ok(id) = key.parse::<i32>() else {
+                    continue;
+                };
+                let ids: Vec<i32> = value
+                    .split(',')
+                    .filter_map(|part| part.trim().parse::<i32>().ok())
+                    .collect();
+                if ids.len() >= 2 {
+                    sheet.rows.push((
+                        id,
+                        [
+                            ids[0],
+                            ids[1],
+                            ids.get(2).copied().unwrap_or(-1),
+                            ids.get(3).copied().unwrap_or(-1),
+                        ],
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(sheet) = current {
+        push_sheet(&mut profiles, sheet);
+    }
+
+    // A file with no headers at all still yields exactly one sheet - including an empty file, so a
+    // caller never has to special-case "no profiles yet".
+    if profiles.sheets.is_empty() {
+        profiles.sheets.push(Sheet::new(DEFAULT_PROFILE));
+    }
+    profiles
+}
+
+/// Add a sheet, merging same-named sections in file order (last wins per row, like the old parser).
+fn push_sheet(profiles: &mut Profiles, sheet: Sheet) {
+    if let Some(existing) = profiles.sheets.iter_mut().find(|s| s.name == sheet.name) {
+        for (id, spells) in sheet.rows {
+            existing.rows.push((id, spells));
+        }
+        existing.balance = sheet.balance.or(existing.balance);
+        existing.skip_assigned = sheet.skip_assigned.or(existing.skip_assigned);
+        existing.hotkey = sheet.hotkey.or(existing.hotkey);
+        return;
+    }
+    profiles.sheets.push(sheet);
+}
+
+/// Render a slot file: the markers first, then one section per profile in order, rows sorted.
+pub fn format_profiles(profiles: &Profiles) -> String {
+    let mut out = String::from(
+        "# weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell\n\
+         # y_trigger_spell is cast by holding Y and pulling the trigger: Y+R2 (right weapon)\n\
+         # and Y+L2 (left weapon). y_bumper_spell is cast by holding Y and pressing the bumper:\n\
+         # Y+R1 and Y+L1, which are only ours when the class port is absent or the character\n\
+         # is not one of its classes. Two- and three-entry lines from older versions are accepted.\n",
+    );
+    out.push_str(LAYOUT_MARKER);
+    out.push('\n');
+    out.push_str(PROFILES_MARKER);
+    out.push('\n');
+    for sheet in &profiles.sheets {
+        out.push_str(&format!("\n[profile {}]\n", sheet.name));
+        if let Some(balance) = sheet.balance {
+            out.push_str(&format!("balance = {}\n", balance.as_str()));
+        }
+        if let Some(skip) = sheet.skip_assigned {
+            out.push_str(&format!("skip_assigned = {}\n", if skip { "on" } else { "off" }));
+        }
+        if let Some(digit) = sheet.hotkey {
+            out.push_str(&format!("hotkey = {digit}\n"));
+        }
+        let mut rows: Vec<&(i32, Category)> = sheet.rows.iter().collect();
+        rows.sort_by_key(|(id, _)| *id);
+        for (id, spells) in rows {
+            out.push_str(&format!(
+                "{id} = {}, {}, {}, {}\n",
+                spells[0], spells[1], spells[2], spells[3]
+            ));
+        }
+    }
+    out
+}
+
+/// `on`/`off`, with the spellings players actually type.
+fn parse_on_off(text: &str) -> Option<bool> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "on" | "true" | "yes" | "1" => Some(true),
+        "off" | "false" | "no" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// The lowest digit no profile is using, for a newly created profile.
+pub fn autobind_digit(profiles: &Profiles) -> Option<u8> {
+    (1..=MAX_PROFILES as u8).find(|digit| profiles.for_digit(*digit).is_none())
+}
+
+/// Bind `digit` to the profile at `index`. Refuses a digit another profile already holds: silently
+/// stealing it would make one hotkey switch two sheets depending on file order.
+pub fn bind_digit(profiles: &mut Profiles, index: usize, digit: u8) -> Result<(), &'static str> {
+    if !(1..=MAX_PROFILES as u8).contains(&digit) {
+        return Err("a profile hotkey is a digit from 1 to 9");
+    }
+    if let Some(holder) = profiles.for_digit(digit) {
+        if holder != index {
+            return Err("another profile already uses that key");
+        }
+    }
+    let Some(sheet) = profiles.sheets.get_mut(index) else {
+        return Err("no such profile");
+    };
+    sheet.hotkey = Some(digit);
+    Ok(())
+}
+
+/// Rename the profile at `index`. `default` keeps its name: it is the fallback every unknown
+/// active name resolves to, so it has to stay findable.
+pub fn rename_profile(
+    profiles: &mut Profiles,
+    index: usize,
+    new_name: &str,
+) -> Result<(), &'static str> {
+    let Some(sheet) = profiles.sheets.get(index) else {
+        return Err("no such profile");
+    };
+    if sheet.name == DEFAULT_PROFILE {
+        return Err("the default profile cannot be renamed");
+    }
+    if !profile_name_ok(new_name) {
+        return Err("a name is printable ASCII, up to 24 characters, without separators");
+    }
+    if profiles.sheets.iter().any(|s| s.name == new_name) {
+        return Err("a profile with that name already exists");
+    }
+    profiles.sheets[index].name = new_name.to_string();
+    Ok(())
+}
+
+/// Remove the profile at `index`, returning the name that is live afterwards.
+///
+/// `default` cannot be removed, and removing the active profile lands on `default` rather than on
+/// whatever happens to be first: the player just deleted the sheet they were using, so the safe
+/// answer is the one every install has.
+pub fn delete_profile(
+    profiles: &mut Profiles,
+    index: usize,
+    active_name: &str,
+) -> Result<String, &'static str> {
+    let Some(sheet) = profiles.sheets.get(index) else {
+        return Err("no such profile");
+    };
+    if sheet.name == DEFAULT_PROFILE {
+        return Err("the default profile cannot be deleted");
+    }
+    let removed = sheet.name.clone();
+    let was_active = removed == active_name;
+    profiles.sheets.remove(index);
+    if was_active || profiles.get(active_name).is_none() {
+        Ok(DEFAULT_PROFILE.to_string())
+    } else {
+        Ok(active_name.to_string())
+    }
+}
+
+/// Which modifier the profile hotkeys use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HotkeyModifier {
+    Ctrl,
+    Alt,
+    Shift,
+    Super,
+}
+
+impl HotkeyModifier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HotkeyModifier::Ctrl => "Ctrl",
+            HotkeyModifier::Alt => "Alt",
+            HotkeyModifier::Shift => "Shift",
+            HotkeyModifier::Super => "Super",
+        }
+    }
+}
+
+pub fn parse_hotkey_modifier(text: &str) -> Option<HotkeyModifier> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "ctrl" | "control" => Some(HotkeyModifier::Ctrl),
+        "alt" | "menu" => Some(HotkeyModifier::Alt),
+        "shift" => Some(HotkeyModifier::Shift),
+        "super" | "win" | "windows" => Some(HotkeyModifier::Super),
+        _ => None,
+    }
+}
+
+/// The label the panel shows next to the active profile, e.g. `Ctrl+2`.
+pub fn hotkey_label(modifier: HotkeyModifier, digit: u8) -> String {
+    format!("{}+{digit}", modifier.as_str())
+}
+
+/// Whether a key press may switch profiles now.
+///
+/// Three refusals, each with its reason: the panel owns the keyboard while it is open; a cast in
+/// flight must not have its sheet swapped underneath it; and a chord held down repeats the key,
+/// which must not cycle through every profile at the OS repeat rate.
+pub fn hotkey_allowed(
+    ui_open: bool,
+    cast_in_flight: bool,
+    now_ms: u32,
+    last_press_ms: u32,
+) -> bool {
+    !ui_open
+        && !cast_in_flight
+        && now_ms.wrapping_sub(last_press_ms) > HOTKEY_DEBOUNCE_MS
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
@@ -3054,3 +3413,196 @@ mod balance_tests {
     }
 }
 
+
+#[cfg(test)]
+mod profile_tests {
+    use super::*;
+
+    fn sheet(name: &str, rows: &[(i32, Category)]) -> Sheet {
+        Sheet {
+            name: name.to_string(),
+            balance: None,
+            skip_assigned: None,
+            hotkey: None,
+            rows: rows.to_vec(),
+        }
+    }
+
+    const ROW_A: (i32, Category) = (33090010, [4431, 4430, -1, 4400]);
+    const ROW_B: (i32, Category) = (33240000, [4381, -1, -1, 4710]);
+
+    #[test]
+    fn a_file_without_sections_is_the_default_profile() {
+        let text = "# weapon_param_id = bumper, trigger, y_trigger, y_bumper\n\
+                    33090010 = 4431, 4430, -1, 4400\n\
+                    33240000 = 4381, -1, -1, 4710\n";
+        let profiles = parse_profiles(text);
+        assert_eq!(profiles.sheets.len(), 1);
+        assert_eq!(profiles.sheets[0].name, DEFAULT_PROFILE);
+        assert_eq!(profiles.sheets[0].rows, vec![ROW_A, ROW_B]);
+    }
+
+    #[test]
+    fn sections_do_not_leak_rows_into_each_other() {
+        let text = "[profile default]\n33090010 = 4431, 4430, -1, 4400\n\
+                    [profile boss]\n33240000 = 4381, -1, -1, 4710\n";
+        let profiles = parse_profiles(text);
+        assert_eq!(profiles.sheets.len(), 2);
+        assert_eq!(profiles.sheets[0].rows, vec![ROW_A]);
+        assert_eq!(profiles.sheets[1].rows, vec![ROW_B]);
+        assert_eq!(profiles.sheets[1].name, "boss");
+    }
+
+    #[test]
+    fn a_round_trip_keeps_rows_flags_and_bindings() {
+        let mut profiles = Profiles::default();
+        let mut first = sheet(DEFAULT_PROFILE, &[ROW_A]);
+        first.balance = Some(Balance::Attuned);
+        first.skip_assigned = Some(true);
+        first.hotkey = Some(1);
+        let mut second = sheet("boss", &[ROW_B]);
+        second.balance = Some(Balance::Free);
+        second.hotkey = Some(2);
+        profiles.sheets.push(first);
+        profiles.sheets.push(second);
+
+        let text = format_profiles(&profiles);
+        assert_eq!(parse_profiles(&text), profiles);
+    }
+
+    #[test]
+    fn flags_a_sheet_does_not_state_are_left_to_the_ini() {
+        let profiles = parse_profiles("[profile default]\n33090010 = 1, 2, -1, -1\n");
+        assert_eq!(profiles.sheets[0].balance, None);
+        assert_eq!(profiles.sheets[0].skip_assigned, None);
+    }
+
+    #[test]
+    fn a_new_profile_takes_the_lowest_free_digit() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[ROW_A]));
+        assert_eq!(autobind_digit(&profiles), Some(1));
+        profiles.sheets[0].hotkey = Some(1);
+        assert_eq!(autobind_digit(&profiles), Some(2));
+        profiles.sheets[0].hotkey = Some(3);
+        profiles.sheets.push(sheet("second", &[]));
+        profiles.sheets[1].hotkey = Some(1);
+        assert_eq!(autobind_digit(&profiles), Some(2));
+    }
+
+    #[test]
+    fn nine_profiles_exhaust_the_digits() {
+        let mut profiles = Profiles::default();
+        for digit in 1..=9u8 {
+            let mut s = sheet(&format!("p{digit}"), &[]);
+            s.hotkey = Some(digit);
+            profiles.sheets.push(s);
+        }
+        assert_eq!(autobind_digit(&profiles), None);
+    }
+
+    #[test]
+    fn an_explicit_binding_survives_a_reload() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[ROW_A]));
+        profiles.sheets.push(sheet("boss", &[ROW_B]));
+        bind_digit(&mut profiles, 1, 7).expect("free digit");
+        let reloaded = parse_profiles(&format_profiles(&profiles));
+        assert_eq!(reloaded.sheets[1].hotkey, Some(7));
+        assert_eq!(reloaded.for_digit(7), Some(1));
+    }
+
+    #[test]
+    fn a_digit_another_profile_holds_is_refused() {
+        let mut profiles = Profiles::default();
+        let mut first = sheet(DEFAULT_PROFILE, &[]);
+        first.hotkey = Some(1);
+        profiles.sheets.push(first);
+        profiles.sheets.push(sheet("boss", &[]));
+        assert!(bind_digit(&mut profiles, 1, 1).is_err());
+        assert!(bind_digit(&mut profiles, 1, 0).is_err());
+        assert!(bind_digit(&mut profiles, 1, 10).is_err());
+        assert!(bind_digit(&mut profiles, 9, 2).is_err());
+        assert!(bind_digit(&mut profiles, 1, 2).is_ok());
+    }
+
+    #[test]
+    fn renaming_keeps_the_rows_and_the_binding() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[ROW_A]));
+        let mut boss = sheet("boss", &[ROW_B]);
+        boss.hotkey = Some(2);
+        profiles.sheets.push(boss);
+        rename_profile(&mut profiles, 1, "spellblade").expect("valid name");
+        assert_eq!(profiles.sheets[1].name, "spellblade");
+        assert_eq!(profiles.sheets[1].rows, vec![ROW_B]);
+        assert_eq!(profiles.sheets[1].hotkey, Some(2));
+    }
+
+    #[test]
+    fn names_are_narrow_and_unique() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[]));
+        profiles.sheets.push(sheet("boss", &[]));
+        assert!(rename_profile(&mut profiles, 1, "explore").is_ok());
+        assert!(rename_profile(&mut profiles, 1, "default").is_err());
+        assert!(rename_profile(&mut profiles, 0, "rename me").is_err());
+        assert!(rename_profile(&mut profiles, 1, "").is_err());
+        assert!(rename_profile(&mut profiles, 1, "a/b").is_err());
+        assert!(rename_profile(&mut profiles, 1, "[x]").is_err());
+        assert!(rename_profile(&mut profiles, 1, &"x".repeat(PROFILE_NAME_MAX + 1)).is_err());
+        assert!(rename_profile(&mut profiles, 1, &"x".repeat(PROFILE_NAME_MAX)).is_ok());
+    }
+
+    #[test]
+    fn deleting_the_active_profile_lands_on_default() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[ROW_A]));
+        profiles.sheets.push(sheet("boss", &[ROW_B]));
+        let fallback = delete_profile(&mut profiles, 1, "boss").expect("deletable");
+        assert_eq!(fallback, DEFAULT_PROFILE);
+        assert_eq!(profiles.sheets.len(), 1);
+
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[]));
+        profiles.sheets.push(sheet("boss", &[]));
+        let kept = delete_profile(&mut profiles, 1, DEFAULT_PROFILE).expect("deletable");
+        assert_eq!(kept, DEFAULT_PROFILE);
+    }
+
+    #[test]
+    fn the_default_profile_is_protected() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[]));
+        assert!(delete_profile(&mut profiles, 0, DEFAULT_PROFILE).is_err());
+        assert!(rename_profile(&mut profiles, 0, "main").is_err());
+        assert_eq!(profiles.sheets.len(), 1);
+    }
+
+    #[test]
+    fn an_unknown_active_name_falls_back_to_the_default_and_says_so() {
+        let mut profiles = Profiles::default();
+        profiles.sheets.push(sheet(DEFAULT_PROFILE, &[]));
+        profiles.sheets.push(sheet("boss", &[]));
+        assert_eq!(profiles.active("boss"), Some((1, false)));
+        assert_eq!(profiles.active("gone"), Some((0, true)));
+        assert_eq!(Profiles::default().active("default"), None);
+    }
+
+    #[test]
+    fn a_hotkey_is_refused_while_the_panel_is_open_a_cast_runs_or_the_key_repeats() {
+        assert!(hotkey_allowed(false, false, 5_000, 0));
+        assert!(!hotkey_allowed(true, false, 5_000, 0));
+        assert!(!hotkey_allowed(false, true, 5_000, 0));
+        assert!(!hotkey_allowed(false, false, 5_100, 5_000));
+        assert!(hotkey_allowed(false, false, 5_000 + HOTKEY_DEBOUNCE_MS + 1, 5_000));
+    }
+
+    #[test]
+    fn the_label_is_what_the_panel_shows() {
+        assert_eq!(hotkey_label(HotkeyModifier::Ctrl, 2), "Ctrl+2");
+        assert_eq!(parse_hotkey_modifier(" control "), Some(HotkeyModifier::Ctrl));
+        assert_eq!(parse_hotkey_modifier("SUPER"), Some(HotkeyModifier::Super));
+        assert_eq!(parse_hotkey_modifier("hyper"), None);
+    }
+}

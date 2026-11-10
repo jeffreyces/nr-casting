@@ -1,4 +1,4 @@
-# Nightreign-style casting for ELDEN RING
+# Nightreign Casting Plus — Nightreign-style casting for ELDEN RING
 
 **R1/R2** cast the right-hand weapon's first two spells and **L1/L2** the left-hand weapon's,
 while leaving Elden Ring's own cast path intact — real FP costs, animations, i-frames and
@@ -182,6 +182,8 @@ hotkey = F8              ; F1-F24, INSERT, DELETE, HOME, END, PAGEUP, PAGEDOWN, 
 show_all = off           ; list spells the character cannot cast yet (planning mode)
 balance = free           ; free | attuned — attuned = only memorised spells can be assigned
 vanilla_skips_assigned = off  ; on = the game's wheel skips the spells this panel owns
+profile = default        ; which assignment profile is live (the sheets live in the slot file)
+profile_modifier = Ctrl  ; Ctrl | Alt | Shift | Super — the key held with a digit to switch
 ui_scale = auto          ; auto | 125 | 150% | 1.5 | 200% — panel text and widget size (100%-300%)
 panel_size = auto        ; auto | 1800x1240 — panel window size, saved when you resize it
 panel_pos = auto         ; auto | 1140,431 — panel corner, saved when you move it
@@ -217,6 +219,13 @@ size, corner, scale) are recognised and never reload it.
 ## Using the panel
 
 Assignments are made in the panel or with the bind gesture; both write the same per-character file.
+
+**Profiles** are named assignment sheets you can switch between without opening the panel. The row
+under the `balanced` toggle holds the list, each sheet's hotkey, and `save as` / `rename` / `delete`;
+`Ctrl+1` to `Ctrl+9` switches in the world, and the live one is always shown top right. A profile
+carries its own `balanced` and `skip assigned in wheel` values, so a boss setup and an exploration
+setup can differ in more than the spells. `default` cannot be renamed or deleted; deleting the sheet
+you are on lands you back on `default`. Profiles never change your equipment, memory slots or save.
 
 **The bind gesture** is the quick way, and the only way to assign a spell your character can cast
 because of a Great Rune or a stat talisman: while held, the mod reads the spell *the game's own

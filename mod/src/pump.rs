@@ -83,6 +83,9 @@ unsafe extern "system" fn peek_detour(
         if crate::config::skip_assigned() {
             crate::game::wheel_tick();
         }
+        // Ctrl + digit switches assignment profiles. One key read per frame when the modifier is
+        // up, and the switch itself is refused while a cast is in flight.
+        crate::rawinput::profile_hotkey_tick();
         // The wheel observer is a diagnostic, so it pays nothing unless the player asked for the log:
         // it reads game memory to compare against the last wheel, and a session with `debug_log = off`
         // must not walk those pointers every frame to feed a file nobody opens.

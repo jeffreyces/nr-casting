@@ -246,6 +246,57 @@ unsafe fn steer_click(record: &[u8]) {
     }
 }
 
+/// Switch to another assignment profile when the player holds the modifier and a digit.
+///
+/// The modifier is `profile_modifier` in the ini (`Ctrl` by default), and the digits are whatever
+/// each profile was bound to - autobound in order as profiles are created, then editable per
+/// profile. Called from the frame clock, not the key hook: the game only asks about the keys it
+/// cares about, and one `GetAsyncKeyState` per frame (the modifier) is cheaper and far more
+/// predictable than hooking nine digits the game never polls.
+///
+/// Three refusals, all from `nr_casting_core::hotkey_allowed`: the panel owns the keyboard while it
+/// is open, a cast in flight must not have its sheet swapped underneath it, and a held chord repeats
+/// at the OS rate.
+pub(crate) fn profile_hotkey_tick() {
+    if !crate::config::load().raw_hook {
+        return;
+    }
+    if crate::UI_OPEN.load(Ordering::Relaxed) {
+        return;
+    }
+    let modifier_down = match crate::config::profile_modifier() {
+        nr_casting_core::HotkeyModifier::Ctrl => key_down(VK_CONTROL),
+        nr_casting_core::HotkeyModifier::Alt => key_down(VK_MENU),
+        nr_casting_core::HotkeyModifier::Shift => key_down(VK_SHIFT),
+        nr_casting_core::HotkeyModifier::Super => key_down(VK_LWIN) || key_down(VK_RWIN),
+    };
+    if !modifier_down {
+        return;
+    }
+    static LAST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let now = crate::millis();
+    for digit in 1..=9u8 {
+        // VK_1..VK_9 are contiguous.
+        if !key_down(0x30 + digit as i32) {
+            continue;
+        }
+        let allowed = nr_casting_core::hotkey_allowed(
+            false,
+            crate::game::cast_in_flight(),
+            now,
+            LAST.load(Ordering::Relaxed),
+        );
+        if !allowed {
+            return;
+        }
+        LAST.store(now, Ordering::Relaxed);
+        if let Some(name) = crate::store::profile_for_digit(digit) {
+            crate::store::switch_profile(&name);
+        }
+        return;
+    }
+}
+
 unsafe extern "system" fn key_detour(vk: i32) -> i16 {
     let tramp = KEY_TRAMPOLINE.load(Ordering::Acquire);
     if tramp.is_null() {

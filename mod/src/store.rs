@@ -1,37 +1,68 @@
 //! Per-weapon spell assignments: the in-memory store and its text file beside the DLL.
 //!
 //! Four slots per catalyst (bumper, trigger, Y+trigger chord, Y+bumper chord), one file per
-//! character. Parsing, formatting and the file name live in `nr_casting_core` so they can be
-//! tested without a game.
+//! character, and one or more **profiles** in that file - named assignment sheets the player can
+//! switch between. Parsing, the profile rules and the file name live in `nr_casting_core` so they
+//! can be tested without a game; this module owns the file and the live state.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use nr_casting_core::Category;
+use nr_casting_core::{Category, Profiles, Sheet};
 
 use crate::config;
 use crate::logging::log;
 
-/// Header written into a fresh slots file; the format itself is `nr_casting_core`'s.
+/// Header written into a fresh slots file. The rows and their layout come from the core crate.
 const NR_DEFAULTS: &str = "# weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell\n\
-                           # Per character. Assign spells in the panel (F8); this file is written by the mod.\n";
+                           # Per character, one [profile <name>] section each. Assign spells in the\n\
+                           # panel (F8); this file is written by the mod.\n";
 
-/// weapon param id -> [bumper, trigger, Y+trigger, Y+bumper] spell ids
-static STORE: OnceLock<Mutex<HashMap<i32, Category>>> = OnceLock::new();
+/// Everything the store knows: the profiles as written, which one is live, and the live one's rows
+/// indexed for the hot path.
+///
+/// Two shapes on purpose. `profiles` is the *file* model - ordered, duplicates allowed, exactly what
+/// parsing produces - and `rows` is the *runtime* model the cast path wants: a map looked up per
+/// press. `save_store` folds the map back into the active sheet before formatting, so the two can
+/// never disagree on disk.
+struct Store {
+    profiles: Profiles,
+    active: usize,
+    rows: HashMap<i32, Category>,
+}
+
+static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
 
 /// A panic while holding the store would otherwise poison it and, with `panic = "abort"`,
 /// take the process with it. The data is plain values, so recovering the guard is safe.
-fn store_lock() -> std::sync::MutexGuard<'static, HashMap<i32, Category>> {
+fn store_lock() -> std::sync::MutexGuard<'static, Store> {
     STORE
-        .get_or_init(|| Mutex::new(HashMap::new()))
+        .get_or_init(|| {
+            Mutex::new(Store {
+                profiles: Profiles::default(),
+                active: 0,
+                rows: HashMap::new(),
+            })
+        })
         .lock()
         .unwrap_or_else(|e| e.into_inner())
+}
+
+/// One sheet's rows, as the cast path looks them up: a map, last row wins, like the file parser.
+fn rows_of(profiles: &Profiles, index: usize) -> HashMap<i32, Category> {
+    profiles
+        .sheets
+        .get(index)
+        .map(|sheet| sheet.rows.iter().copied().collect())
+        .unwrap_or_default()
 }
 
 /// The file for the character that is loaded, or the shared one before any character exists.
 ///
 /// Assignments are per character: the same catalyst on two characters usually has different
-/// requirements met, so a shared file handed one character spells it could not cast.
+/// requirements met, so a shared file handed one character spells it could not cast. The profiles
+/// themselves are the same list for every character - the file just holds the rows that character
+/// can use.
 static ACTIVE_SLUG: Mutex<Option<String>> = Mutex::new(None);
 
 /// Set once the pre-per-character file has been adopted by the first character that loaded.
@@ -167,8 +198,9 @@ pub(crate) fn set_character(name: &str, id: u32) {
     crate::game::refresh_attuned();
     prune_uncastable();
     log(&format!(
-        "slots: character {name} (id {id}) -> {}",
-        slots_path().display()
+        "slots: character {name} (id {id}) -> {} / profile {}",
+        slots_path().display(),
+        active_profile_name()
     ));
 }
 
@@ -184,54 +216,68 @@ pub(crate) fn seed_store() {
     reload_store();
 }
 
+/// Read the file into the store and make the profile named in the ini live.
 pub(crate) fn reload_store() {
-    let mut map = HashMap::new();
-    if let Ok(text) = std::fs::read_to_string(slots_path()) {
-        let parsed = nr_casting_core::parse_slots(&text);
-        // A file with the layout marker may hold per-copy overrides, which must survive; an older
-        // file's non-base ids are upgrade levels and are folded onto their base. The marker is what
-        // makes that distinction a fact rather than a guess.
-        let folded = if nr_casting_core::per_copy_rows(&text) {
-            let mut kept = parsed.clone();
-            kept.sort_by_key(|(id, _)| *id);
-            kept
-        } else {
-            nr_casting_core::canonicalize(&parsed)
-        };
-        // A file written before assignments moved onto base weapon ids holds `33090010` where
-        // the store now wants `33090000`. Fold it and write the result back once, so the
-        // upgrade does not look like a new weapon on every future load either.
-        //
-        // `canonicalize` sorts, and `format_slots` writes sorted, so a file that needs nothing
-        // compares equal here once it has been through this. Comparing against the raw parse
-        // would rewrite (and log) on every load of an unsorted file.
-        let mut sorted = parsed.clone();
-        sorted.sort_by_key(|(id, _)| *id);
-        if folded != sorted {
-            log(&format!(
-                "slots: folded {} line(s) onto base weapon ids ({} after folding)",
-                parsed.len(),
-                folded.len()
-            ));
-            if let Err(e) = std::fs::write(slots_path(), nr_casting_core::format_slots(&folded)) {
+    let path = slots_path();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut profiles = nr_casting_core::parse_profiles(&text);
+    let has_marker = text
+        .lines()
+        .any(|line| line.trim_start().starts_with("# format 3"));
+    let mut rewritten = !has_marker;
+
+    // Fold upgrade-level rows onto their base ids unless the file is one that understands per-copy
+    // rows. The marker is what makes that a fact rather than a guess: guessing wrong either loses a
+    // customised layout or resurrects one. Applies to every sheet, not only the live one.
+    if !nr_casting_core::per_copy_rows(&text) {
+        for sheet in profiles.sheets.iter_mut() {
+            let mut as_read = sheet.rows.clone();
+            let folded = nr_casting_core::canonicalize(&as_read);
+            as_read.sort_by_key(|(id, _)| *id);
+            if folded != as_read {
                 log(&format!(
-                    "slots: FAILED to rewrite {}: {e}",
-                    slots_path().display()
+                    "slots: folded {} line(s) onto base weapon ids in profile {}",
+                    as_read.len(),
+                    sheet.name
                 ));
+                sheet.rows = folded;
+                rewritten = true;
             }
         }
-        for (id, spells) in folded {
-            map.insert(id, spells);
+    }
+    // Stamp the profile marker the first time a version that understands it reads the file, so a
+    // later downgrade is visible in the file rather than silent.
+    if rewritten {
+        if let Err(e) = std::fs::write(&path, nr_casting_core::format_profiles(&profiles)) {
+            log(&format!("slots: FAILED to rewrite {}: {e}", path.display()));
         }
     }
-    *store_lock() = map;
+
+    let wanted = config::profile_name();
+    let (active, fell_back) = profiles.active(&wanted).unwrap_or((0, false));
+    if fell_back {
+        let name = profiles
+            .sheets
+            .get(active)
+            .map(|sheet| sheet.name.clone())
+            .unwrap_or_default();
+        log(&format!("slots: profile '{wanted}' is not in this file - using '{name}'"));
+        config::set_profile_name(&name);
+    }
+
+    let rows = rows_of(&profiles, active);
+    let mut store = store_lock();
+    store.rows = rows;
+    store.active = active;
+    store.profiles = profiles;
+    drop(store);
     bump_generation();
 }
 
 /// Bumped on every change to the in-memory store.
 ///
 /// The input path caches "which slots on this weapon pair carry a spell" and needs to know when
-/// a binding (panel, or the bind gesture) invalidates that answer.
+/// a binding (panel, the bind gesture, or a profile switch) invalidates that answer.
 static GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 pub(crate) fn generation() -> u32 {
@@ -242,9 +288,23 @@ fn bump_generation() {
     GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn save_store(map: &HashMap<i32, Category>) {
-    let entries: Vec<(i32, Category)> = map.iter().map(|(id, spells)| (*id, *spells)).collect();
-    if let Err(e) = std::fs::write(slots_path(), nr_casting_core::format_slots(&entries)) {
+/// Write the store back: the live map is folded into the active sheet, then every sheet is written.
+///
+/// The map is the runtime shape and the sheet is the file shape; folding one into the other here is
+/// what keeps an edit from being lost the moment a second profile is written.
+fn save_store(store: &mut Store) {
+    if let Some(sheet) = store.profiles.sheets.get_mut(store.active) {
+        sheet.rows = store
+            .rows
+            .iter()
+            .map(|(id, spells)| (*id, *spells))
+            .collect();
+        sheet.rows.sort_by_key(|(id, _)| *id);
+    }
+    if let Err(e) = std::fs::write(
+        slots_path(),
+        nr_casting_core::format_profiles(&store.profiles),
+    ) {
         log(&format!(
             "slots: FAILED to write {}: {e}",
             slots_path().display()
@@ -252,12 +312,19 @@ fn save_store(map: &HashMap<i32, Category>) {
     }
 }
 
+/// Save and revalidate while still holding the lock, so two writers cannot interleave.
+fn commit(store: &mut Store) {
+    save_store(store);
+    bump_generation();
+}
+
 /// Drop assignments whose spell the loaded character's stats cannot cast.
 ///
 /// A file can be shared by two characters the game cannot tell apart (same name, same slot, same
 /// appearance). This is the guarantee that survives even then: nothing on file is ever presented
 /// for a spell the character could not cast. Skipped when the params are not readable yet — an
-/// empty requirement list must never wipe assignments.
+/// empty requirement list must never wipe assignments. Every sheet is pruned: the file belongs to
+/// this character, so a sheet it could not cast from is wrong for all of them.
 fn prune_uncastable() {
     // Planning mode lists and assigns spells the character cannot cast yet; do not undo that.
     if crate::overlay::show_all() {
@@ -277,10 +344,10 @@ fn prune_uncastable() {
         .iter()
         .map(|spell| (spell.id, (spell.int, spell.fai, spell.arc)))
         .collect();
-    let dropped = {
-        let mut map = store_lock();
-        let mut dropped = 0usize;
-        for (_, slots) in map.iter_mut() {
+    let mut store = store_lock();
+    let mut dropped = 0usize;
+    for sheet in store.profiles.sheets.iter_mut() {
+        for (_, slots) in sheet.rows.iter_mut() {
             for slot in slots.iter_mut() {
                 let Some((need_int, need_fai, need_arc)) = requirements.get(slot) else {
                     continue;
@@ -291,39 +358,43 @@ fn prune_uncastable() {
                 }
             }
         }
-        dropped
-    };
+    }
     if dropped > 0 {
-        let snapshot: HashMap<i32, Category> = store_lock().clone();
-        save_store(&snapshot);
-        bump_generation();
+        let rows = rows_of(&store.profiles, store.active);
+        store.rows = rows;
+        commit(&mut store);
         log(&format!(
             "slots: dropped {dropped} assignment(s) this character cannot cast"
         ));
     }
 }
 
-/// Forget every assignment for the loaded character.
+/// Forget every assignment in the live profile.
 ///
-/// Needed because two characters can be indistinguishable to the game: same name, same save
-/// slot, same appearance. Nothing in the player data separates those, so the file is shared and
-/// this is the way out.
+/// Only the active sheet: the others belong to other loadouts, and clearing those by accident would
+/// be the one action here a player could not undo from memory.
 pub(crate) fn clear_character() {
-    {
-        let mut map = store_lock();
-        map.clear();
-    }
-    save_store(&HashMap::new());
-    bump_generation();
-    log(&format!("slots: cleared {}", slots_path().display()));
+    let mut store = store_lock();
+    store.rows.clear();
+    let name = store
+        .profiles
+        .sheets
+        .get(store.active)
+        .map(|sheet| sheet.name.clone())
+        .unwrap_or_default();
+    commit(&mut store);
+    log(&format!(
+        "slots: cleared profile {name} in {}",
+        slots_path().display()
+    ));
 }
 
 pub(crate) fn describe_store() -> String {
-    let map = store_lock();
-    let mut ids: Vec<&i32> = map.keys().collect();
+    let store = store_lock();
+    let mut ids: Vec<&i32> = store.rows.keys().collect();
     ids.sort();
     ids.iter()
-        .map(|id| format!("{id}={:?}", map[id]))
+        .map(|id| format!("{id}={:?}", store.rows[id]))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -339,18 +410,18 @@ pub(crate) fn store_get(weapon: i32) -> Option<Category> {
     if weapon <= 0 {
         return None;
     }
-    let map = store_lock();
+    let store = store_lock();
     // The rule lives in the core crate, with tests: `resolve_row` over a slice, this shape over a
     // map. Two spellings of "full id first, then the type's default" is how the tested copy and
     // the used copy drift apart.
     let base = nr_casting_core::base_weapon_id(weapon);
-    nr_casting_core::resolve_row_with(base, weapon, |id| map.get(&id).copied())
+    nr_casting_core::resolve_row_with(base, weapon, |id| store.rows.get(&id).copied())
 }
 
 /// Whether this exact copy has a layout of its own, rather than inheriting the type's default.
 pub(crate) fn has_override(weapon: i32) -> bool {
     let base = nr_casting_core::base_weapon_id(weapon);
-    weapon > 0 && weapon != base && store_lock().contains_key(&weapon)
+    weapon > 0 && weapon != base && store_lock().rows.contains_key(&weapon)
 }
 
 pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
@@ -358,19 +429,16 @@ pub(crate) fn store_set(weapon: i32, slot: usize, spell: i32) {
     // inheriting the type's default keeps editing that default. Anything else would silently
     // change which weapons an edit applies to.
     let base = nr_casting_core::base_weapon_id(weapon);
-    // Snapshot under one lock, then write: dropping the guard first let two assignments
-    // interleave and save out of order.
-    let snapshot = {
-        let mut map = store_lock();
-        let target = nr_casting_core::store_target(base, weapon, map.contains_key(&weapon));
-        let entry = map.entry(target).or_insert([-1; nr_casting_core::SLOTS]);
-        if slot < entry.len() {
-            entry[slot] = spell;
-        }
-        map.clone()
-    };
-    save_store(&snapshot);
-    bump_generation();
+    let mut store = store_lock();
+    let target = nr_casting_core::store_target(base, weapon, store.rows.contains_key(&weapon));
+    let entry = store
+        .rows
+        .entry(target)
+        .or_insert([-1; nr_casting_core::SLOTS]);
+    if slot < entry.len() {
+        entry[slot] = spell;
+    }
+    commit(&mut store);
 }
 
 /// Give this copy a layout of its own, seeded from the type's default.
@@ -383,23 +451,18 @@ pub(crate) fn store_customise(weapon: i32) -> bool {
     if weapon <= 0 || weapon == base {
         return false;
     }
-    let snapshot = {
-        let mut map = store_lock();
-        if map.contains_key(&weapon) {
-            return false;
-        }
-        let inherited = map
-            .get(&base)
-            .copied()
-            .unwrap_or([-1; nr_casting_core::SLOTS]);
-        map.insert(weapon, inherited);
-        map.clone()
-    };
-    save_store(&snapshot);
-    bump_generation();
-    log(&format!(
-        "slots: {weapon} now has its own layout (inherited {base})"
-    ));
+    let mut store = store_lock();
+    if store.rows.contains_key(&weapon) {
+        return false;
+    }
+    let inherited = store
+        .rows
+        .get(&base)
+        .copied()
+        .unwrap_or([-1; nr_casting_core::SLOTS]);
+    store.rows.insert(weapon, inherited);
+    commit(&mut store);
+    log(&format!("slots: {weapon} now has its own layout (inherited {base})"));
     true
 }
 
@@ -409,15 +472,199 @@ pub(crate) fn store_reset(weapon: i32) -> bool {
     if weapon <= 0 || weapon == base {
         return false;
     }
-    let snapshot = {
-        let mut map = store_lock();
-        if map.remove(&weapon).is_none() {
-            return false;
-        }
-        map.clone()
-    };
-    save_store(&snapshot);
-    bump_generation();
+    let mut store = store_lock();
+    if store.rows.remove(&weapon).is_none() {
+        return false;
+    }
+    commit(&mut store);
     log(&format!("slots: {weapon} back to the default for {base}"));
     true
+}
+
+// ---------------------------------------------------------------------------------------------
+// Profiles
+// ---------------------------------------------------------------------------------------------
+
+/// The live profile's name, for the panel and the report.
+pub(crate) fn active_profile_name() -> String {
+    let store = store_lock();
+    store
+        .profiles
+        .sheets
+        .get(store.active)
+        .map(|sheet| sheet.name.clone())
+        .unwrap_or_else(|| nr_casting_core::DEFAULT_PROFILE.to_string())
+}
+
+/// Every profile as (name, hotkey digit), in file order, for the panel's dropdown.
+pub(crate) fn profile_list() -> Vec<(String, Option<u8>)> {
+    store_lock()
+        .profiles
+        .sheets
+        .iter()
+        .map(|sheet| (sheet.name.clone(), sheet.hotkey))
+        .collect()
+}
+
+/// Make the named profile live. Returns false when there is no such profile, or it already is.
+///
+/// Publishes the sheet's `balance` and `skip_assigned` into the live config, because a profile is a
+/// whole gameplay setup rather than only rows; the panel's own toggles take the same path. It does
+/// not decide *whether* to switch - the caller does, with `hotkey_allowed`.
+pub(crate) fn switch_profile(name: &str) -> bool {
+    let mut store = store_lock();
+    let Some(index) = store.profiles.index_of(name) else {
+        return false;
+    };
+    if index == store.active {
+        return false;
+    }
+    store.active = index;
+    let live = rows_of(&store.profiles, index);
+    store.rows = live;
+    let sheet = store.profiles.sheets[index].clone();
+    commit(&mut store);
+    drop(store);
+    config::set_profile_name(&sheet.name);
+    config::apply_profile_flags(sheet.balance, sheet.skip_assigned);
+    // No `refresh_attuned` here: it reads game memory, and a profile switch can be triggered from
+    // the panel thread. The memorised list did not change anyway - only which rows are live - and
+    // the cast path re-reads it on its own net.
+    log(&format!(
+        "profile: -> {} ({} weapons{})",
+        sheet.name,
+        sheet.rows.len(),
+        match sheet.hotkey {
+            Some(digit) => format!(
+                ", {}",
+                nr_casting_core::hotkey_label(config::profile_modifier(), digit)
+            ),
+            None => ", no hotkey".to_string(),
+        }
+    ));
+    true
+}
+
+/// Copy the live rows into a new profile and switch to it.
+///
+/// This is "save as": the current setup becomes a named sheet, which is what a player wants when
+/// they have just tuned one loadout and want to try a second without losing the first.
+pub(crate) fn save_profile_as(name: &str) -> Result<(), &'static str> {
+    if !nr_casting_core::profile_name_ok(name) {
+        return Err("a name is printable ASCII, up to 24 characters, without separators");
+    }
+    let mut store = store_lock();
+    if store.profiles.index_of(name).is_some() {
+        return Err("a profile with that name already exists");
+    }
+    if store.profiles.sheets.len() >= nr_casting_core::MAX_PROFILES {
+        return Err("nine profiles is the limit");
+    }
+    let rows: Vec<(i32, Category)> = store
+        .rows
+        .iter()
+        .map(|(id, spells)| (*id, *spells))
+        .collect();
+    store.profiles.sheets.push(Sheet {
+        name: name.to_string(),
+        balance: Some(config::balance()),
+        skip_assigned: Some(config::skip_assigned()),
+        hotkey: None,
+        rows,
+    });
+    let index = store.profiles.sheets.len() - 1;
+    if let Some(digit) = nr_casting_core::autobind_digit(&store.profiles) {
+        let _ = nr_casting_core::bind_digit(&mut store.profiles, index, digit);
+    }
+    store.active = index;
+    commit(&mut store);
+    let hotkey = store.profiles.sheets[index].hotkey;
+    drop(store);
+    config::set_profile_name(name);
+    log(&format!(
+        "profile: saved '{name}' ({},{})",
+        match hotkey {
+            Some(digit) => nr_casting_core::hotkey_label(config::profile_modifier(), digit),
+            None => "no hotkey".to_string(),
+        },
+        format!("{} weapons", active_row_count())
+    ));
+    Ok(())
+}
+
+/// How many weapon rows the live profile holds, for the panel and the log.
+pub(crate) fn active_row_count() -> usize {
+    store_lock().rows.len()
+}
+
+/// Rename a profile. `default` keeps its name: every unknown active name resolves to it.
+pub(crate) fn rename_profile(old: &str, new: &str) -> Result<(), &'static str> {
+    let mut store = store_lock();
+    let Some(index) = store.profiles.index_of(old) else {
+        return Err("no such profile");
+    };
+    nr_casting_core::rename_profile(&mut store.profiles, index, new)?;
+    let active_renamed = index == store.active;
+    commit(&mut store);
+    drop(store);
+    if active_renamed {
+        config::set_profile_name(new);
+    }
+    log(&format!("profile: renamed '{old}' to '{new}'"));
+    Ok(())
+}
+
+/// Delete a profile, landing on `default` when the deleted one was live.
+pub(crate) fn delete_profile(name: &str) -> Result<String, &'static str> {
+    let mut store = store_lock();
+    let Some(index) = store.profiles.index_of(name) else {
+        return Err("no such profile");
+    };
+    let active_name = store
+        .profiles
+        .sheets
+        .get(store.active)
+        .map(|sheet| sheet.name.clone())
+        .unwrap_or_default();
+    let after = nr_casting_core::delete_profile(&mut store.profiles, index, &active_name)?;
+    if let Some(new_index) = store.profiles.index_of(&after) {
+        store.active = new_index;
+    }
+    let live = rows_of(&store.profiles, store.active);
+    store.rows = live;
+    commit(&mut store);
+    let sheet = store.profiles.sheets.get(store.active).cloned();
+    drop(store);
+    config::set_profile_name(&after);
+    if let Some(sheet) = sheet {
+        config::apply_profile_flags(sheet.balance, sheet.skip_assigned);
+    }
+    log(&format!("profile: deleted '{name}', live is now '{after}'"));
+    Ok(after)
+}
+
+/// Bind a digit to a profile, refusing one another profile already holds.
+pub(crate) fn set_profile_hotkey(name: &str, digit: u8) -> Result<(), &'static str> {
+    let mut store = store_lock();
+    let Some(index) = store.profiles.index_of(name) else {
+        return Err("no such profile");
+    };
+    nr_casting_core::bind_digit(&mut store.profiles, index, digit)?;
+    commit(&mut store);
+    drop(store);
+    log(&format!(
+        "profile: '{name}' is on {}",
+        nr_casting_core::hotkey_label(config::profile_modifier(), digit)
+    ));
+    Ok(())
+}
+
+/// The profile a digit switches to, if one is bound to it.
+pub(crate) fn profile_for_digit(digit: u8) -> Option<String> {
+    let store = store_lock();
+    store
+        .profiles
+        .for_digit(digit)
+        .and_then(|index| store.profiles.sheets.get(index))
+        .map(|sheet| sheet.name.clone())
 }

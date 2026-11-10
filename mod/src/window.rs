@@ -169,9 +169,77 @@ struct Model {
     /// The right hand's list: a staff and a seal offer different spells, so each hand needs its own.
     candidates_right: Rc<Vec<(i32, String)>>,
     candidates_key: String,
+    /// The profiles as (name, hotkey digit), the live one's name, and what the panel last said
+    /// about a profile action. Rebuilt only when the store's generation moves - a list of nine
+    /// short strings per frame would be an allocation for data that changes on a button press.
+    profiles: Vec<(String, Option<u8>)>,
+    profile_active: String,
+    profile_gen: u32,
+    profile_prompt: Option<ProfilePrompt>,
+    profile_buf: String,
+    profile_msg: String,
+}
+
+/// Which name the panel is asking for.
+#[derive(Clone, Copy, PartialEq)]
+enum ProfilePrompt {
+    SaveAs,
+    Rename,
+    Delete,
+}
+
+/// What the player asked the profile row to do, before the store decides whether it may.
+enum ProfileAction {
+    Switch(String),
+    SaveAs(String),
+    Rename(String),
+    Delete,
+    Bind(u8),
 }
 
 impl Model {
+    /// Keep the profile list and the live name in step with the store.
+    fn refresh_profiles(&mut self) {
+        let generation = crate::store::generation();
+        if generation == self.profile_gen {
+            return;
+        }
+        self.profile_gen = generation;
+        self.profiles = crate::store::profile_list();
+        self.profile_active = crate::store::active_profile_name();
+    }
+
+    /// Carry out a profile action and remember what to tell the player about it.
+    ///
+    /// The store owns the rules - names, the nine-profile limit, which key is taken, which profile
+    /// may be deleted - so this only renders their answer. A failure keeps its reason on the row
+    /// rather than in the log alone, because the player is looking at the panel.
+    fn profile_action(&mut self, action: ProfileAction) {
+        let result = match action {
+            ProfileAction::Switch(name) => {
+                crate::store::switch_profile(&name);
+                Ok(())
+            }
+            ProfileAction::SaveAs(name) => crate::store::save_profile_as(&name),
+            ProfileAction::Rename(name) => crate::store::rename_profile(&self.profile_active, &name),
+            ProfileAction::Delete => crate::store::delete_profile(&self.profile_active).map(|_| ()),
+            ProfileAction::Bind(digit) => {
+                crate::store::set_profile_hotkey(&self.profile_active, digit)
+            }
+        };
+        self.profile_msg = match result {
+            Ok(()) => String::new(),
+            Err(reason) => reason.to_string(),
+        };
+        if self.profile_msg.is_empty() {
+            self.profile_prompt = None;
+            self.profile_buf.clear();
+        }
+        self.profile_gen = crate::store::generation();
+        self.profiles = crate::store::profile_list();
+        self.profile_active = crate::store::active_profile_name();
+    }
+
     fn refresh_candidates(&mut self) {
         // Effective stats: base plus active effects. Keying the cache on them means a Great
         // Rune going on (or a talisman swap) re-filters the list instead of leaving it stale.
@@ -233,6 +301,13 @@ impl Model {
             candidates: Rc::new(Vec::new()),
             candidates_right: Rc::new(Vec::new()),
             candidates_key: String::new(),
+            profiles: Vec::new(),
+            profile_active: crate::store::active_profile_name(),
+            // 0 never matches a real generation, so the first frame fills the list.
+            profile_gen: 0,
+            profile_prompt: None,
+            profile_buf: String::new(),
+            profile_msg: String::new(),
         }
     }
 
@@ -1123,6 +1198,7 @@ impl App {
         let mut skip_toggle: Option<bool> = None;
         let mut close_clicked = false;
         let mut scale_choice: Option<Option<f32>> = None;
+        let mut profile_action: Option<ProfileAction> = None;
         let mut reset_layout = false;
         let mut diagnostics = false;
         let mut bundle_prompt = self.bundle_prompt;
@@ -1132,6 +1208,7 @@ impl App {
 
         // Recomputed each frame so the search box takes effect immediately.
         model.refresh_candidates();
+        model.refresh_profiles();
         let candidates = Rc::clone(&model.candidates);
         let candidates_right = Rc::clone(&model.candidates_right);
 
@@ -1157,7 +1234,39 @@ impl App {
             .collapsible(false)
             .scroll_bar(false)
             .build(ui, || {
-                ui.text("nr-casting");
+                // Title, and the live profile right-aligned on the same band. Faded grey because
+                // which sheet is live is state, not a control: the controls are on the profile row
+                // below the balanced toggle.
+                ui.text("Nightreign Casting Plus");
+                ui.same_line();
+                let hotkey = model
+                    .profiles
+                    .iter()
+                    .find(|(name, _)| *name == model.profile_active)
+                    .and_then(|(_, digit)| *digit)
+                    .map(|digit| {
+                        format!(
+                            " ({})",
+                            nr_casting_core::hotkey_label(
+                                crate::config::profile_modifier(),
+                                digit
+                            )
+                        )
+                    })
+                    .unwrap_or_default();
+                let profile_label = format!("Profile: {}{hotkey}", model.profile_active);
+                let faded = ui.clone_style().colors[StyleColor::TextDisabled as usize];
+                let label_width = ui.calc_text_size(&profile_label)[0];
+                let avail = ui.content_region_avail()[0];
+                if avail > label_width {
+                    // Right-aligned on the title's own line: the remaining width is measured after
+                    // the title, so this lands flush with the panel's right padding.
+                    ui.set_cursor_pos([
+                        ui.cursor_pos()[0] + avail - label_width,
+                        ui.cursor_pos()[1],
+                    ]);
+                }
+                ui.text_colored(faded, &profile_label);
                 ui.separator();
                 // The attuned column exists only in balanced mode: in free mode there is nothing
                 // for it to act on, and the width it would take is width the two hands need. One
@@ -1292,6 +1401,20 @@ impl App {
                 if let Some(choice) = ui_scale_combo(ui, current_scale, auto_scale) {
                     scale_choice = Some(choice);
                 }
+                // The second gameplay row: which sheet is live, and what to do with it. A rule under
+                // it, because everything below belongs to the panel itself (refresh, close,
+                // diagnostics) rather than to a loadout.
+                if let Some(action) = profile_row(
+                    ui,
+                    &model.profiles,
+                    &model.profile_active,
+                    &mut model.profile_prompt,
+                    &mut model.profile_buf,
+                    &model.profile_msg,
+                ) {
+                    profile_action = Some(action);
+                }
+                ui.separator();
                 // Space above *and* below the settings row, so it reads as its own band rather than
                 // as the first half of the buttons' row - the same distance as every other section.
                 vspace(ui, SECTION_GAP);
@@ -1492,6 +1615,12 @@ impl App {
         }
         if let Some(choice) = scale_choice {
             self.set_ui_scale(choice);
+        }
+        if let Some(action) = profile_action {
+            self.model.profile_action(action);
+            // The rows on screen belong to the sheet that was live a moment ago.
+            self.model.reload();
+            self.remeasure = true;
         }
         if let Some(on) = skip_toggle {
             crate::config::save_skip_assigned(on);
@@ -1838,6 +1967,153 @@ fn hand_column(
 ///
 /// Returns the new choice (outer `Some`) when the player picked one, `None` when nothing changed.
 /// `auto` is what auto would pick right now, so the row says what it is doing.
+
+/// The profile row: which sheet is live, and the four things a player does with one.
+///
+/// Kept as a free function over plain values, like the other row builders: the panel's own object
+/// is not reachable from anywhere else, and the store calls in `Model::profile_action` are the only
+/// side effects. Returns the action to run after the frame, so the store is never written from
+/// inside a draw pass.
+fn profile_row(
+    ui: &Ui,
+    profiles: &[(String, Option<u8>)],
+    active: &str,
+    prompt: &mut Option<ProfilePrompt>,
+    buf: &mut String,
+    msg: &str,
+) -> Option<ProfileAction> {
+    let mut action = None;
+    ui.text("profile");
+    ui.same_line();
+    ui.set_next_item_width(ui.frame_height() * 8.0);
+    if let Some(_combo) = ui.begin_combo("##profile", active) {
+        for (name, digit) in profiles {
+            let label = match digit {
+                Some(digit) => format!(
+                    "{name} ({})##profile_{name}",
+                    nr_casting_core::hotkey_label(crate::config::profile_modifier(), *digit)
+                ),
+                None => format!("{name}##profile_{name}"),
+            };
+            if imgui::Selectable::new(label)
+                .selected(name == active)
+                .build(ui)
+                && name != active
+            {
+                action = Some(ProfileAction::Switch(name.clone()));
+            }
+        }
+    }
+
+    // The hotkey is a digit on the modifier, drawn as the digit it would take. Changing it here is
+    // the only thing that overrides the autobind a new profile gets.
+    ui.same_line();
+    ui.text("key");
+    ui.same_line();
+    ui.set_next_item_width(ui.frame_height() * 4.0);
+    let current_digit = profiles
+        .iter()
+        .find(|(name, _)| name == active)
+        .and_then(|(_, digit)| *digit);
+    let preview = match current_digit {
+        Some(digit) => format!(
+            "{}+{digit}##profile_key",
+            crate::config::profile_modifier().as_str()
+        ),
+        None => "none##profile_key".to_string(),
+    };
+    if let Some(_combo) = ui.begin_combo("##profile_key", preview) {
+        for digit in 1..=9u8 {
+            let taken = profiles
+                .iter()
+                .any(|(name, bound)| name != active && *bound == Some(digit));
+            let label = format!(
+                "{}+{digit}{}##profile_key_{digit}",
+                crate::config::profile_modifier().as_str(),
+                if taken { " (taken)" } else { "" }
+            );
+            if imgui::Selectable::new(label)
+                .selected(current_digit == Some(digit))
+                .disabled(taken)
+                .build(ui)
+            {
+                action = Some(ProfileAction::Bind(digit));
+            }
+        }
+    }
+
+    ui.same_line();
+    if ui.button("save as") {
+        *prompt = Some(ProfilePrompt::SaveAs);
+        buf.clear();
+    }
+    ui.same_line();
+    let immutable = active == nr_casting_core::DEFAULT_PROFILE;
+    if immutable {
+        // The default sheet is where every unknown name lands, so it cannot be renamed or removed.
+        ui.text_disabled("rename");
+        ui.same_line();
+        ui.text_disabled("delete");
+    } else {
+        if ui.button("rename") {
+            *prompt = Some(ProfilePrompt::Rename);
+            *buf = active.to_string();
+        }
+        ui.same_line();
+        if ui.button("delete") {
+            *prompt = Some(ProfilePrompt::Delete);
+        }
+    }
+
+    match *prompt {
+        Some(ProfilePrompt::SaveAs) | Some(ProfilePrompt::Rename) => {
+            let save = *prompt == Some(ProfilePrompt::SaveAs);
+            ui.text(if save { "new name" } else { "rename to" });
+            ui.same_line();
+            ui.set_next_item_width(ui.frame_height() * 8.0);
+            imgui::InputText::new(ui, "##profile_name", buf)
+                .chars_noblank(false)
+                .build();
+            ui.same_line();
+            if ui.button("ok") && !buf.trim().is_empty() {
+                let name = buf.trim().to_string();
+                action = Some(if save {
+                    ProfileAction::SaveAs(name)
+                } else {
+                    ProfileAction::Rename(name)
+                });
+            }
+            ui.same_line();
+            if ui.button("cancel") {
+                *prompt = None;
+            }
+        }
+        Some(ProfilePrompt::Delete) => {
+            ui.text_colored(
+                ui.clone_style().colors[StyleColor::Text as usize],
+                &format!("delete '{active}'?"),
+            );
+            ui.same_line();
+            if ui.button("yes") {
+                action = Some(ProfileAction::Delete);
+            }
+            ui.same_line();
+            if ui.button("no") {
+                *prompt = None;
+            }
+        }
+        None => {}
+    }
+
+    if !msg.is_empty() {
+        ui.text_colored(
+            ui.clone_style().colors[StyleColor::TextDisabled as usize],
+            msg,
+        );
+    }
+    action
+}
+
 fn ui_scale_combo(ui: &Ui, current: Option<f32>, auto: f32) -> Option<Option<f32>> {
     // Every choice is spelled as the font size it produces: a percentage means nothing on its own,
     // and "auto" is not a percentage at all — it is whatever this screen needs. The width is capped
@@ -2190,7 +2466,7 @@ fn create_window() -> Option<HWND> {
     unsafe {
         let instance = GetModuleHandleW(PCWSTR::null()).ok()?;
         let class_name = wide("nr_casting_panel");
-        let title = wide("nr-casting - spell slots");
+        let title = wide("Nightreign Casting Plus - spell slots");
         // A pinned `ui_scale` decides the size, then the one the player saved, then the screen.
         let (width, height) = initial_window_size();
         // Where the player last parked it, kept on the desktop.

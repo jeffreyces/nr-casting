@@ -89,6 +89,11 @@ pub struct Config {
     /// it, so swapping a staff does not reshuffle the wheel. Nothing is written to the memorised
     /// list - the assigned spells stay attuned and remain castable from their own buttons.
     pub vanilla_skips_assigned: bool,
+    /// Which assignment profile is live. Only the name lives here: the sheets and their own
+    /// `balance`/`skip_assigned` values live in the slot file beside the DLL.
+    pub profile: String,
+    /// Modifier for the profile hotkeys (`Ctrl` + digit).
+    pub profile_modifier: nr_casting_core::HotkeyModifier,
     /// Who owns the Y+bumper chords (Y+R1 / Y+L1, the fourth slot).
     pub y_bumper: YBumper,
     pub y_bumper_name: String,
@@ -140,6 +145,8 @@ pub enum YBumper {
 impl Default for Config {
     fn default() -> Self {
         Config {
+            profile: nr_casting_core::DEFAULT_PROFILE.to_string(),
+            profile_modifier: nr_casting_core::HotkeyModifier::Ctrl,
             hotkey: 0x77, // F8
             hotkey_name: "F8".to_string(),
             overlay: true,
@@ -419,6 +426,65 @@ pub fn save_skip_assigned(on: bool) {
     // The frame clock reads this through `config::load()`, so publishing is just the atomic swap
     // the file watcher would do a moment later.
     publish_skip_assigned(on);
+}
+
+/// The live profile's name, as the store reads it.
+///
+/// One string behind a lock: read on a load and on a switch, never per press.
+static PROFILE_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn profile_name() -> String {
+    PROFILE_NAME
+        .lock()
+        .ok()
+        .and_then(|name| name.clone())
+        .unwrap_or_else(|| load().profile.clone())
+}
+
+/// Remember a profile switch, in memory and in the ini.
+pub fn set_profile_name(name: &str) {
+    if let Ok(mut slot) = PROFILE_NAME.lock() {
+        *slot = Some(name.to_string());
+    }
+    save_ui_key("profile", name);
+}
+
+/// The modifier the profile hotkeys use, read without touching the file.
+static PROFILE_MODIFIER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn profile_modifier() -> nr_casting_core::HotkeyModifier {
+    match PROFILE_MODIFIER.load(Ordering::Relaxed) {
+        2 => nr_casting_core::HotkeyModifier::Alt,
+        3 => nr_casting_core::HotkeyModifier::Shift,
+        4 => nr_casting_core::HotkeyModifier::Super,
+        _ => nr_casting_core::HotkeyModifier::Ctrl,
+    }
+}
+
+fn publish_profile_modifier(modifier: nr_casting_core::HotkeyModifier) {
+    let code = match modifier {
+        nr_casting_core::HotkeyModifier::Ctrl => 1,
+        nr_casting_core::HotkeyModifier::Alt => 2,
+        nr_casting_core::HotkeyModifier::Shift => 3,
+        nr_casting_core::HotkeyModifier::Super => 4,
+    };
+    PROFILE_MODIFIER.store(code, Ordering::Relaxed);
+}
+
+/// Apply a profile's own gameplay flags, publishing them and writing them to the ini.
+///
+/// Called only by a profile switch. `None` means the sheet said nothing about that flag, and the
+/// live value is left exactly as it was.
+pub fn apply_profile_flags(
+    balance: Option<nr_casting_core::Balance>,
+    skip_assigned: Option<bool>,
+) {
+    if let Some(mode) = balance {
+        save_balance(mode);
+    }
+    if let Some(on) = skip_assigned {
+        save_skip_assigned(on);
+    }
 }
 
 pub fn save_balance(mode: nr_casting_core::Balance) {
@@ -781,6 +847,24 @@ fn read() -> Config {
                     "debug_log" => config.debug_log = truthy(value),
                     "perf_log" => config.perf_log = truthy(value),
                     "show_all" => config.show_all = truthy(value),
+                    "profile" => {
+                        if nr_casting_core::profile_name_ok(value) {
+                            config.profile = value.to_string();
+                        } else {
+                            crate::log(&format!(
+                                "config: profile '{value}' is not a usable name; keeping {}",
+                                config.profile
+                            ));
+                        }
+                    }
+                    "profile_modifier" => match nr_casting_core::parse_hotkey_modifier(value) {
+                        Some(modifier) => config.profile_modifier = modifier,
+                        None => crate::log(&format!(
+                            "config: profile_modifier '{value}' is not ctrl/alt/shift/super; \
+                             keeping {}",
+                            config.profile_modifier.as_str()
+                        )),
+                    },
                     "balance" => match nr_casting_core::parse_balance(value) {
                         Some(mode) => config.balance = mode,
                         None => crate::log(&format!(
@@ -847,6 +931,7 @@ fn read() -> Config {
         // lock, so a hand edit and the panel's own toggle arrive the same way.
         publish_balance(config.balance);
         publish_skip_assigned(config.vanilla_skips_assigned);
+        publish_profile_modifier(config.profile_modifier);
         config
     }
 }

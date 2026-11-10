@@ -1,4 +1,5 @@
-[center][size=6][b]Four Spells Per Catalyst[/b][/size]
+[center][size=6][b]Nightreign Casting Plus[/b][/size]
+[size=5][b]Four Spells Per Catalyst[/b][/size]
 [size=4]Eight spells on two staves (or seals) — with Elden Ring doing the casting[/size][/center]
 
 [line]
@@ -103,6 +104,8 @@ hotkey = F8                   ; key that opens it
 show_all = off                ; list spells you cannot cast yet
 balance = free                ; free = any spell, attuned = only memorised ones
 vanilla_skips_assigned = off  ; the game's wheel skips the spells this panel owns
+profile = default             ; which assignment profile is live
+profile_modifier = Ctrl       ; key held with a digit to switch profiles
 ui_scale = auto               ; auto follows the window, a number pins it
 panel_size = auto             ; window size, saved when you stop dragging
 panel_pos = auto              ; window corner, saved the same way
@@ -146,6 +149,14 @@ next press of up carries on from where you were. Independent of
 [code]balance[/code]
 ,
 applies immediately, off by default.
+
+[code]profile = default[/code]
+picks which assignment profile is live. A profile is a named sheet of assignments with its own
+[code]balance[/code] and [code]vanilla_skips_assigned[/code] values - so a boss setup and an
+exploration setup can differ in more than spells. Switch on the panel's profile row or with
+[b]Ctrl+1[/b] .. [b]Ctrl+9[/b] in the world (the modifier is [code]profile_modifier[/code]); the live
+one is shown top right. Profiles never touch your equipment, memory slots or save, and
+[code]default[/code] can be neither renamed nor deleted.
 
 [code]y_bumper = auto[/code]
 takes [b]Y+R1[/b] / [b]Y+L1[/b] unless a class port is loaded and the character is one of its classes:

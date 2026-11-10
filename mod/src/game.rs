@@ -439,6 +439,14 @@ pub(crate) fn chord_probe() {
     ));
 }
 
+/// Whether a cast is holding a magic entry right now.
+///
+/// A profile switch must not land between the steer and the restore, so the keyboard path asks this
+/// before it changes anything.
+pub(crate) fn cast_in_flight() -> bool {
+    BORROW_ACTIVE.load(Ordering::Relaxed)
+}
+
 /// Does the selection already point at `spell`?
 pub(crate) fn selection_is(spell: i32) -> bool {
     let Some(magic) = magic_data() else {
