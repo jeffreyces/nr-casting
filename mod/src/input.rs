@@ -1203,10 +1203,23 @@ static LAST_BIND: AtomicU32 = AtomicU32::new(u32::MAX);
 /// Which triggers were past the cast threshold on the previous poll, as two bits.
 static LAST_PULLS: AtomicU32 = AtomicU32::new(0);
 
+/// The physical Y bit from the last incoming report, for the chord probe.
+///
+/// Deliberately the raw value, taken before anything strips it: later in `adjust_inner` the report
+/// can have Y removed (the `y_bumper` swallow, the post-cast quiet window), and the question here is
+/// what the player's thumb did, not what we forwarded.
+pub(crate) static MODIFIER_HELD: AtomicBool = AtomicBool::new(false);
+
+/// Whether the player is physically holding the button this mod treats as the chord modifier.
+pub(crate) fn modifier_held() -> bool {
+    MODIFIER_HELD.load(Ordering::Relaxed)
+}
+
 fn adjust_inner(state: &mut XInputState) {
     // Where this call's time goes, for the report. Three relaxed adds per poll when the perf log is
     // off, which is what everything else here costs.
     let _total = crate::padcost::Timer::start(crate::padcost::TOTAL);
+    MODIFIER_HELD.store(state.gamepad.buttons & XINPUT_GAMEPAD_Y != 0, Ordering::Relaxed);
     let now = crate::millis();
 
     // A press edge, and only a press edge, forces a fresh weapon read: the pair is cached so a slow

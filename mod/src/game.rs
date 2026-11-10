@@ -394,6 +394,51 @@ pub(crate) fn watch_wheel() {
     *last = now;
 }
 
+/// What two different questions say about the chord modifier, logged when either changes.
+///
+/// The chord is decided from the raw XInput bit for the physical Y button, while the game decides
+/// "Event Action is held" through its own binding table (`CSPad::poll_digital_input`, which resolves
+/// `UserInputKey::EventAction` through `input_type_group` -> `key_assign.get_virtual_input_index`).
+/// A player who moves Event Action off Y gets a chord that never fires, so both answers - plus the
+/// pouch variant, which is what "hold Event Action" means in the world - have to be seen side by
+/// side before anything is changed.
+///
+/// Diagnostic only: it reads, logs a transition, and nothing in the input path depends on it. Called
+/// from the frame clock, never from the panel thread, and never while a hook is holding a lock.
+pub(crate) fn chord_probe() {
+    use eldenring::cs::UserInputKey;
+
+    static LAST: Mutex<Option<(bool, bool, bool)>> = Mutex::new(None);
+    static WARNED: AtomicBool = AtomicBool::new(false);
+
+    let physical = crate::input::modifier_held();
+    // SAFETY: `FD4PadManager` is a game-owned singleton with a documented accessor that returns Err
+    // until it exists. The reference is not held past this call, and nothing is written through it.
+    let states = match unsafe { eldenring::fd4::FD4PadManager::instance() } {
+        Ok(manager) => manager.get_in_game_pad().map(|pad| {
+            (
+                pad.poll_digital_input(UserInputKey::EventAction),
+                pad.poll_digital_input(UserInputKey::EventActionPouch),
+            )
+        }),
+        Err(_) => None,
+    };
+    let Some((action, pouch)) = states else {
+        if !WARNED.swap(true, Ordering::Relaxed) {
+            crate::log("chord: the game's pad manager is not readable - the chord probe is off");
+        }
+        return;
+    };
+    let now = (physical, action, pouch);
+    if *LAST.lock().unwrap_or_else(|e| e.into_inner()) == Some(now) {
+        return;
+    }
+    *LAST.lock().unwrap_or_else(|e| e.into_inner()) = Some(now);
+    crate::log(&format!(
+        "chord: physical_y={physical} event_action={action} pouch={pouch}"
+    ));
+}
+
 /// Does the selection already point at `spell`?
 pub(crate) fn selection_is(spell: i32) -> bool {
     let Some(magic) = magic_data() else {

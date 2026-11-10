@@ -3,6 +3,33 @@
 Everything here was read out of the live process, not inferred from wiki text or paramdex names.
 Each section says how it was measured, so it can be re-measured rather than re-guessed after a patch.
 
+## Button bindings are resolved by the game, not by the pad report
+
+**The game owns the mapping; the XInput bit is only the default.** `CSPad::poll_digital_input` takes a
+`UserInputKey` (`EventAction = 11`, `EventActionPouch = 27`, `Attack = 7`, ...) and resolves it through
+`input_type_group` -> `key_assign.get_virtual_input_index(mapped_input)` - the player's own binding
+table - so the action layer follows a rebind to any pad button or key. Reached with
+`FD4PadManager::instance()?.get_in_game_pad()`.
+
+Measured 2026-11-10 on build `01:20:15Z` (debug line `chord:`), three cases in one session:
+
+| case | physical Y bit | `event_action` | `pouch` |
+|---|---|---|---|
+| default bindings, Y held | true | true | true |
+| Event Action moved to X | false | true | true |
+| default bindings, chord press | true | false | false |
+
+Facts that follow, and that a design has to respect:
+
+- `EventActionPouch` is **not** a second state - it tracked `EventAction` on every line in both
+  binding schemes.
+- The action layer reports what the game **sees**, not what the player did: stripping Y from the
+  report (which this mod does during a chord so the game does not two-hand) makes `event_action`
+  false while the button is still held. So the action poll cannot be used as the chord's modifier
+  test.
+- `input_type_group` and `key_assign` are private fields in the vendored bindings; reading them means
+  raw offsets into the input system. Prefer behaviour that needs neither.
+
 ## Equipped weapons (`PlayerGameData.equipment_param_ids`)
 
 **All six carried weapons are readable, three per hand.** `chr_asm.equipment_param_ids` is a 22-entry

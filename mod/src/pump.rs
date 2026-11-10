@@ -88,6 +88,9 @@ unsafe extern "system" fn peek_detour(
         // must not walk those pointers every frame to feed a file nobody opens.
         if crate::debug_enabled() {
             crate::game::watch_wheel();
+            // Which button the game thinks the chord modifier is, next to the bit we test. One line
+            // per transition, and only with the log on.
+            crate::game::chord_probe();
         }
     }
     out
