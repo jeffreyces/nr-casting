@@ -1729,6 +1729,18 @@ impl App {
                     io.keys_down[key] = false;
                 }
             }
+            // Enter picks the highlighted row.
+            //
+            // Dear ImGui 1.84 maps keyboard navigation as Enter -> `NavInput_Input` and Space ->
+            // `NavInput_Activate` (imgui.cpp, "Update Keyboard->Nav inputs mapping"), and only
+            // `Activate` runs a focused item. Held on its own, Enter therefore cannot commit a row
+            // no matter what the panel does: the highlight moves and Enter is ignored. Mirroring
+            // Enter onto Space gives the layout everyone expects - Enter runs whatever is
+            // highlighted - without a per-widget branch, and text fields are unaffected because
+            // they read typed characters rather than these key states.
+            if io.keys_down[imgui::Key::Enter as usize] {
+                io.keys_down[imgui::Key::Space as usize] = true;
+            }
 
         }
         gfx.last_frame = Instant::now();
