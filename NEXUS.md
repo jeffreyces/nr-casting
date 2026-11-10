@@ -256,3 +256,20 @@ line says which folder is in use.[/*]
 
 Built on [url=https://github.com/vswarte/fromsoftware-rs]fromsoftware-rs[/url] (structure and RVA definitions), [url=https://github.com/imgui-rs/imgui-rs]imgui-rs[/url] and [url=https://github.com/Yatekii/imgui-dx11-renderer]imgui-dx11-renderer[/url] for the panel.
 Everything it reads about spells comes from your own copy of ELDEN RING.
+
+[line]
+
+[size=4][b]Thanks[/b][/size]
+
+This mod exists because people tried it, broke it, and told me what it should do instead. In the order their ideas landed:
+
+[list]
+[*]A friend, for the idea that started it: being able to cast the spells you chose, from bindings you chose, instead of whatever the game assigned.[/*]
+[*][url=https://next.nexusmods.com/profile/arguskos]arguskos[/url] for helping diagnose the performance issues - the frame-time work that turned a stuttering mod into one that costs nothing per frame - and for using it on stream at [url=https://www.twitch.tv/bloodydoves]bloodydoves[/url].[/*]
+[*][url=https://next.nexusmods.com/profile/Lilbvshx]Lilbvshx[/url] for the keyboard and mouse support idea.[/*]
+[*][url=https://next.nexusmods.com/profile/HoboKingNiklz]HoboKingNiklz[/url] for the idea of more than the first four spells - up to eight, on the Y + bindings.[/*]
+[*][url=https://next.nexusmods.com/profile/Fanudoshka]Fanudoshka[/url] for the idea behind balanced mode and skipping assigned spells in the wheel.[/*]
+[*][url=https://next.nexusmods.com/profile/Flaffy13]Flaffy13[/url] for supporting NR Casting alongside [url=https://www.nexusmods.com/eldenring/mods/11410]Nightreign Characters Full Port[/url], which is the class port this was built against.[/*]
+[*][url=https://next.nexusmods.com/profile/Gunin812]Gunin812[/url] for the idea of loadout profiles.[/*]
+[*][url=https://next.nexusmods.com/profile/ShoahKahn]ShoahKahn[/url] for running this alongside a pile of other mods and suggesting the quality-of-life fixes that came out of it.[/*]
+[/list]
