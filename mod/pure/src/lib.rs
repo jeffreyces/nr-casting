@@ -316,28 +316,6 @@ pub fn per_copy_rows(text: &str) -> bool {
         .any(|line| line.trim_start().starts_with("# layout 2"))
 }
 
-/// Render a slot file: sorted by weapon id, with the header explaining the format.
-pub fn format_slots(entries: &[(i32, Category)]) -> String {
-    let mut out = String::from(
-        "# weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell\n\
-         # y_trigger_spell is cast by holding Y and pulling the trigger: Y+R2 (right weapon)\n\
-         # and Y+L2 (left weapon). y_bumper_spell is cast by holding Y and pressing the bumper:\n\
-         # Y+R1 and Y+L1, which are only ours when the Recluse mod is absent or the character\n\
-         # is not a Recluse. Two- and three-entry lines from older versions are still accepted.\n",
-    );
-    out.push_str(LAYOUT_MARKER);
-    out.push('\n');
-    let mut sorted: Vec<&(i32, Category)> = entries.iter().collect();
-    sorted.sort_by_key(|(id, _)| *id);
-    for (id, spells) in sorted {
-        out.push_str(&format!(
-            "{id} = {}, {}, {}, {}\n",
-            spells[0], spells[1], spells[2], spells[3]
-        ));
-    }
-    out
-}
-
 // ---- Character files -------------------------------------------------------------------
 //
 // Assignments are per character, and the file name is derived from the character's name and save
@@ -579,7 +557,7 @@ pub fn panel_pos(text: &str) -> Option<(i32, i32)> {
 ///
 /// Windows paths are case-insensitive, and a redaction that misses `C:\Users\<name>` because it
 /// only replaced `c:\users\<name>` is a leaked user name.
-pub fn replace_ignore_case(text: &str, needle: &str, replacement: &str) -> String {
+fn replace_ignore_case(text: &str, needle: &str, replacement: &str) -> String {
     if needle.is_empty() {
         return text.to_string();
     }
@@ -598,7 +576,7 @@ pub fn replace_ignore_case(text: &str, needle: &str, replacement: &str) -> Strin
 }
 
 /// Drop the character name out of a slots file name, keeping the scheme recognisable.
-pub fn redact_character_slug(text: &str) -> String {
+fn redact_character_slug(text: &str) -> String {
     const PREFIX: &str = "nr_casting_slots_";
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -845,7 +823,7 @@ pub fn gap_line(stats: &GapStats) -> String {
 /// `/var/home/<user>` and `Z:\\var\\home\\<user>`. The *shape* of the path is the reliable signal, so
 /// this works the same on Windows (`C:\\Users\\<name>\\`) and on Linux (`/home/<name>/`,
 /// `/var/home/<name>/`).
-pub fn redact_user_paths(text: &str) -> String {
+fn redact_user_paths(text: &str) -> String {
     let mut out = text.to_string();
     for marker in ["\\users\\", "\\home\\"] {
         out = scrub_after(&out, marker, '\\');
@@ -1671,6 +1649,17 @@ fn push_sheet(profiles: &mut Profiles, sheet: Sheet) {
 }
 
 /// Render a slot file: the markers first, then one section per profile in order, rows sorted.
+/// One `default` sheet holding these rows, written through the writer that ships.
+///
+/// Test-only: the old single-sheet writer (`format_slots`) is gone, and the tests that checked the
+/// file layout now check the file the mod actually writes.
+#[cfg(test)]
+fn written(rows: &[(i32, Category)]) -> String {
+    let mut profiles = parse_profiles("");
+    profiles.sheets[0].rows = rows.to_vec();
+    format_profiles(&profiles)
+}
+
 pub fn format_profiles(profiles: &Profiles) -> String {
     let mut out = String::from(
         "# weapon_param_id = bumper_spell, trigger_spell, y_trigger_spell, y_bumper_spell\n\
@@ -2116,10 +2105,13 @@ not a slot
     #[test]
     fn format_sorts_and_round_trips() {
         let entries = vec![(20, [1, 2, 3, -1]), (10, [4, 5, -1, -1])];
-        let text = format_slots(&entries);
+        let text = written(&entries);
         assert!(text.contains("10 = 4, 5, -1"));
         assert!(text.find("10 =").unwrap() < text.find("20 =").unwrap());
-        assert_eq!(parse_slots(&text), vec![(10, [4, 5, -1, -1]), (20, [1, 2, 3, -1])]);
+        assert_eq!(
+            parse_profiles(&text).sheets[0].rows,
+            vec![(10, [4, 5, -1, -1]), (20, [1, 2, 3, -1])]
+        );
     }
 
     #[test]
@@ -2240,9 +2232,9 @@ not a slot
                 (4101, [1, 2, -1, -1])
             ]
         );
-        let text = format_slots(&[(33090010, [1, 2, 3, 4])]);
+        let text = written(&[(33090010, [1, 2, 3, 4])]);
         assert!(text.contains("33090010 = 1, 2, 3, 4"));
-        assert_eq!(parse_slots(&text), vec![(33090010, [1, 2, 3, 4])]);
+        assert_eq!(parse_profiles(&text).sheets[0].rows, vec![(33090010, [1, 2, 3, 4])]);
     }
 
     #[test]
@@ -2612,9 +2604,6 @@ mod raw_tests {
         assert_eq!(panel_size("huge"), None);
     }
 
-
-
-    #[test]
     /// The shape below is the one a reporter's log carried; every value in it is a placeholder.
     ///
     /// Never paste a real log line into a test: a path names an account and a profile, and a test
@@ -2653,23 +2642,6 @@ mod raw_tests {
     fn a_line_without_a_path_is_untouched() {
         let text = "[1] panel: ready (hotkey registered)";
         assert_eq!(crate::redact_paths(text), text);
-    }
-
-    fn redaction_works_by_path_shape_on_both_platforms() {
-        // Windows: the account segment goes, whatever the environment claims.
-        let out = redact_user_paths(r"C:\Users\<name>\AppData\Local\<manager>\me3\config");
-        assert!(!out.contains("<name>"), "{out}");
-        assert!(out.contains(r"C:\Users\%USER%\AppData"), "{out}");
-        // Linux and Proton's drive-letter spelling of it.
-        for text in [
-            "/home/<name>/.local/share/Steam",
-            "/var/home/<name>/Documents",
-            r"Z:\var\home\<name>\Documents",
-        ] {
-            let out = redact_user_paths(text);
-            assert!(!out.contains("<name>"), "{out} -> {out}");
-            assert!(out.contains("%USER%"), "{out}");
-        }
     }
 
     #[test]
@@ -3207,10 +3179,10 @@ mod balance_tests {
 
     #[test]
     fn a_written_file_says_it_understands_per_copy_rows() {
-        let text = format_slots(&[(33_090_000, [1, 2, 3, 4])]);
+        let text = written(&[(33_090_000, [1, 2, 3, 4])]);
         assert!(per_copy_rows(&text));
         // And the marker is a comment, so an older version parsing it still reads the same rows.
-        assert_eq!(parse_slots(&text), vec![(33_090_000, [1, 2, 3, 4])]);
+        assert_eq!(parse_profiles(&text).sheets[0].rows, vec![(33_090_000, [1, 2, 3, 4])]);
     }
 
     #[test]
@@ -3227,8 +3199,8 @@ mod balance_tests {
     #[test]
     fn a_roundtrip_keeps_an_override_row() {
         let rows = [(33_090_000, [1, 2, 3, 4]), (33_090_010, [5, 6, 7, 8])];
-        let text = format_slots(&rows);
-        assert_eq!(parse_slots(&text), rows);
+        let text = written(&rows);
+        assert_eq!(parse_profiles(&text).sheets[0].rows, rows);
     }
 
 
