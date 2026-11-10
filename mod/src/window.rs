@@ -409,6 +409,8 @@ struct Input {
     wheel: f32,
     chars: Vec<char>,
     keys: Vec<(usize, bool)>,
+    /// The pad's button mask at the last frame, so a press can be told from a held button.
+    pad: u16,
 }
 
 /// Device, swap chain and ImGui state. Created on the first open, never during play.
@@ -459,6 +461,11 @@ struct PanelUi {
 unsafe fn build_ui(device: &ID3D11Device, scale: f32) -> Result<PanelUi, String> {
     let mut imgui = imgui::Context::create();
     imgui.set_ini_filename(None);
+    // Keyboard navigation on: without it the arrow keys reach the panel (`key_map` above maps them)
+    // but nothing consumes them, so a list longer than its box could only be scrolled by the mouse.
+    // With it, arrows move the focused row and Dear ImGui scrolls that row into view - which is the
+    // whole fix for a spell list that runs past the popup.
+    imgui.io_mut().config_flags |= imgui::ConfigFlags::NAV_ENABLE_KEYBOARD;
     // imgui-rs 0.8 leaves `io.key_map` at Dear ImGui's default of -1, "unmapped", so every key
     // shortcut was dead while typed characters arrived through `add_input_character`: Backspace,
     // the arrow keys, Enter, Home/End and Ctrl+A/C/V all read `keys_down[-1]`. The map is the
@@ -1706,6 +1713,15 @@ impl App {
             for (key, down) in self.input.keys.drain(..) {
                 io.keys_down[key] = down;
             }
+            // The pad enters the panel as key presses, so there is one navigation path and not two.
+            // The mask is the detour's own snapshot of the poll the game just made.
+            let pad = crate::input::pad_buttons();
+            for change in nr_casting_core::pad_nav_changes(pad, self.input.pad) {
+                if let Some((nav, down)) = change {
+                    io.keys_down[pad_nav_key(nav) as usize] = down;
+                }
+            }
+            self.input.pad = pad;
         }
         gfx.last_frame = Instant::now();
 
@@ -2222,6 +2238,24 @@ fn slot_combo(
 
 /// What the dropdown yields for "none": the value an empty row already holds.
 const EMPTY_SLOT: i32 = -1;
+
+/// The key the panel treats a pad button as.
+///
+/// `Accept` and `Cancel` are Enter and Escape on purpose: the panel already answers both (a text box
+/// confirms with Enter), so a pad user gets the same behaviour without pad-specific branches inside
+/// the widgets.
+fn pad_nav_key(nav: nr_casting_core::PadNav) -> imgui::Key {
+    use imgui::Key;
+    use nr_casting_core::PadNav;
+    match nav {
+        PadNav::Up => Key::UpArrow,
+        PadNav::Down => Key::DownArrow,
+        PadNav::Left => Key::LeftArrow,
+        PadNav::Right => Key::RightArrow,
+        PadNav::Accept => Key::Enter,
+        PadNav::Cancel => Key::Escape,
+    }
+}
 
 /// Map the virtual keys the text fields need onto ImGui's key indices.
 fn map_key(vk: u16) -> Option<usize> {
