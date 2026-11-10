@@ -588,3 +588,11 @@ If the panel never appears, look for `panel:` — `panel: no panel graphics; sta
 `panel: D3D11 device creation failed` mean the window could not get a device (casting is
 unaffected), and `panel: first frame presented` confirms it drew. If nothing loads at all, the
 loader profile path is the first suspect: the log will not exist.
+
+## Support
+
+This mod is free and stays free, and nothing in it is gated behind a donation. Thanks to everyone
+who has used it, reported on it and supported it — Ko-fi is there if you would like to give
+something back.
+
+<https://ko-fi.com/jeffreycespedes>
