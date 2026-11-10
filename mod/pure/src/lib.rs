@@ -2300,6 +2300,10 @@ not a slot
 ///
 /// `access` is the (operation, target address) pair of an access violation: `0` reading,
 /// `1` writing, `8` executing.
+// Nine fields of a fault record, formatted in a fixed order into a caller's buffer. A struct would
+// add a copy on the one path that must not touch the heap, and this signature is mirrored by
+// `logging::log_fault` in the DLL.
+#[allow(clippy::too_many_arguments)]
 pub fn fault_line(
     buf: &mut [u8],
     ms: u64,
@@ -2412,7 +2416,7 @@ mod fault_tests {
     fn names_the_module_and_offset() {
         let line = render(
             0xC000_0005,
-            0x1_4012_3456_7,
+            0x0014_0123_4567,
             4321,
             0x1_4000_0000,
             0x123_4567,
@@ -3163,9 +3167,9 @@ mod balance_tests {
             for live in 0..=a {
                 for stale in 0..=(a - live) {
                     let mut rows = Vec::new();
-                    rows.extend(std::iter::repeat(RowState::Attuned).take(live as usize));
-                    rows.extend(std::iter::repeat(RowState::NotAttuned).take(stale as usize));
-                    rows.extend(std::iter::repeat(RowState::Empty).take(4 - a as usize));
+                    rows.extend(std::iter::repeat_n(RowState::Attuned, live as usize));
+                    rows.extend(std::iter::repeat_n(RowState::NotAttuned, stale as usize));
+                    rows.extend(std::iter::repeat_n(RowState::Empty, 4 - a as usize));
                     let c = counts(&rows);
                     assert_eq!(c.assigned, live + stale, "{rows:?}");
                     assert_eq!(c.assigned, c.live + c.stale);

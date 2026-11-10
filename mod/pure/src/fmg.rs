@@ -122,8 +122,8 @@ pub fn decode_utf16(bytes: &[u8]) -> Option<String> {
         return None;
     }
     let mut units = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
-        let unit = u16::from_le_bytes([pair[0], pair[1]]);
+    for pair in bytes.as_chunks::<2>().0 {
+        let unit = u16::from_le_bytes(*pair);
         if unit == 0 {
             return if units.is_empty() {
                 None

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# This repository's lint gate, run by the machine-wide hook (~/.config/git/hooks/pre-push).
+#
+# Warnings are errors (`-D warnings`): that is the point, and it is what catches an unused function
+# or a test that lost its #[test] attribute.
+#
+# Two halves, because this is two crates:
+#
+#   nr_casting_core   host-buildable, so it is linted with the host toolchain over all targets (lib,
+#                     tests, benches). The logic and every test live here.
+#   nr_casting        a Windows DLL. Only `cargo xwin` can compile the panel and the Win32 surface,
+#                     so it is linted against the MSVC target when that toolchain can build the
+#                     dependency tree here - and says so plainly when it cannot. A toolchain that
+#                     cannot compile libudis86 (a C crate under `retour`) is not a lint finding, and
+#                     treating it as one would train everyone to push with --no-verify.
+#
+# CI builds both crates from a clean checkout on every push to main; that is where the Windows half
+# is enforced with no local escape hatch.
+set -uo pipefail
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo "pre-push: clippy nr_casting_core (host, all targets, -D warnings)"
+cargo clippy --manifest-path mod/pure/Cargo.toml --all-targets -- -D warnings || exit 1
+
+if ! cargo xwin --version >/dev/null 2>&1; then
+    echo "pre-push: cargo-xwin is not installed - the DLL crate was not linted"
+    exit 0
+fi
+
+echo "pre-push: clippy nr_casting (x86_64-pc-windows-msvc, all targets, -D warnings)"
+log=/tmp/nr_casting_prepush.log
+set +e
+cargo xwin clippy --manifest-path mod/Cargo.toml \
+    --target x86_64-pc-windows-msvc --all-targets -- -D warnings >"$log" 2>&1
+status=$?
+set -e
+grep -vE '^\s+(Compiling|Checking|Finished)' "$log" | sed 's/^/    /'
+
+if [ "$status" -ne 0 ]; then
+    if grep -qE 'failed to run custom build command|error occurred in cc-rs' "$log"; then
+        echo
+        echo "pre-push: the Windows dependency tree could not be built here, so the DLL crate was"
+        echo "          not linted. That is a toolchain problem, not a finding; CI lints it on"
+        echo "          every push. To re-run by hand once the toolchain builds:"
+        echo "          cargo xwin clippy --manifest-path mod/Cargo.toml --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+        exit 0
+    fi
+    echo "pre-push: clippy failed for nr_casting (exit $status)"
+    exit 1
+fi
+
+echo "pre-push: lint clean"
