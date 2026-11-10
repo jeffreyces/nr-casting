@@ -223,7 +223,9 @@ Assignments are made in the panel or with the bind gesture; both write the same 
 **Profiles** are named assignment sheets you can switch between without opening the panel. The row
 under the `balanced` toggle holds the list, each sheet's hotkey, and `save as` / `rename` / `delete`;
 `create new` at the bottom of the list starts an empty sheet, while `save as` copies the live one.
-The list marks each profile's mode (`default (Ctrl+1, free)`, `boss (Ctrl+2, attuned, skip)`) because
+Every profile holds its own values - nothing inherits the previous profile's switches. `create new`
+starts free with the wheel skip off, like a fresh install; `save as` copies the live pair. The list
+marks each profile's mode (`default (Ctrl+1, free)`, `boss (Ctrl+2, attuned, skip)`) because
 switching publishes that profile's `balanced` and wheel-skip values - a free-mode assignment can read
 as unbound under an attuned profile. Flipping either switch while a profile is live records it into
 that profile, so `save as` carries the pair and a switch away and back keeps your change. `Ctrl+1` to `Ctrl+9` switch in the world *and* with the panel

@@ -225,6 +225,24 @@ pub(crate) fn reload_store() {
     // then let the NEXT profile take Ctrl+1. The default is always reachable, so it claims the
     // first digit when no sheet claims one.
     let default_gained_hotkey = nr_casting_core::ensure_default_hotkey(&mut profiles);
+    // Every sheet is given concrete switch values here, from what the player is running right now.
+    //
+    // A sheet with no `balance`/`skip_assigned` line used to mean "as-is", which made switching to it
+    // inherit whatever the previous profile had published: turn both switches off on one profile,
+    // switch to the default, and the default appeared to have been switched off too. Nothing had been
+    // written - it had simply kept the other sheet's values, which is indistinguishable from a bug.
+    // Stamping once on load makes a switch deterministic from then on.
+    let mut stamped = false;
+    for sheet in profiles.sheets.iter_mut() {
+        if sheet.balance.is_none() {
+            sheet.balance = Some(config::balance());
+            stamped = true;
+        }
+        if sheet.skip_assigned.is_none() {
+            sheet.skip_assigned = Some(config::skip_assigned());
+            stamped = true;
+        }
+    }
     let has_marker = text
         .lines()
         .any(|line| line.trim_start().starts_with("# format 3"));
@@ -258,7 +276,14 @@ pub(crate) fn reload_store() {
             config::profile_modifier().as_str()
         ));
     }
-    if rewritten || default_gained_hotkey {
+    if stamped {
+        log(&format!(
+            "profile: switch positions written into every profile (balance {}, wheel skip {})",
+            config::balance().as_str(),
+            if config::skip_assigned() { "on" } else { "off" }
+        ));
+    }
+    if rewritten || default_gained_hotkey || stamped {
         if let Err(e) = std::fs::write(&path, nr_casting_core::format_profiles(&profiles)) {
             log(&format!("slots: FAILED to rewrite {}: {e}", path.display()));
         }
@@ -679,10 +704,12 @@ pub(crate) fn create_profile(name: &str) -> Result<(), &'static str> {
     if store.profiles.sheets.len() >= nr_casting_core::MAX_PROFILES {
         return Err("nine profiles is the limit");
     }
+    // A fresh sheet, not an inherited one: nothing assigned, free balance, wheel skip off - what a
+    // new install looks like. `save as` is the one that copies the live switches.
     store.profiles.sheets.push(Sheet {
         name: name.to_string(),
-        balance: Some(config::balance()),
-        skip_assigned: Some(config::skip_assigned()),
+        balance: Some(nr_casting_core::Balance::Free),
+        skip_assigned: Some(false),
         hotkey: None,
         rows: Vec::new(),
     });
@@ -696,6 +723,9 @@ pub(crate) fn create_profile(name: &str) -> Result<(), &'static str> {
     let hotkey = store.profiles.sheets[index].hotkey;
     drop(store);
     config::set_profile_name(name);
+    // The freshly created sheet is now live, so publish its switches: nothing is assigned yet, and
+    // balanced mode over an empty sheet would refuse every pick for no reason.
+    config::apply_profile_flags(Some(nr_casting_core::Balance::Free), Some(false));
     log(&format!(
         "profile: created '{name}' empty ({})",
         match hotkey {

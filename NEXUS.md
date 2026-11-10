@@ -155,7 +155,8 @@ picks which assignment profile is live. A profile is a named sheet of assignment
 [code]balance[/code] and [code]vanilla_skips_assigned[/code] values - so a boss setup and an
 exploration setup can differ in more than spells - and so can [code]balance[/code], which is why each
 profile is listed with its mode. Flipping a switch while a profile is live records it into that
-profile. [b]create new[/b] at the bottom of the list starts an empty sheet,
+profile; every profile holds its own pair and nothing inherits the previous one. [b]create new[/b]
+starts free with the wheel skip off, like a fresh install. [b]create new[/b] at the bottom of the list starts an empty sheet,
 [b]save as[/b] copies the live one. Switch on the panel's profile row or with [b]Ctrl+1[/b] ..
 [b]Ctrl+9[/b], in the world or with the panel open (the modifier is [code]profile_modifier[/code]);
 the live one is shown top right, and [b]Ctrl+1[/b] belongs to [code]default[/code] until you move it. Profiles never touch your equipment, memory slots or save, and
