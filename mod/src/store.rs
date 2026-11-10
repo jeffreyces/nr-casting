@@ -297,8 +297,15 @@ pub(crate) fn reload_store() {
             .get(active)
             .map(|sheet| sheet.name.clone())
             .unwrap_or_default();
-        log(&format!("slots: profile '{wanted}' is not in this file - using '{name}'"));
-        config::set_profile_name(&name);
+        // Logged, and **not** written back. This runs before the character's file is selected - the
+        // store starts on the shared pre-character file, which holds only whatever that file has - so
+        // a name that is missing here may be present in the character's own file a moment later.
+        // Writing the fallback into the ini is how a player's profile choice was lost on every
+        // restart: the ini said `test`, the pre-character file had only `default`, and the fallback
+        // overwrote the name before the right file was ever read.
+        log(&format!(
+            "slots: profile '{wanted}' is not in this file yet - using '{name}' until it is"
+        ));
     }
 
     let rows = rows_of(&profiles, active);

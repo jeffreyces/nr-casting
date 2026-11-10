@@ -2099,11 +2099,15 @@ fn profile_row(
             });
             ui.same_line();
             ui.set_next_item_width(ui.frame_height() * 8.0);
-            imgui::InputText::new(ui, "##profile_name", buf)
+            // `enter_returns_true` so the keyboard finishes the action the same way the button does:
+            // typing a name and pressing Enter is the obvious gesture, and the box is the only text
+            // input in the panel.
+            let entered = imgui::InputText::new(ui, "##profile_name", buf)
                 .chars_noblank(false)
+                .enter_returns_true(true)
                 .build();
             ui.same_line();
-            if ui.button("ok") && !buf.trim().is_empty() {
+            if (entered || ui.button("ok")) && !buf.trim().is_empty() {
                 let name = buf.trim().to_string();
                 action = Some(match kind {
                     Some(ProfilePrompt::Rename) => ProfileAction::Rename(name),
