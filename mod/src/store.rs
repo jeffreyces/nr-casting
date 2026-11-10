@@ -628,6 +628,35 @@ pub(crate) fn save_profile_as(name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Write the live `balance` and wheel-skip values into the live profile.
+///
+/// The two switches belong to the profile, so flipping one while that profile is active has to
+/// record it there - otherwise the ini says one thing, the sheet another, and switching away and back
+/// silently reverts the player's change. Called by the panel after it saves either switch, and by
+/// nothing else: a switch publishes a profile's values, so publishing is not a place to learn them.
+pub(crate) fn record_active_flags() {
+    let balance = config::balance();
+    let skip = config::skip_assigned();
+    let mut store = store_lock();
+    let active = store.active;
+    let Some(sheet) = store.profiles.sheets.get_mut(active) else {
+        return;
+    };
+    if sheet.balance == Some(balance) && sheet.skip_assigned == Some(skip) {
+        return;
+    }
+    sheet.balance = Some(balance);
+    sheet.skip_assigned = Some(skip);
+    let name = sheet.name.clone();
+    commit(&mut store);
+    drop(store);
+    log(&format!(
+        "profile: '{name}' now records balance {} and wheel skip {}",
+        balance.as_str(),
+        if skip { "on" } else { "off" }
+    ));
+}
+
 /// How many weapon rows the live profile holds, for the panel and the log.
 pub(crate) fn active_row_count() -> usize {
     store_lock().rows.len()

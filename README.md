@@ -225,7 +225,8 @@ under the `balanced` toggle holds the list, each sheet's hotkey, and `save as` /
 `create new` at the bottom of the list starts an empty sheet, while `save as` copies the live one.
 The list marks each profile's mode (`default (Ctrl+1, free)`, `boss (Ctrl+2, attuned, skip)`) because
 switching publishes that profile's `balanced` and wheel-skip values - a free-mode assignment can read
-as unbound under an attuned profile. `Ctrl+1` to `Ctrl+9` switch in the world *and* with the panel
+as unbound under an attuned profile. Flipping either switch while a profile is live records it into
+that profile, so `save as` carries the pair and a switch away and back keeps your change. `Ctrl+1` to `Ctrl+9` switch in the world *and* with the panel
 open, and the live one is always shown top right (Ctrl+1 belongs to `default` unless you move it). A profile
 carries its own `balanced` and `skip assigned in wheel` values, so a boss setup and an exploration
 setup can differ in more than the spells. `default` cannot be renamed or deleted; deleting the sheet

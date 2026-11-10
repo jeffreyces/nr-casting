@@ -1615,6 +1615,9 @@ impl App {
             // Writes the ini and publishes the mode as one atomic: no reload, so no leaked
             // `Config` per click, and the next press still sees it.
             crate::config::save_balance(mode);
+            // The switch is part of the profile, so it is recorded in the live one as well as the
+            // ini - otherwise switching away and back would revert it.
+            crate::store::record_active_flags();
             self.model.balance = mode;
             self.model.reload();
             self.remeasure = true;
@@ -1638,6 +1641,7 @@ impl App {
         }
         if let Some(on) = skip_toggle {
             crate::config::save_skip_assigned(on);
+            crate::store::record_active_flags();
             self.note = if on {
                 "the spell wheel will skip the spells this panel assigns".to_string()
             } else {

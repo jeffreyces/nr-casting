@@ -28,6 +28,7 @@ class port's own Y-chord rows stay the same for every character in that sheet.
 | 9 | Profile names: ASCII printable, ≤ 24 chars, no path separators. Rename allowed for non-default profiles. |
 | 10 | A weapon with no row in a profile has **no assignment** (rows greyed). Never a substituted spell. |
 | 11 | Per-copy weapon overrides are stored in the sheet like today, same row format. |
+| 12 | **The switches belong to the sheet, in both directions.** `save as` copies the live `balance` and wheel-skip values into the new sheet, `create new` starts from the live ones, and flipping either switch while a sheet is live records it **into that sheet** (`store::record_active_flags`). Without the last half the ini and the sheet drifted, and switching away and back reverted the player's change - found in the first playtest. |
 
 ## Files
 
