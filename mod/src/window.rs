@@ -1730,20 +1730,13 @@ impl App {
             // press in the same batch is held back one frame, and every press is visible once.
             if self.input.forget_keys {
                 self.input.forget_keys = false;
-                io.keys_down = [false; 512];
+                io.keys_down.fill(false);
             }
-            for key in self.input.release_next.drain(..) {
-                io.keys_down[key] = false;
-            }
-            for (key, down) in self.input.keys.drain(..) {
-                if down {
-                    io.keys_down[key] = true;
-                } else if io.keys_down[key] {
-                    self.input.release_next.push(key);
-                } else {
-                    io.keys_down[key] = false;
-                }
-            }
+            nr_casting_core::apply_key_batch(
+                &mut io.keys_down,
+                &mut self.input.keys,
+                &mut self.input.release_next,
+            );
 
         }
         gfx.last_frame = Instant::now();
@@ -2262,11 +2255,6 @@ fn slot_combo(
 /// What the dropdown yields for "none": the value an empty row already holds.
 const EMPTY_SLOT: i32 = -1;
 
-/// The key the panel treats a pad button as.
-///
-/// `Accept` and `Cancel` are Enter and Escape on purpose: the panel already answers both (a text box
-/// confirms with Enter), so a pad user gets the same behaviour without pad-specific branches inside
-/// the widgets.
 /// Map the virtual keys the text fields need onto ImGui's key indices.
 fn map_key(vk: u16) -> Option<usize> {
     use imgui::Key;
@@ -2382,7 +2370,7 @@ unsafe extern "system" fn wnd_proc(
                             // left Space down for good, and the second Enter in a session did nothing.
                             // Space itself is not mapped above (text fields take it as a character),
                             // so there is nothing to collide with.
-                            if vk == 0x0D {
+                            if key == imgui::Key::Enter as usize {
                                 app.input.keys.push((imgui::Key::Space as usize, down));
                             }
                         }

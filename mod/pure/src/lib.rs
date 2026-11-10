@@ -3657,3 +3657,86 @@ mod profile_tests {
         assert_eq!(parse_hotkey_modifier("hyper"), None);
     }
 }
+
+// ---- panel key batches ------------------------------------------------------
+
+/// Apply a frame's key events to ImGui's key table, one frame late where a tap needs it.
+///
+/// The panel drains its key queue once per frame, so a press shorter than a frame arrives as
+/// press *and* release in the same batch. Writing only the last event tells ImGui the key was never
+/// pressed — arrows looked fine because they are held, Enter did not. A release that follows its own
+/// press in the same batch is therefore held back one frame, so every press is visible once.
+///
+/// `deferred` carries those keys to the next call; it is drained here and never grows beyond the
+/// number of keys pressed in a frame.
+pub fn apply_key_batch(
+    keys_down: &mut [bool],
+    batch: &mut Vec<(usize, bool)>,
+    deferred: &mut Vec<usize>,
+) {
+    for key in deferred.drain(..) {
+        if let Some(slot) = keys_down.get_mut(key) {
+            *slot = false;
+        }
+    }
+    // Only a press followed by its own release inside this batch loses the press; a key held across
+    // frames releases immediately, so nothing pays a frame of latency for this rule.
+    let mut pressed_here: Vec<usize> = Vec::with_capacity(8);
+    for (key, down) in batch.drain(..) {
+        let Some(slot) = keys_down.get_mut(key) else {
+            continue;
+        };
+        if down {
+            *slot = true;
+            pressed_here.push(key);
+        } else if pressed_here.contains(&key) {
+            deferred.push(key);
+        } else {
+            *slot = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod key_batch_tests {
+    use super::apply_key_batch;
+
+    const ENTER: usize = 40;
+
+    #[test]
+    fn a_tap_inside_one_batch_is_visible_once() {
+        let mut down = [false; 512];
+        let mut deferred = Vec::new();
+        let mut batch = vec![(ENTER, true), (ENTER, false)];
+        apply_key_batch(&mut down, &mut batch, &mut deferred);
+        assert!(down[ENTER], "the press must be visible to ImGui");
+        assert_eq!(deferred, vec![ENTER]);
+        apply_key_batch(&mut down, &mut Vec::new(), &mut deferred);
+        assert!(!down[ENTER], "and released on the next frame");
+        assert!(deferred.is_empty());
+    }
+
+    #[test]
+    fn a_held_key_passes_straight_through() {
+        let mut down = [false; 512];
+        let mut deferred = Vec::new();
+        let mut batch = vec![(ENTER, true)];
+        apply_key_batch(&mut down, &mut batch, &mut deferred);
+        assert!(down[ENTER]);
+        assert!(deferred.is_empty());
+        let mut batch = vec![(ENTER, false)];
+        apply_key_batch(&mut down, &mut batch, &mut deferred);
+        assert!(!down[ENTER], "a held key releases without a frame of lag");
+        assert!(deferred.is_empty());
+    }
+
+    #[test]
+    fn a_release_with_no_press_does_not_defer() {
+        let mut down = [false; 512];
+        let mut deferred = Vec::new();
+        let mut batch = vec![(ENTER, false)];
+        apply_key_batch(&mut down, &mut batch, &mut deferred);
+        assert!(!down[ENTER]);
+        assert!(deferred.is_empty());
+    }
+}
