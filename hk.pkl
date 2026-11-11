@@ -47,6 +47,9 @@ local gated = new Mapping<String, Step> {
 
   ["prettier"] = new Step {
     glob = List("**/*.md")
+    // NEXUS.md is a published page whose layout is deliberate (BBCode blocks, spacing the page
+    // renderer depends on); a formatter must not rewrite it. vendor/ is third-party source.
+    exclude = List("NEXUS.md", "vendor/**")
     check = "prettier --check {{files}}"
     fix = "prettier --write {{files}}"
     depends = List("rustfmt", "shfmt")
@@ -69,7 +72,8 @@ local gated = new Mapping<String, Step> {
 
   ["cargo-audit"] = new Step {
     glob = List("mod/Cargo.lock", "mod/pure/Cargo.lock")
-    check = "cargo audit --quiet"
+    // `--file`: commands run from the repository root, and neither lockfile is called Cargo.lock there.
+    check = "sh -c 'cargo audit --quiet --file mod/Cargo.lock && cargo audit --quiet --file mod/pure/Cargo.lock'"
     depends = List("semgrep")
   }
 
@@ -97,8 +101,14 @@ local gated = new Mapping<String, Step> {
 // The default hooks hk derives from `steps` are exactly the ones wanted: `check` (no fixes),
 // `fix`, and `pre-commit` (fix + stage, unstaged work stashed). `pre-push` is declared because it
 // is the one hook that must run everything before anything leaves the machine.
-steps = gated
 hooks {
+  // `steps = gated` used to sit at the top level, which makes hk auto-create these hooks with ALL
+  // steps - so a commit ran clippy, the release build and the advisory scan. Defining each hook
+  // explicitly (and keeping nothing at the top level) is the only way to give pre-commit a short
+  // list: an explicit hook replaces same-named steps and inherits the rest.
+  ["check"] {
+    steps = gated
+  }
   // Commits stay fast: format and scan the files being committed, nothing that needs the network or
   // a build. Everything else is pre-push, where the cost is paid once per push instead of per commit.
   ["pre-commit"] {
@@ -107,6 +117,8 @@ hooks {
     stash = "git"
     steps {
       ["rustfmt"] = gated["rustfmt"]
+      // shellcheck is here because shfmt declares a dependency on it; it is the same order of cost.
+      ["shellcheck"] = gated["shellcheck"]
       ["shfmt"] = gated["shfmt"]
       ["prettier"] = gated["prettier"]
       ["gitleaks"] = gated["gitleaks"]

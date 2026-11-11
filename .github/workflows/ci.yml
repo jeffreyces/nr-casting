@@ -15,9 +15,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only here: the reusable workflows grant what their own jobs need (build.yml's cache eviction),
+# and a called workflow cannot widen the caller's permissions.
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: ci-${{ github.ref }}
