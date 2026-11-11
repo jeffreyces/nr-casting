@@ -30,10 +30,9 @@ jobs:
     # does not fit in the 15-minute cap that runner enforces.
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    # Only this job needs it, and only to drop a cache entry that restored but is unusable.
+    # Read-only: the cache is saved by actions/cache itself, which needs no token of ours.
     permissions:
       contents: read
-      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -74,10 +73,6 @@ jobs:
         id: xwin-verify
         env:
           MATCHED_KEY: ${{ steps.xwin-cache.outputs.cache-matched-key }}
-          # Passed as a value, never interpolated into the script: a branch or tag name is
-          # attacker-controlled text, and `${{ }}` inside `run:` is expanded before the shell sees it.
-          REPO: ${{ github.repository }}
-          REF: ${{ github.ref }}
         run: |
           echo "restored cache key: ${MATCHED_KEY:-none}"
           done="$HOME/.cache/cargo-xwin/xwin/DONE"
@@ -121,19 +116,11 @@ jobs:
         id: xwin-fetch
         run: cargo xwin cache xwin
 
-      # `cache-matched-key` is the entry that was *actually* restored: with restore-keys it can be
-      # an older key than the one we asked for, and deleting the primary key would leave the bad
-      # entry in place to be matched again on the next run.
-      - name: Drop an unusable cache entry
-        if: steps.xwin-verify.outputs.usable != 'true' && steps.xwin-cache.outputs.cache-matched-key != ''
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MATCHED_KEY: ${{ steps.xwin-cache.outputs.cache-matched-key }}
-        run: |
-          echo "dropping unusable entry: $MATCHED_KEY"
-          gh cache delete "$MATCHED_KEY" --repo "$REPO" --ref "$REF" \
-            || gh cache delete "$MATCHED_KEY" --repo "$REPO"
+      # No eviction step: deleting a bad entry needs `actions: write`, and a called workflow cannot
+      # be granted more than its caller. An unusable payload is instead abandoned by bumping the
+      # revision in XWIN_CACHE_KEY, which is what that suffix exists for - and the verify step above
+      # already forces a re-fetch when the payload is incomplete, so a bad entry costs one download,
+      # not a broken build.
 
       # Save what a *successful* fetch produced whenever there was no exact hit: an entry matched
       # through restore-keys is promoted to the current key, so the next run is an exact hit, and
