@@ -11,6 +11,8 @@ name: CI
 on:
   push:
     branches: [main]
+  # Pull requests run the same gate: a bad change that reaches main has already been merged.
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -22,5 +24,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # lint -> quality -> security, in that order, and the build waits for all three.
+  gates:
+    uses: ./.github/workflows/gates.yml
+
   build:
+    needs: gates
     uses: ./.github/workflows/build.yml

@@ -151,6 +151,14 @@ jobs:
             exit 1
           fi
 
+      # The fourth gate's lint half: the DLL crate only compiles with cargo xwin, which is set up
+      # above, so its clippy runs here rather than in gates.yml's lint job. It gates the build
+      # below, which gates the release.
+      - name: Lint the DLL crate (-D warnings)
+        run: >-
+          cargo xwin clippy --manifest-path mod/Cargo.toml
+          --target x86_64-pc-windows-msvc --all-targets -- -D warnings
+
       - name: Build and package
         run: ./tools/package.sh
 

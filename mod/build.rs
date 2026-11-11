@@ -22,7 +22,10 @@ fn main() {
     let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
     // A four-field version, which is what VERSIONINFO expects: 0.2.9 -> 0.2.9.0.
     let comma = {
-        let mut parts: Vec<String> = version.split('.').map(|p| p.parse().unwrap_or(0).to_string()).collect();
+        let mut parts: Vec<String> = version
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0).to_string())
+            .collect();
         while parts.len() < 4 {
             parts.push("0".into());
         }
@@ -73,7 +76,9 @@ END
         Err(e) => {
             // A missing version block must never cost somebody a build: the mod still works, it
             // just looks anonymous again. Say so and carry on.
-            println!("cargo:warning=could not write {rc_path:?}: {e}; DLL will have no version resource");
+            println!(
+                "cargo:warning=could not write {rc_path:?}: {e}; DLL will have no version resource"
+            );
             return;
         }
     }

@@ -7,7 +7,7 @@ Status: agreed design, not started. Target: the version after 0.2.19.
 Vanilla caps a caster's spell library through memory slots (up to 12). The mod adds four
 spell inputs per catalyst and stores those assignments per weapon, so the real ceiling today is
 four spells times every catalyst owned — capacity that scales with inventory instead of with
-memory stones. Balanced mode makes the mod's assignments a way to *use* your attuned spells
+memory stones. Balanced mode makes the mod's assignments a way to _use_ your attuned spells
 well, not a way to bypass attunement.
 
 `balance = free | attuned`, default `free`. In `attuned` mode only spells in the character's
@@ -49,14 +49,14 @@ All of this is policy, so it belongs in `mod/pure/src/lib.rs` where `cargo test 
 nr_casting_core` runs on the development host. Expected first run: every new test red, one per
 row below. A test that passes before its implementation is testing nothing.
 
-| # | Function | Cases |
-|---|---|---|
-| 1 | `parse_balance(&str) -> Option<Balance>` | `free`, `attuned`, `ATTUNED`, `on`/`off` rejected with a logged default, unknown string → None |
-| 2 | `classify(assigned: i32, attuned: &[i32], school: School) -> RowState` | empty row; attuned+right school; attuned+wrong school; not attuned; spell id 0 |
-| 3 | `counts(rows: &[RowState]) -> Counts` | 4 attuned of 4; mixed stale/attuned; all stale; empty catalyst |
-| 4 | `resolve_row(base: i32, full: i32, rows: &[(i32, [i32; 4])]) -> Option<[i32; 4]>` | exact full-id override wins; unknown full id falls back to base; neither → None; base row present and full row absent (the upgrade case) |
-| 5 | `balance_line(...) -> String` | exact text for the report: on/off, attuned/slots, assigned, stale — five numbers in one string, so it is asserted verbatim |
-| 6 | `balance_notice(rows: &[RowState], attuned_is_empty: bool) -> Option<&'static str>` | the two refusal strings (`attune it in the game's spell menu first`, `no attuned sorcery left for this staff`) and None when everything is fine |
+| #   | Function                                                                            | Cases                                                                                                                                           |
+| --- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `parse_balance(&str) -> Option<Balance>`                                            | `free`, `attuned`, `ATTUNED`, `on`/`off` rejected with a logged default, unknown string → None                                                  |
+| 2   | `classify(assigned: i32, attuned: &[i32], school: School) -> RowState`              | empty row; attuned+right school; attuned+wrong school; not attuned; spell id 0                                                                  |
+| 3   | `counts(rows: &[RowState]) -> Counts`                                               | 4 attuned of 4; mixed stale/attuned; all stale; empty catalyst                                                                                  |
+| 4   | `resolve_row(base: i32, full: i32, rows: &[(i32, [i32; 4])]) -> Option<[i32; 4]>`   | exact full-id override wins; unknown full id falls back to base; neither → None; base row present and full row absent (the upgrade case)        |
+| 5   | `balance_line(...) -> String`                                                       | exact text for the report: on/off, attuned/slots, assigned, stale — five numbers in one string, so it is asserted verbatim                      |
+| 6   | `balance_notice(rows: &[RowState], attuned_is_empty: bool) -> Option<&'static str>` | the two refusal strings (`attune it in the game's spell menu first`, `no attuned sorcery left for this staff`) and None when everything is fine |
 
 Run `cargo test -p nr_casting_core` and record the red count. It must equal the number of cases,
 not the number of test functions.
@@ -106,7 +106,7 @@ not the number of test functions.
   tests never need a game.
 - **Refactoring** — step 1 is a pure move, verified by the existing suite before any behaviour
   changes.
-- **Documentation** — comments state the *why* for the three decisions most likely to be
+- **Documentation** — comments state the _why_ for the three decisions most likely to be
   "simplified" later: grey-not-clear, base-then-full lookup, cast-time authority.
 - **Robustness** — nothing is deleted by the toggle in either direction; every refusal has a
   message; a memorised list that cannot be read means "cannot verify", handled as stale rather
@@ -142,7 +142,7 @@ Manual, with a real character (the user's test list):
    immediately and the press passes through. This is the case no grace visit explains.
 5. **Copy with an override** — upgrade a staff: layout survives. Assign a different set on the
    upgraded copy: the two diverge, and the panel says `customised for this copy`. `reset to
-   default` brings the inherited set back.
+default` brings the inherited set back.
 6. **Mouse path** — the same rows, the same refusals, from keyboard and mouse.
 7. **`show_all` in balanced mode** — unattuned spells listed and marked; selecting one is refused
    with the message, not silently ignored.

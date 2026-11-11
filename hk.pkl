@@ -1,0 +1,118 @@
+/// The four gates, in order: lint -> quality -> security -> build.
+///
+/// `hk check` locally and the CI job run the same steps, so a green local run means a green CI run
+/// for the same code. Ordering is expressed with `depends`: hk runs independent steps in parallel,
+/// and nothing reaches the build before the stages that cost seconds have passed.
+amends "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Builtins.pkl"
+
+local gated = new Mapping<String, Step> {
+  // ---- lint ------------------------------------------------------------------------------
+  // The pure crate is host-buildable, so it is linted with the host toolchain over all targets.
+  ["clippy-core"] = new Step {
+    glob = List("mod/pure/**/*.rs", "mod/pure/Cargo.toml", "mod/pure/Cargo.lock")
+    check = "cargo clippy --manifest-path mod/pure/Cargo.toml --all-targets -- -D warnings"
+  }
+
+  // The DLL crate is a Windows library: only `cargo xwin` can compile the panel and the Win32
+  // surface, and CI is where that toolchain is guaranteed. Locally, when cargo-xwin is absent or
+  // cannot build its C dependency, the step says so instead of pretending the code passed.
+  ["clippy-dll"] = new Step {
+    glob = List("mod/src/**/*.rs", "mod/Cargo.toml", "mod/Cargo.lock", "mod/build.rs")
+    check = "cargo xwin clippy --manifest-path mod/Cargo.toml --target x86_64-pc-windows-msvc --all-targets -- -D warnings"
+    condition = "exec_ok('command -v cargo-xwin')"
+  }
+
+  ["shellcheck"] = new Step {
+    glob = List("**/*.sh")
+    check = "shellcheck -S warning {{files}}"
+  }
+
+  // ---- quality ---------------------------------------------------------------------------
+  // Two crates, two manifests: `cargo fmt --all` at the root fails because there is no workspace
+  // there. Listing both keeps the DLL and the pure crate formatted by the same rule.
+  ["rustfmt"] = new Step {
+    glob = List("mod/**/*.rs")
+    check = "sh -c 'cargo fmt --manifest-path mod/Cargo.toml -- --check && cargo fmt --manifest-path mod/pure/Cargo.toml -- --check'"
+    fix = "sh -c 'cargo fmt --manifest-path mod/Cargo.toml && cargo fmt --manifest-path mod/pure/Cargo.toml'"
+    depends = List("clippy-core", "clippy-dll")
+  }
+
+  ["shfmt"] = new Step {
+    glob = List("**/*.sh")
+    check = "shfmt -d {{files}}"
+    fix = "shfmt -w {{files}}"
+    depends = List("shellcheck")
+  }
+
+  ["prettier"] = new Step {
+    glob = List("**/*.md")
+    check = "prettier --check {{files}}"
+    fix = "prettier --write {{files}}"
+    depends = List("rustfmt", "shfmt")
+  }
+
+  // ---- security --------------------------------------------------------------------------
+  ["gitleaks"] = new Step {
+    // Whole history plus the index. History alone misses a secret that has not been committed yet -
+    // the one moment a pre-commit hook can still stop it - and the index alone misses the history a
+    // push is about to publish. Both are ~100 ms.
+    check = "sh -c 'gitleaks detect --no-banner --redact && gitleaks protect --no-banner --redact --staged'"
+    depends = List("prettier")
+  }
+
+  ["semgrep"] = new Step {
+    glob = List("**/*.rs", "**/*.sh", "**/*.py")
+    check = "semgrep --config .semgrep --error --metrics=off --quiet {{files}}"
+    depends = List("gitleaks")
+  }
+
+  ["cargo-audit"] = new Step {
+    glob = List("mod/Cargo.lock", "mod/pure/Cargo.lock")
+    check = "cargo audit --quiet"
+    depends = List("semgrep")
+  }
+
+  // GitHub Actions are code: they run with a token and can publish releases.
+  ["actionlint"] = new Step {
+    glob = List(".github/workflows/*.yml")
+    check = "actionlint {{files}}"
+    depends = List("cargo-audit")
+  }
+
+  ["zizmor"] = new Step {
+    glob = List(".github/workflows/*.yml")
+    check = "zizmor --quiet {{files}}"
+    depends = List("actionlint")
+  }
+
+  // ---- build -----------------------------------------------------------------------------
+  ["build"] = new Step {
+    glob = List("mod/**/*.rs", "mod/Cargo.toml", "mod/Cargo.lock", "mod/build.rs")
+    check = "cargo xwin build --manifest-path mod/Cargo.toml --release --target x86_64-pc-windows-msvc"
+    depends = List("zizmor")
+  }
+}
+
+// The default hooks hk derives from `steps` are exactly the ones wanted: `check` (no fixes),
+// `fix`, and `pre-commit` (fix + stage, unstaged work stashed). `pre-push` is declared because it
+// is the one hook that must run everything before anything leaves the machine.
+steps = gated
+hooks {
+  // Commits stay fast: format and scan the files being committed, nothing that needs the network or
+  // a build. Everything else is pre-push, where the cost is paid once per push instead of per commit.
+  ["pre-commit"] {
+    fix = true
+    stage = true
+    stash = "git"
+    steps {
+      ["rustfmt"] = gated["rustfmt"]
+      ["shfmt"] = gated["shfmt"]
+      ["prettier"] = gated["prettier"]
+      ["gitleaks"] = gated["gitleaks"]
+    }
+  }
+  ["pre-push"] {
+    steps = gated
+  }
+}

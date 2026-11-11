@@ -27,7 +27,7 @@ C  default bindings, chord press : physical_y=true  event_action=false pouch=fal
 - **The action layer follows the rebind.** `CSPad::poll_digital_input(UserInputKey::EventAction)`
   resolves through `input_type_group` -> `key_assign.get_virtual_input_index()`, i.e. the player's own
   binding table. Our chord still tests the raw XInput bit `0x8000` (`XINPUT_GAMEPAD_Y`), which is only
-  the *default* mapping. Nothing corrupts: the chord simply never matches.
+  the _default_ mapping. Nothing corrupts: the chord simply never matches.
 - **`EventActionPouch` (27) is not a second state.** It tracked `EventAction` (11) on every line, in
   both binding schemes. Drop it from the design.
 - **The action layer cannot be the chord test.** Line C: during a chord we strip Y from the report so
@@ -36,17 +36,17 @@ C  default bindings, chord press : physical_y=true  event_action=false pouch=fal
 
 ## Options, and why each was rejected
 
-| Option | Verdict |
-|---|---|
-| Write the binding table to normalise it | **No.** Two writers on one binding table is corruption and an unrecoverable support story. Read-only, always. |
-| Use `poll_digital_input(EventAction)` as the modifier test | **No.** Our own Y-strip makes the action false mid-chord (line C above). |
-| Read `key_assign` / `input_type_group` by raw offset | **Last resort.** Both accessors are private in the vendored bindings, so this is hardcoded offsets into the input system - the structure most likely to move between patches, and the one we would have to re-validate every update. |
-| ini key naming the button (`chord_modifier`) | **Fallback, not the answer.** Deterministic and offset-free, but it is a second place the player states a binding the game already knows, and it drifts again silently on the next rebind. |
-| **Learn the bit from the press edge** (proposed) | Follows any rebind, no offsets, and the action layer acts as the check: a wrong guess never satisfies `event_action=true`. |
+| Option                                                     | Verdict                                                                                                                                                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Write the binding table to normalise it                    | **No.** Two writers on one binding table is corruption and an unrecoverable support story. Read-only, always.                                                                                                                        |
+| Use `poll_digital_input(EventAction)` as the modifier test | **No.** Our own Y-strip makes the action false mid-chord (line C above).                                                                                                                                                             |
+| Read `key_assign` / `input_type_group` by raw offset       | **Last resort.** Both accessors are private in the vendored bindings, so this is hardcoded offsets into the input system - the structure most likely to move between patches, and the one we would have to re-validate every update. |
+| ini key naming the button (`chord_modifier`)               | **Fallback, not the answer.** Deterministic and offset-free, but it is a second place the player states a binding the game already knows, and it drifts again silently on the next rebind.                                           |
+| **Learn the bit from the press edge** (proposed)           | Follows any rebind, no offsets, and the action layer acts as the check: a wrong guess never satisfies `event_action=true`.                                                                                                           |
 
 ## Proposed design (to refine)
 
-Keep the chord test exactly as it is - a raw pad bit - but stop hardcoding *which* bit.
+Keep the chord test exactly as it is - a raw pad bit - but stop hardcoding _which_ bit.
 
 1. Keep the whole raw button mask of the last report (`MODIFIER_HELD` today stores only the Y bit).
 2. On the action layer's **rising edge** (`event_action` false -> true) with **exactly one** new bit in
@@ -66,14 +66,14 @@ port's chords, and any change to which slots exist.
 
 ## Tests to write first (in `nr_casting_core`, before any wiring)
 
-| Behaviour | Red before |
-|---|---|
-| one new bit on the rising edge -> adopt it | yes |
-| two new bits -> adopt nothing, keep current | yes |
-| no new bit while the action rises -> keep current | yes |
-| a candidate bit that the chord uses (LB/RB/LT/RT) -> refused | yes |
-| ini value other than `auto` -> learning never runs | yes |
-| learned bit survives across presses in one session, resets on load | yes |
+| Behaviour                                                                 | Red before                      |
+| ------------------------------------------------------------------------- | ------------------------------- |
+| one new bit on the rising edge -> adopt it                                | yes                             |
+| two new bits -> adopt nothing, keep current                               | yes                             |
+| no new bit while the action rises -> keep current                         | yes                             |
+| a candidate bit that the chord uses (LB/RB/LT/RT) -> refused              | yes                             |
+| ini value other than `auto` -> learning never runs                        | yes                             |
+| learned bit survives across presses in one session, resets on load        | yes                             |
 | the modifier bit is stripped from the report only while the chord is ours | existing behaviour, re-asserted |
 
 ## Manual test script (needs the reporter's remap list first)

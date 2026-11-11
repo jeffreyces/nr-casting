@@ -13,11 +13,11 @@ table - so the action layer follows a rebind to any pad button or key. Reached w
 
 Measured 2026-11-10 on build `01:20:15Z` (debug line `chord:`), three cases in one session:
 
-| case | physical Y bit | `event_action` | `pouch` |
-|---|---|---|---|
-| default bindings, Y held | true | true | true |
-| Event Action moved to X | false | true | true |
-| default bindings, chord press | true | false | false |
+| case                          | physical Y bit | `event_action` | `pouch` |
+| ----------------------------- | -------------- | -------------- | ------- |
+| default bindings, Y held      | true           | true           | true    |
+| Event Action moved to X       | false          | true           | true    |
+| default bindings, chord press | true           | false          | false   |
 
 Facts that follow, and that a design has to respect:
 
@@ -50,9 +50,9 @@ field of `EQUIP_PARAM_WEAPON_ST` and none of them says "spell school" — `weapo
 `wepmotion_category`, `wep_type`, `behavior_variation_id`, `sp_attribute` are all about how a weapon
 swings. The flag is in two bytes the paramdef leaves unlabelled.
 
-| offset | field | bit | means |
-|---|---|---|---|
-| `0x105` | `bits_105` | `0x80` | casts sorceries |
+| offset  | field      | bit    | means              |
+| ------- | ---------- | ------ | ------------------ |
+| `0x105` | `bits_105` | `0x80` | casts sorceries    |
 | `0x106` | `bits_106` | `0x02` | casts incantations |
 
 Measured row size: **664 bytes** (`std::mem::size_of_val` on the row returned by
@@ -62,13 +62,13 @@ offsets once per process against a known staff and a known seal before trusting 
 
 Values observed (game build 2.7.2.0, 2026-11-04):
 
-| weapon | id | bits_105 | bits_106 | casts |
-|---|---|---|---|---|
-| 12 vanilla staves (`33000000` … `33240000`) | — | `0x87` | `0x10` | sorceries |
-| 11 vanilla seals (`34000000` … `34510000`) | — | `0x07` | `0x12` | incantations |
-| Staff of the Great Beyond (SotE) | `33510000` | `0x87` | `0x12` | both |
-| Recluse port's staff | `33790000` | `0x87` | `0x12` | both |
-| Prince of Death's Staff | `33180000` | `0x87` | `0x10` | sorceries only |
+| weapon                                      | id         | bits_105 | bits_106 | casts          |
+| ------------------------------------------- | ---------- | -------- | -------- | -------------- |
+| 12 vanilla staves (`33000000` … `33240000`) | —          | `0x87`   | `0x10`   | sorceries      |
+| 11 vanilla seals (`34000000` … `34510000`)  | —          | `0x07`   | `0x12`   | incantations   |
+| Staff of the Great Beyond (SotE)            | `33510000` | `0x87`   | `0x12`   | both           |
+| Recluse port's staff                        | `33790000` | `0x87`   | `0x12`   | both           |
+| Prince of Death's Staff                     | `33180000` | `0x87`   | `0x10`   | sorceries only |
 
 The last row is the control that matters: INT/FAI scaling is a separate set of fields
 (`correct_magic`, `correct_faith`, `correct_type_magic`, …) and says nothing about what the weapon can
@@ -88,7 +88,7 @@ let bytes = std::slice::from_raw_parts(row as *const _ as *const u8, size);
 ```
 
 then diffed: staves vs seals gives the per-school bits, and the dual catalysts show both. `size_of::<T>()`
-on the *marker* type is 0, which is the trap to remember.
+on the _marker_ type is 0, which is the trap to remember.
 
 ## Character class (Recluse / Duchess class ports)
 
@@ -120,7 +120,7 @@ character" at all, and it needs no configuration.
 
 - **Probe first.** If a value is needed and its location is not already measured, read it from the live
   process and diff two known-good cases — do not infer it from field names, and do not ship a hardcoded
-  table instead of a read. A table is a *fallback* for when the read cannot be validated, never the
+  table instead of a read. A table is a _fallback_ for when the read cannot be validated, never the
   first answer.
 - **Validate any offset read** against a known row before trusting it for everything else.
 - **Name the mechanism in the log** ("read from the weapon rows", "did not validate — using the id

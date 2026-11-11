@@ -9,11 +9,11 @@ them". Settled with the user, then tests, then code.
    `param_id` in real memory slots, which empties them for the game, shrinks the attuned list that
    balanced mode reads, and fights re-attuning. Skipping reaches the same outcome - pressing up only
    ever lands on an unassigned spell - without editing the player's character data.
-2. **Scope is every weapon carried (six slots).** *Corrected twice by testing.* First version was
+2. **Scope is every weapon carried (six slots).** _Corrected twice by testing._ First version was
    the whole character's saved rows; second was the pair in hand; the settled rule is the character's
    `equipment_param_ids` slots 0..=5 - three left, three right - because switching hands mid-fight
    must not change what the wheel offers, and a spell bound to the spare staff is still spoken for.
-   The pair in hand stays the *cast* path's question, not the wheel's. Original note: the first version counted every saved
+   The pair in hand stays the _cast_ path's question, not the wheel's. Original note: the first version counted every saved
    row for the character, and a player with two staves cleared a spell from the staff in hand and it
    still never appeared in the wheel — it was in a row belonging to the other staff, or to another
    copy's override. The wheel is asking "what do the buttons I am holding own", so the set is the
@@ -22,12 +22,12 @@ them". Settled with the user, then tests, then code.
    expects when the panel owns nothing on it.
 3. **Everything assigned ⇒ vanilla.** If no unassigned spell is left, the game cycles exactly as it
    does today, and the log says so once. The wheel must never lock.
-4. **Pad and keyboard both.** Not by matching a button: by watching the *effect*. The selection index
+4. **Pad and keyboard both.** Not by matching a button: by watching the _effect_. The selection index
    is read from the game each frame; when it changes to a spell we already own, we move it to the next
    free one. This needs no knowledge of the keyboard's cycle key, survives remaps, and is one rule
    instead of two.
 5. **Independent of `balance`, default off**, live-reloadable like every other ini key.
-6. **A spell the hands cannot cast is hidden too.** *Added after testing:* pair scope alone brought
+6. **A spell the hands cannot cast is hidden too.** _Added after testing:_ pair scope alone brought
    incantations back into the wheel when the seal was unequipped, which the reporter preferred
    hidden. The rule is one question - "would the game refuse this cast right now" - and the answer is
    already in the catalyst capability read from the weapon rows. Unknown school is never hidden, and
@@ -35,7 +35,7 @@ them". Settled with the user, then tests, then code.
 
 ## Why effect-based rather than swallowing the input
 
-- The input path would need the D-pad bits rewritten *and* the keyboard key identified - a probe
+- The input path would need the D-pad bits rewritten _and_ the keyboard key identified - a probe
   (`GetAsyncKeyState` traffic) plus two code paths that can disagree.
 - Watching `selected_slot` is input-agnostic by construction: any cycle, any remap, either device.
 - Cost: the pointer is cached after the first read, so the check is one atomic load plus a struct
@@ -49,12 +49,12 @@ them". Settled with the user, then tests, then code.
 
 Pure, in `mod/pure`:
 
-| behaviour | cases |
-|---|---|
+| behaviour                                 | cases                                                                                                                                                                                                       |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `next_unassigned(current, len, assigned)` | one assigned after current is skipped; a run of assigned is skipped; wraps past the end; current is free ⇒ returns current (no move); single free entry; every entry assigned ⇒ `None`; empty list ⇒ `None` |
-| assigned set for the character | built from every layout row; includes per-copy overrides; ignores rows with `-1`; a weapon with stale assignments still contributes its spells |
-| decision `should_skip` | toggle off ⇒ never; toggle on + changed + assigned ⇒ move; toggle on + changed + free ⇒ no move; toggle on + all assigned ⇒ no move (vanilla) |
-| monotonic safety | the skip loop is bounded by the number of entries, so a corrupt assigned set cannot spin |
+| assigned set for the character            | built from every layout row; includes per-copy overrides; ignores rows with `-1`; a weapon with stale assignments still contributes its spells                                                              |
+| decision `should_skip`                    | toggle off ⇒ never; toggle on + changed + assigned ⇒ move; toggle on + changed + free ⇒ no move; toggle on + all assigned ⇒ no move (vanilla)                                                               |
+| monotonic safety                          | the skip loop is bounded by the number of entries, so a corrupt assigned set cannot spin                                                                                                                    |
 
 ## Implementation order (one commit per step)
 

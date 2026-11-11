@@ -15,10 +15,10 @@ OUT="$ROOT/dist/nr_casting"
 
 cd "$ROOT/mod"
 if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
-    cargo build --release --target "$TRIPLE"
+	cargo build --release --target "$TRIPLE"
 else
-    # Stamped into the report: two builds can share a version while a fix is under test.
-    NR_BUILD="$(date -u +%Y-%m-%dT%H:%M:%SZ)" cargo xwin build --release --target "$TRIPLE"
+	# Stamped into the report: two builds can share a version while a fix is under test.
+	NR_BUILD="$(date -u +%Y-%m-%dT%H:%M:%SZ)" cargo xwin build --release --target "$TRIPLE"
 fi
 
 mkdir -p "$OUT"
@@ -35,14 +35,14 @@ cp "$BUILD/nr_casting.dll" "$OUT/"
 # disk: an ignore rule matched its name, `git add -A` skipped it silently, and every local build
 # passed while CI failed to compile the moment it checked out the repo. Fail here instead.
 if ! git -C "$ROOT" ls-files --error-unmatch mod/data/nr_casting.ini >/dev/null 2>&1; then
-  echo "error: mod/data/nr_casting.ini is not tracked by git - the shipped build would not compile" >&2
-  exit 1
+	echo "error: mod/data/nr_casting.ini is not tracked by git - the shipped build would not compile" >&2
+	exit 1
 fi
 if [[ ! -f "$OUT/nr_casting.ini" ]]; then
-  cp "$ROOT/mod/data/nr_casting.ini" "$OUT/nr_casting.ini"
+	cp "$ROOT/mod/data/nr_casting.ini" "$OUT/nr_casting.ini"
 fi
 
-cat > "$OUT/nr-casting.me3" <<'PROFILE'
+cat >"$OUT/nr-casting.me3" <<'PROFILE'
 profileVersion = "v1"
 
 [[supports]]
@@ -59,7 +59,7 @@ optional = false
 enabled = true
 PROFILE
 
-cat > "$OUT/INSTALL.txt" <<'TXT'
+cat >"$OUT/INSTALL.txt" <<'TXT'
 nr-casting — four spells per catalyst for ELDEN RING (offline only)
 
 WHAT IS IN THIS FOLDER
@@ -185,13 +185,13 @@ ls -1 "$OUT"
 # this only fails when that silently stopped working (a missing resource compiler, say).
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/mod/Cargo.toml" | head -1)
 if command -v objdump >/dev/null 2>&1; then
-    resource=$(objdump -p "$OUT/nr_casting.dll" | awk '/Entry 2 /{print $3" "$4}')
-    signature=$(objdump -p "$OUT/nr_casting.dll" | awk '/Entry 4 /{print $3" "$4}')
-    if [[ "$resource" == "0000000000000000 00000000" ]]; then
-        echo "ERROR: no VERSIONINFO in the packaged DLL — the release would be anonymous" >&2
-        exit 1
-    fi
-    echo "identity: version $VERSION, resource $resource, signature ${signature%% *} (empty = unsigned)"
+	resource=$(objdump -p "$OUT/nr_casting.dll" | awk '/Entry 2 /{print $3" "$4}')
+	signature=$(objdump -p "$OUT/nr_casting.dll" | awk '/Entry 4 /{print $3" "$4}')
+	if [[ "$resource" == "0000000000000000 00000000" ]]; then
+		echo "ERROR: no VERSIONINFO in the packaged DLL — the release would be anonymous" >&2
+		exit 1
+	fi
+	echo "identity: version $VERSION, resource $resource, signature ${signature%% *} (empty = unsigned)"
 else
-    echo "identity: cannot check (no objdump) — verify VERSIONINFO before shipping $VERSION" >&2
+	echo "identity: cannot check (no objdump) — verify VERSIONINFO before shipping $VERSION" >&2
 fi

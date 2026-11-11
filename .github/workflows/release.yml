@@ -21,7 +21,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A release cannot skip a stage: lint -> quality -> security -> build -> publish.
+  gates:
+    uses: ./.github/workflows/gates.yml
+
   build:
+    needs: gates
     uses: ./.github/workflows/build.yml
 
   publish:

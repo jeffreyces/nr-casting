@@ -1,0 +1,64 @@
+name: Gates
+
+# lint -> quality -> security, each job gated on the one before it. The build (build.yml) is the
+# fourth stage and depends on this workflow finishing.
+#
+# The steps are not written here: each job runs steps by name out of `hk.pkl`, which is the same file
+# the pre-push hook runs. A change to a command happens in one place, and "green locally" keeps
+# meaning "green in CI".
+#
+# Rust tooling: `clippy-core` lints the host-buildable crate here. The DLL crate needs `cargo xwin`
+# and the MSVC SDK, which build.yml already sets up, so its clippy step runs there - before the build
+# it was gating.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the pinned tools
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+
+      - name: Lint (clippy over the host crate, shellcheck)
+        run: hk check --all --step clippy-core --step shellcheck
+
+  quality:
+    needs: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the pinned tools
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+
+      # A toolchain is needed before `cargo fmt` can run over the DLL crate's sources.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Formatting (rustfmt, shfmt, prettier)
+        run: hk check --all --step rustfmt --step shfmt --step prettier
+
+  security:
+    needs: quality
+    runs-on: ubuntu-24.04
+    steps:
+      # Full history: gitleaks scans every commit, not just this checkout's tip.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install the pinned tools
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+
+      - name: Secrets, static analysis, dependency advisories, workflow security
+        run: >-
+          hk check --all
+          --step gitleaks --step semgrep --step cargo-audit
+          --step actionlint --step zizmor

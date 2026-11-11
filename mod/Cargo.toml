@@ -71,3 +71,11 @@ lto = true
 [patch."https://github.com/vswarte/fromsoftware-rs"]
 eldenring = { path = "../vendor/fromsoftware-rs/crates/eldenring" }
 fromsoftware-shared = { path = "../vendor/fromsoftware-rs/crates/shared" }
+
+# One line, one crate: libudis86 (via retour) calls memset with no declaration, and clang 16 and
+# later reject that in C99 mode. cargo-xwin also passes the include as a single malformed token
+# (`-includestring.h`), so it never arrives. The effect was that a *clean* Windows build could not
+# compile at all - a warm target directory hid it, and it surfaced as a linter failure in the gate.
+# The vendored copy adds `#include <string.h>` and nothing else.
+[patch.crates-io]
+libudis86-sys = { path = "../vendor/libudis86-sys" }

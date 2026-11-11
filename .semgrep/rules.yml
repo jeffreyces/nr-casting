@@ -1,0 +1,50 @@
+# Pinned Semgrep rules for this repository.
+#
+# Registry rulesets (p/...) are fetched per run and change under us; these are committed so a finding
+# means the same thing on every machine and in CI. Metrics are off (--metrics=off), so the scanner
+# reports usage nowhere.
+#
+# Deliberately small: every rule must be actionable in THIS codebase. A rule that cannot fire, or that
+# fires on the only way to do the job here, is noise that teaches people to ignore the stage. Add one
+# when a real class of bug appears, not to look thorough.
+rules:
+- id: rust-mem-transmute
+  languages:
+  - rust
+  severity: ERROR
+  message: mem::transmute between unrelated types is undefined behaviour if the layouts disagree. Write
+    the conversion explicitly, or state the layout invariant on the line above and suppress this.
+  pattern: $X.transmute::<$T, $U>($ARG)
+- id: rust-shell-command
+  languages:
+  - rust
+  severity: WARNING
+  message: Invoking a shell with a string argument reintroduces shell parsing, so any value that reaches
+    it becomes a command. Pass arguments one at a time.
+  pattern-either:
+  - pattern: Command::new("sh").arg("-c").arg($X)
+  - pattern: Command::new("bash").arg("-c").arg($X)
+- id: rust-static-mut
+  languages:
+  - rust
+  severity: WARNING
+  message: A static mut is reachable from any thread without synchronisation. Use an atomic, a Mutex/OnceLock
+    or a OnceCell.
+  pattern: 'static mut $X: $T = $V;'
+- id: shell-curl-pipe-shell
+  languages:
+  - bash
+  severity: ERROR
+  message: Piping a download into a shell executes whatever the server sends. Download, verify, then run.
+  pattern-either:
+  - pattern: curl ... | sh
+  - pattern: curl ... | bash
+  - pattern: wget ... | sh
+  - pattern: wget ... | bash
+- id: shell-eval-from-variable
+  languages:
+  - bash
+  severity: ERROR
+  message: eval on a variable re-parses whatever it holds; if the value came from a file, an argument
+    or the network, that is command injection.
+  pattern: eval $X

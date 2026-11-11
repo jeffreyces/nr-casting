@@ -13,7 +13,7 @@ press entirely, so two-handing works exactly as it always did**, mid-fight, with
 
 The fourth slot is shared with [Recluse](https://www.nexusmods.com/eldenring/mods/11410), which
 uses Y+R1 / Y+L1 itself. `y_bumper = auto` (the default) takes those chords **unless** the class port
-is loaded *and* the character is one of its classes, so you get eight spells everywhere else and the
+is loaded _and_ the character is one of its classes, so you get eight spells everywhere else and the
 class port keeps its own chords on its own character. `on` claims them regardless, `off` leaves them
 to the game.
 
@@ -44,20 +44,20 @@ is edited.
 ## How it works
 
 Elden Ring already casts on R1 and L1 with a catalyst in that hand — it casts whatever spell is
-*selected*. R2 (heavy attack) and L2 (ash of war) do not cast. So:
+_selected_. R2 (heavy attack) and L2 (ash of war) do not cast. So:
 
-| input | mouse / keyboard | vanilla | with this mod |
-|---|---|---|---|
-| Pad | Mouse | Without the mod | With the mod |
-|---|---|---|---|
-| R1 | left click | cast the selected spell | cast **slot 1** of the right-hand weapon |
-| R2 | shift + left click | heavy attack | cast **slot 2** of the right-hand weapon |
-| **Y + R2** | ctrl + left click | two-hand stance, then heavy attack | cast **slot 3** of the right-hand weapon |
-| **Y + R1** | alt + left click | two-hand the right-hand weapon | cast **slot 4** of the right-hand weapon |
-| L1 | right click | cast the selected spell | cast **slot 1** of the left-hand weapon |
-| L2 | shift + right click | ash of war | cast **slot 2** of the left-hand weapon |
-| **Y + L2** | ctrl + right click | — | cast **slot 3** of the left-hand weapon |
-| **Y + L1** | alt + right click | two-hand the left-hand weapon | cast **slot 4** of the left-hand weapon |
+| input      | mouse / keyboard    | vanilla                            | with this mod                            |
+| ---------- | ------------------- | ---------------------------------- | ---------------------------------------- |
+| Pad        | Mouse               | Without the mod                    | With the mod                             |
+| ---        | ---                 | ---                                | ---                                      |
+| R1         | left click          | cast the selected spell            | cast **slot 1** of the right-hand weapon |
+| R2         | shift + left click  | heavy attack                       | cast **slot 2** of the right-hand weapon |
+| **Y + R2** | ctrl + left click   | two-hand stance, then heavy attack | cast **slot 3** of the right-hand weapon |
+| **Y + R1** | alt + left click    | two-hand the right-hand weapon     | cast **slot 4** of the right-hand weapon |
+| L1         | right click         | cast the selected spell            | cast **slot 1** of the left-hand weapon  |
+| L2         | shift + right click | ash of war                         | cast **slot 2** of the left-hand weapon  |
+| **Y + L2** | ctrl + right click  | —                                  | cast **slot 3** of the left-hand weapon  |
+| **Y + L1** | alt + right click   | two-hand the left-hand weapon      | cast **slot 4** of the left-hand weapon  |
 
 Two-handing a staff is pointless, so those chords are spent on spells instead: **Y + R2 / Y + L2**
 carry a third slot and **Y + R1 / Y + L1** a fourth, giving eight spells across two staves. A chord
@@ -89,7 +89,7 @@ staff — so unequipping a seal takes its incantations out of the wheel rather t
 can never cast. If nothing is left to offer, the wheel cycles normally. It is independent of
 `balance`, applies immediately, and defaults to off.
 
-The mouse uses the same eight slots with no separate configuration, and it *always* uses its own
+The mouse uses the same eight slots with no separate configuration, and it _always_ uses its own
 layer: the mod steers the selected spell and the game's own click performs the cast, with or without
 a controller attached. Nothing is synthesised for a click, so one click is one action. Shift is
 hidden from the game while the mod owns it (the game binds Shift + click to the strong attack, which
@@ -102,7 +102,7 @@ Ctrl and Alt are ignored by the game already, which is why they can carry slots 
 The panel is Dear ImGui drawn into a borderless window of the mod's own, with its own D3D11 device
 created the first time you open it. The mouse is not the only way in: every list answers the arrow
 keys, Enter commits the highlighted row and Escape backs out, so a spell list longer than its box can
-be worked from the keyboard alone. The pad is not wired to the panel. It is deliberately *not* an overlay on the game's swap chain:
+be worked from the keyboard alone. The pad is not wired to the panel. It is deliberately _not_ an overlay on the game's swap chain:
 a second `Present` hook stops a co-resident class port's HUD from drawing (verified with
 `ERNativeUI.dll`), even when that hook draws nothing at all.
 
@@ -144,16 +144,16 @@ Everything else the mod needs it generates itself in an **`nr_casting/` subfolde
 DLL**, so a shared mods directory never collects our files and uninstalling is one delete.
 Files from older builds (beside the DLL, or beside `eldenring.exe`) are moved in once.
 
-| file | what it is | created by |
-|---|---|---|
-| `nr_casting/nr_casting_catalogue.txt` | spell catalogue read from the running game | mod, first launch |
-| `nr_casting/nr_casting_slots_<character>.txt` | weapon → four spell ids, per character | mod, when you assign in the panel |
-| `nr_casting/nr_casting_build.txt` | executable fingerprint the catalogue belongs to | mod |
-| `nr_casting/nr_casting_probe.log` | log, rotated at 4 MiB | mod |
-| `nr_casting/nr_casting_offsets.txt` | resolved RVA table + validation results | mod |
-| `nr_casting.ini` | configuration (beside the DLL, as shipped) | package |
-| `nr_casting_spells.txt` | optional override: spell names | `tools/gen-spell-names.py` |
-| `nr_casting_weapons.txt` | optional override: weapon names | `tools/gen-weapon-names.py` |
+| file                                          | what it is                                      | created by                        |
+| --------------------------------------------- | ----------------------------------------------- | --------------------------------- |
+| `nr_casting/nr_casting_catalogue.txt`         | spell catalogue read from the running game      | mod, first launch                 |
+| `nr_casting/nr_casting_slots_<character>.txt` | weapon → four spell ids, per character          | mod, when you assign in the panel |
+| `nr_casting/nr_casting_build.txt`             | executable fingerprint the catalogue belongs to | mod                               |
+| `nr_casting/nr_casting_probe.log`             | log, rotated at 4 MiB                           | mod                               |
+| `nr_casting/nr_casting_offsets.txt`           | resolved RVA table + validation results         | mod                               |
+| `nr_casting.ini`                              | configuration (beside the DLL, as shipped)      | package                           |
+| `nr_casting_spells.txt`                       | optional override: spell names                  | `tools/gen-spell-names.py`        |
+| `nr_casting_weapons.txt`                      | optional override: weapon names                 | `tools/gen-weapon-names.py`       |
 
 Names are read from the running game's own text tables on first launch and cached in
 `nr_casting_catalogue.txt`; the optional override files above replace that source. Settings are read from the shipped `nr_casting.ini` first, so editing it always
@@ -230,21 +230,21 @@ starts free with the wheel skip off, like a fresh install; `save as` copies the 
 marks each profile's mode (`default (Ctrl+1, free)`, `boss (Ctrl+2, attuned, skip)`) because
 switching publishes that profile's `balanced` and wheel-skip values - a free-mode assignment can read
 as unbound under an attuned profile. Flipping either switch while a profile is live records it into
-that profile, so `save as` carries the pair and a switch away and back keeps your change. Typing a name and pressing Enter confirms it. `Ctrl+1` to `Ctrl+9` switch in the world *and* with the panel
+that profile, so `save as` carries the pair and a switch away and back keeps your change. Typing a name and pressing Enter confirms it. `Ctrl+1` to `Ctrl+9` switch in the world _and_ with the panel
 open, and the live one is always shown top right (Ctrl+1 belongs to `default` unless you move it). A profile
 carries its own `balanced` and `skip assigned in wheel` values, so a boss setup and an exploration
 setup can differ in more than the spells. `default` cannot be renamed or deleted; deleting the sheet
 you are on lands you back on `default`. Profiles never change your equipment, memory slots or save.
 
 **The bind gesture** is the quick way, and the only way to assign a spell your character can cast
-because of a Great Rune or a stat talisman: while held, the mod reads the spell *the game's own
-wheel* has selected and writes it to the slot you press.
+because of a Great Rune or a stat talisman: while held, the mod reads the spell _the game's own
+wheel_ has selected and writes it to the slot you press.
 
-| input | mouse / keyboard |
-|---|---|
+| input                           | mouse / keyboard                            |
+| ------------------------------- | ------------------------------------------- |
 | hold **L3** + R1 / R2 / L1 / L2 | hold the keyboard modifier + the same click |
-| hold **L3** + Y + R2 / Y + L2 | modifier + ctrl + click |
-| hold **L3** + Y + R1 / Y + L1 | modifier + alt + click |
+| hold **L3** + Y + R2 / Y + L2   | modifier + ctrl + click                     |
+| hold **L3** + Y + R1 / Y + L1   | modifier + alt + click                      |
 
 The press is swallowed, so binding never also casts, and the modifier itself does not reach the
 game. The two modifiers are configured separately — `bind_modifier` for the pad, `bind_modifier_kb`
@@ -254,10 +254,10 @@ controller is attached.
 
 `overlay` decides whether the hotkey can open the panel at all:
 
-| value | behaviour |
-|---|---|
+| value          | behaviour                         |
+| -------------- | --------------------------------- |
 | `on` (default) | the hotkey opens the panel window |
-| `off` | never opens; casting only |
+| `off`          | never opens; casting only         |
 
 The window is created on the first keypress and destroyed on exit. It is topmost and created as a
 tool window, so it never appears in the Windows alt-tab list or on the taskbar — switching away
@@ -289,12 +289,12 @@ With the panel installed:
   `refresh`, `reset slots`, `reset layout`, `close`, the UI scale and `diagnostics & report`; below it
   a footer spells out both mappings.
 - Dropdowns list only spells the character **owns** and **can cast** — requirements are checked
-  against INT/FAI/ARC *including active effects*, so a Great Rune or a stat talisman counts and the
+  against INT/FAI/ARC _including active effects_, so a Great Rune or a stat talisman counts and the
   stats line says when it is doing the work. `list everything` bypasses both for planning a build.
 - **Assignments survive upgrades.** They are filed on the weapon's base id (`33090000`, not
   `33090010`), so taking a staff to the smith no longer empties it. Slots files written by older
   versions are folded onto base ids the first time they are read.
-- **On a Recluse character** the fourth row is greyed out and labelled *passthrough*: the chord
+- **On a Recluse character** the fourth row is greyed out and labelled _passthrough_: the chord
   goes to the class port, which binds it to its own `4` (Y+R1) and `5` (Y+L1) keys. With a
   controller the pad report is simply left alone, so the port sees Y+R1 / Y+L1 itself; on
   keyboard and mouse the Alt click is swallowed and `4` / `5` is pressed in its place — passing
@@ -387,13 +387,13 @@ character to start from nothing.
 **4 / 5** on the keyboard for its own actions. Those are the same inputs this mod would use for the
 fourth spell, so ownership is decided per character:
 
-| Input | Recluse installed, normal character | Recluse installed, Recluse character |
-|---|---|---|
-| Y+R1 (pad) | cast slot 4 | pad report left untouched — the port's own Y+R1 |
-| Y+L1 (pad) | cast slot 4 (left hand) | pad report left untouched — the port's own Y+L1 |
-| Alt + left click | cast slot 4 | click swallowed, the port's `4` key is pressed |
-| Alt + right click | cast slot 4 (left hand) | click swallowed, the port's `5` key is pressed |
-| Everything else | nr-casting | nr-casting |
+| Input             | Recluse installed, normal character | Recluse installed, Recluse character            |
+| ----------------- | ----------------------------------- | ----------------------------------------------- |
+| Y+R1 (pad)        | cast slot 4                         | pad report left untouched — the port's own Y+R1 |
+| Y+L1 (pad)        | cast slot 4 (left hand)             | pad report left untouched — the port's own Y+L1 |
+| Alt + left click  | cast slot 4                         | click swallowed, the port's `4` key is pressed  |
+| Alt + right click | cast slot 4 (left hand)             | click swallowed, the port's `5` key is pressed  |
+| Everything else   | nr-casting                          | nr-casting                                      |
 
 A click cannot simply be passed through on keyboard and mouse: the game ignores Alt, so it would
 perform a plain attack. Instead the click is removed from the report and the port's key is sent in
@@ -514,18 +514,18 @@ Built against ELDEN RING exe `2.7.2.0` (RVA table `Ww2720`).
 
 ## Compatibility
 
-| layer | notes |
-|---|---|
-| me3 | supported, tested |
-| Vortex | reported working: it deploys the DLL like any native mod and the shipped `.me3` loader profile is not needed for it |
-| frame-generation / upscaling proxies (FSR/FG `d3d12.dll`, `dxgi.dll`, `erss-fg.dll`) | they own frame presentation; the panel may not appear, casting still works |
-| class ports with their own HUD (`ERNativeUI.dll` and friends) | no conflict: the panel is its own window, so their HUD keeps drawing |
-| Mod Engine 2 | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special |
-| other overlay mods | no swap-chain conflict at all — the panel owns no swap chain, it presents through a DIB; both drive the pointer while their window is open, so expect contention there |
-| [ERD Tools](https://www.nexusmods.com/eldenring/mods/9531) | supported — the panel owns no swap chain, so it cannot disturb ERD's present hooks (see "ERD Tools" under Troubleshooting) |
-| spells/selection mods | direct conflict: both write the magic selection |
-| regulation mods | no conflict today (no param edits shipped) |
-| online / EAC | not supported by design |
+| layer                                                                                | notes                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| me3                                                                                  | supported, tested                                                                                                                                                      |
+| Vortex                                                                               | reported working: it deploys the DLL like any native mod and the shipped `.me3` loader profile is not needed for it                                                    |
+| frame-generation / upscaling proxies (FSR/FG `d3d12.dll`, `dxgi.dll`, `erss-fg.dll`) | they own frame presentation; the panel may not appear, casting still works                                                                                             |
+| class ports with their own HUD (`ERNativeUI.dll` and friends)                        | no conflict: the panel is its own window, so their HUD keeps drawing                                                                                                   |
+| Mod Engine 2                                                                         | discontinued upstream; the DLL loads via `LoadLibrary` and needs nothing special                                                                                       |
+| other overlay mods                                                                   | no swap-chain conflict at all — the panel owns no swap chain, it presents through a DIB; both drive the pointer while their window is open, so expect contention there |
+| [ERD Tools](https://www.nexusmods.com/eldenring/mods/9531)                           | supported — the panel owns no swap chain, so it cannot disturb ERD's present hooks (see "ERD Tools" under Troubleshooting)                                             |
+| spells/selection mods                                                                | direct conflict: both write the magic selection                                                                                                                        |
+| regulation mods                                                                      | no conflict today (no param edits shipped)                                                                                                                             |
+| online / EAC                                                                         | not supported by design                                                                                                                                                |
 
 ## Troubleshooting
 
@@ -568,12 +568,12 @@ the game's own per-frame code.
 
 Reproduced locally by opening the panel on a timer, then bisected in five runs:
 
-| what exists | result |
-|---|---|
-| window only | no crash |
-| + a D3D11 device | no crash |
-| + a swap chain that is never presented | no crash |
-| + one `Present` | **crash** inside ERD |
+| what exists                                | result                                      |
+| ------------------------------------------ | ------------------------------------------- |
+| window only                                | no crash                                    |
+| + a D3D11 device                           | no crash                                    |
+| + a swap chain that is never presented     | no crash                                    |
+| + one `Present`                            | **crash** inside ERD                        |
 | `hooks = off` (none of this mod's detours) | **crash** — the detours were never involved |
 
 The trigger is a `Present` from the panel's window: ERD hooks the present path process-wide and its
