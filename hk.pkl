@@ -116,12 +116,15 @@ hooks {
     stage = true
     stash = "git"
     steps {
-      ["rustfmt"] = gated["rustfmt"]
-      // shellcheck is here because shfmt declares a dependency on it; it is the same order of cost.
+      // `depends = List()` on the three formatters: their ordering matters between STAGES, and in
+      // this hook the stages they point at (clippy) are not present - hk warns about a dependency on
+      // a step the hook does not run, which is correct of it and noise here.
+      ["rustfmt"] = (gated["rustfmt"]) { depends = List() }
+      // shellcheck is here because shfmt depends on it in the full gate; same order of cost.
       ["shellcheck"] = gated["shellcheck"]
-      ["shfmt"] = gated["shfmt"]
-      ["prettier"] = gated["prettier"]
-      ["gitleaks"] = gated["gitleaks"]
+      ["shfmt"] = (gated["shfmt"]) { depends = List() }
+      ["prettier"] = (gated["prettier"]) { depends = List() }
+      ["gitleaks"] = (gated["gitleaks"]) { depends = List() }
     }
   }
   ["pre-push"] {
