@@ -224,7 +224,9 @@ impl Model {
             }
             ProfileAction::SaveAs(name) => crate::store::save_profile_as(&name),
             ProfileAction::Create(name) => crate::store::create_profile(&name),
-            ProfileAction::Rename(name) => crate::store::rename_profile(&self.profile_active, &name),
+            ProfileAction::Rename(name) => {
+                crate::store::rename_profile(&self.profile_active, &name)
+            }
             ProfileAction::Delete => crate::store::delete_profile(&self.profile_active).map(|_| ()),
             ProfileAction::Bind(digit) => {
                 crate::store::set_profile_hotkey(&self.profile_active, digit)
@@ -667,8 +669,7 @@ enum Resize {
 /// frames after focus returns are what the player is waiting for. One number separates "our window
 /// lingers" from "the game took a moment", and it is the difference between a bug here and a
 /// consequence of stealing focus.
-pub(crate) static CLOSED_AT: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+pub(crate) static CLOSED_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The id this window registers its hotkey under; `WM_HOTKEY` carries it back.
 const HOTKEY_ID: i32 = 1;
@@ -1602,7 +1603,9 @@ impl App {
                     // being assigned that cannot be cast, and "nothing" can always be cast (the
                     // press passes through to the game).
                     if spell_id == EMPTY_SLOT {
-                        self.model.panel.assign(weapon, slot.weapon_slot, EMPTY_SLOT);
+                        self.model
+                            .panel
+                            .assign(weapon, slot.weapon_slot, EMPTY_SLOT);
                         Some("slot cleared")
                     } else if self.model.balance == Balance::Attuned
                         && !self.model.attuned.contains(&spell_id)
@@ -1737,7 +1740,6 @@ impl App {
                 &mut self.input.keys,
                 &mut self.input.release_next,
             );
-
         }
         gfx.last_frame = Instant::now();
 

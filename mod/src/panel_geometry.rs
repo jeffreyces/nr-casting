@@ -6,7 +6,7 @@
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, GetSystemMetrics, GetWindowRect, SetWindowPos, SM_CXSCREEN, SM_CYSCREEN,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SWP_NOSIZE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
 };
 
 use nr_casting_core::{DESIGN_HEIGHT, DESIGN_WIDTH, MAX_UI_SCALE, MIN_UI_SCALE};
@@ -111,7 +111,15 @@ pub(crate) fn center_window(hwnd: HWND) {
         (width as i32, height as i32),
     );
     let _ = unsafe {
-        SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+        SetWindowPos(
+            hwnd,
+            None,
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
     };
 }
 

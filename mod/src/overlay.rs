@@ -444,10 +444,8 @@ fn id_table(
     file: &'static str,
     embedded: &'static str,
 ) -> &'static std::collections::HashMap<i32, String> {
-    type Tables = std::collections::HashMap<
-        &'static str,
-        &'static std::collections::HashMap<i32, String>,
-    >;
+    type Tables =
+        std::collections::HashMap<&'static str, &'static std::collections::HashMap<i32, String>>;
     static CACHE: std::sync::OnceLock<std::sync::Mutex<Tables>> = std::sync::OnceLock::new();
     let mut cache = CACHE
         .get_or_init(|| std::sync::Mutex::new(Tables::new()))
@@ -573,7 +571,9 @@ pub fn weapon_schools(weapon: i32) -> nr_casting_core::CatalystSchools {
         34 => return CatalystSchools::INCANTATION,
         _ => {}
     }
-    let name = weapon_name_base(base).unwrap_or_default().to_ascii_lowercase();
+    let name = weapon_name_base(base)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     if name.contains("staff") || name.contains("scepter") || name.contains("sceptre") {
         CatalystSchools::SORCERY
     } else if name.contains("seal") {

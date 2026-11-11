@@ -26,7 +26,12 @@ pub fn install() -> Result<(), String> {
         if user32.is_null() {
             return Err("user32 not loaded".into());
         }
-        crate::pointer::hook(c"PeekMessageW", user32, peek_detour as *const (), &TRAMPOLINE)?;
+        crate::pointer::hook(
+            c"PeekMessageW",
+            user32,
+            peek_detour as *const (),
+            &TRAMPOLINE,
+        )?;
         INSTALLED.store(true, Ordering::Relaxed);
         Ok(())
     }

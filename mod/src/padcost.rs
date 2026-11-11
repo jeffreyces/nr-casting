@@ -25,7 +25,12 @@ const N: usize = 4;
 // whether the character's block is still readable, and on a machine whose pages are not resident
 // that is exactly the kind of work this report exists to count. It runs per *check* (on a change of
 // character, or the net behind it), not per frame - which is why the section header says so.
-const NAMES: [&str; N] = ["adjust_inner", "idle path", "chord path", "character recheck"];
+const NAMES: [&str; N] = [
+    "adjust_inner",
+    "idle path",
+    "chord path",
+    "character recheck",
+];
 
 static CALLS: [AtomicU32; N] = [const { AtomicU32::new(0) }; N];
 /// How often a part cost more than 250 us - about a fresh page fault's price, and far more than
@@ -100,7 +105,12 @@ pub fn report() -> String {
         let mean = sum as f64 / calls as f64;
         let slow = SLOW[slot].load(Ordering::Relaxed);
         out.push_str(&nr_casting_core::pad_cost_line(
-            NAMES[slot], calls, mean, max, slow, SLOW_US,
+            NAMES[slot],
+            calls,
+            mean,
+            max,
+            slow,
+            SLOW_US,
         ));
         out.push('\n');
     }

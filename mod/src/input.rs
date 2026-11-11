@@ -565,9 +565,10 @@ unsafe fn import_slot_is_ours() -> bool {
     if cached != 0 {
         let slot = cached as *const *mut u8;
         if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>())
-            && *slot == detour as *const () as *mut u8 {
-                return true;
-            }
+            && *slot == detour as *const () as *mut u8
+        {
+            return true;
+        }
     }
     match game_import_slot() {
         Ok(slot) if probe::readable(slot as *const u8, std::mem::size_of::<*mut u8>()) => {
@@ -978,42 +979,41 @@ unsafe extern "system" fn detour(user: u32, state: *mut XInputState) -> u32 {
     // version handed the clock to the message pump mid-phase, which injected a two-second "gap"
     // and moved that phase's p50 by 5 ms.)
     crate::perf::report(perf_started);
-    if !state.is_null() && HOOK_READY.load(Ordering::Relaxed)
-        && ret == 0 {
-            crate::rawinput::note_pad_ok();
-            let n = crate::stats::pad_ok();
-            if n == 1 {
-                // The first read is the only one that can describe the device, and the description
-                // is what a stutter report is missing: wireless or wired, and how the battery is.
-                note_pad_seen();
-                log(&format!("pad: {}", describe_pad()));
-            }
-            if n == 1 || n.is_multiple_of(600) {
-                debug!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe {
-                    (*state).gamepad.buttons
-                });
-            }
-            if CALLER_BUDGET.load(Ordering::Relaxed) > 0 {
-                CALLER_BUDGET.fetch_sub(1, Ordering::Relaxed);
-                note_caller();
-            }
-            // The phase that tests our pad work switches this off and nothing else: the report
-            // still goes through untouched and the poll is still timed.
-            if !crate::bisect::disabled(crate::bisect::PAD) {
-                adjust_inner(&mut *state);
-                // This poll runs on the game's own input thread, which is the only thread that can
-                // raise the cursor's display counter for the game's window (it is per input
-                // queue). Every 8th poll is plenty: the panel opens in one frame and a hidden
-                // cursor catches up in a few of these.
-                if n.is_multiple_of(8) {
-                    crate::pointer::game_thread_tick();
-                }
+    if !state.is_null() && HOOK_READY.load(Ordering::Relaxed) && ret == 0 {
+        crate::rawinput::note_pad_ok();
+        let n = crate::stats::pad_ok();
+        if n == 1 {
+            // The first read is the only one that can describe the device, and the description
+            // is what a stutter report is missing: wireless or wired, and how the battery is.
+            note_pad_seen();
+            log(&format!("pad: {}", describe_pad()));
+        }
+        if n == 1 || n.is_multiple_of(600) {
+            debug!("detour: poll #{n} (user {user}, buttons={:#06x})", unsafe {
+                (*state).gamepad.buttons
+            });
+        }
+        if CALLER_BUDGET.load(Ordering::Relaxed) > 0 {
+            CALLER_BUDGET.fetch_sub(1, Ordering::Relaxed);
+            note_caller();
+        }
+        // The phase that tests our pad work switches this off and nothing else: the report
+        // still goes through untouched and the poll is still timed.
+        if !crate::bisect::disabled(crate::bisect::PAD) {
+            adjust_inner(&mut *state);
+            // This poll runs on the game's own input thread, which is the only thread that can
+            // raise the cursor's display counter for the game's window (it is per input
+            // queue). Every 8th poll is plenty: the panel opens in one frame and a hidden
+            // cursor catches up in a few of these.
+            if n.is_multiple_of(8) {
+                crate::pointer::game_thread_tick();
             }
         }
-        // A failed read goes back to the game unchanged. Mouse casts do not come through here any
-        // more: they are steered in the raw-input layer and performed by the game's own click, so
-        // there is nothing to synthesise (and a synthetic pad report alongside a real click was
-        // one way to get two actions out of one press).
+    }
+    // A failed read goes back to the game unchanged. Mouse casts do not come through here any
+    // more: they are steered in the raw-input layer and performed by the game's own click, so
+    // there is nothing to synthesise (and a synthetic pad report alongside a real click was
+    // one way to get two actions out of one press).
     ret
 }
 
@@ -1037,7 +1037,6 @@ static Y_BUMPER: AtomicBool = AtomicBool::new(true);
 
 /// The button mask of the previous poll, so a press edge can be told from a held button.
 static LAST_BUTTONS: AtomicU16 = AtomicU16::new(0);
-
 
 pub(crate) fn y_bumper() -> bool {
     Y_BUMPER.load(Ordering::Relaxed)
@@ -1218,7 +1217,10 @@ fn adjust_inner(state: &mut XInputState) {
     // Where this call's time goes, for the report. Three relaxed adds per poll when the perf log is
     // off, which is what everything else here costs.
     let _total = crate::padcost::Timer::start(crate::padcost::TOTAL);
-    MODIFIER_HELD.store(state.gamepad.buttons & XINPUT_GAMEPAD_Y != 0, Ordering::Relaxed);
+    MODIFIER_HELD.store(
+        state.gamepad.buttons & XINPUT_GAMEPAD_Y != 0,
+        Ordering::Relaxed,
+    );
     let now = crate::millis();
 
     // A press edge, and only a press edge, forces a fresh weapon read: the pair is cached so a slow

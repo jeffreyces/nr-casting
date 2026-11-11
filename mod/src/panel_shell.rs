@@ -37,7 +37,9 @@ pub(crate) fn reveal(path: &std::path::Path) -> bool {
 /// opening after the first press. Now it is a log line naming the code.
 fn log_shell_failure(what: &str, result: isize) {
     if result <= 32 {
-        crate::log(&format!("panel: could not open the {what} (shell error {result})"));
+        crate::log(&format!(
+            "panel: could not open the {what} (shell error {result})"
+        ));
     }
 }
 

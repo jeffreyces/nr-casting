@@ -82,7 +82,9 @@ pub fn tick() -> Second {
     let head = SERIES_HEAD.fetch_add(1, Ordering::Relaxed) as usize % SERIES_LEN;
     SERIES[head].store(sample.worst_us, Ordering::Relaxed);
     // Sampled from a thread that is allowed to make a syscall, once a second.
-    let cpu = crate::threadcpu::cpu_since_last().unwrap_or(0).min(u32::MAX as u64) as u32;
+    let cpu = crate::threadcpu::cpu_since_last()
+        .unwrap_or(0)
+        .min(u32::MAX as u64) as u32;
     SERIES_CPU[head].store(cpu, Ordering::Relaxed);
     CPU_MAX_US.fetch_max(cpu, Ordering::Relaxed);
     SERIES_FILLED.fetch_add(1, Ordering::Relaxed);
@@ -142,7 +144,12 @@ static HAS_PENDING: AtomicBool = AtomicBool::new(false);
 // whether anything happened. Two wakeups a second is not measurable, but it is a thread the
 // scheduler has to keep in its round; a wait is free until somebody signals.
 extern "system" {
-    fn CreateEventW(attributes: *mut core::ffi::c_void, manual_reset: i32, initial: i32, name: *const u16) -> isize;
+    fn CreateEventW(
+        attributes: *mut core::ffi::c_void,
+        manual_reset: i32,
+        initial: i32,
+        name: *const u16,
+    ) -> isize;
     fn SetEvent(handle: isize) -> i32;
     fn WaitForSingleObject(handle: isize, millis: u32) -> u32;
 }
@@ -356,7 +363,10 @@ pub fn cpu_report() -> String {
         let index = ((sorted.len() - 1) as f64 * p) as usize;
         sorted[index] / 1000.0
     };
-    let core = per_second.iter().map(|us| *us as f64 / 10_000.0).sum::<f64>()
+    let core = per_second
+        .iter()
+        .map(|us| *us as f64 / 10_000.0)
+        .sum::<f64>()
         / per_second.len().max(1) as f64;
     ratios.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let share_at = |p: f64| -> f64 {
@@ -557,7 +567,11 @@ fn record(now: u64, cost: u32) {
     let over = GAP_OVER_32MS.swap(0, Ordering::Relaxed);
     let cost_peak = DETOUR_MAX_US.swap(0, Ordering::Relaxed);
     let cost_sum = DETOUR_SUM_US.swap(0, Ordering::Relaxed);
-    let cost_mean = if polls > 0 { cost_sum / polls as u64 } else { 0 };
+    let cost_mean = if polls > 0 {
+        cost_sum / polls as u64
+    } else {
+        0
+    };
     let cpu_peak = CPU_MAX_US.swap(0, Ordering::Relaxed);
     WINDOW.store(now, Ordering::Relaxed);
     let mean = if polls > 0 { sum / polls as u64 } else { 0 };

@@ -168,7 +168,10 @@ pub fn report(out: &mut String, minutes: u64) {
         let throttle = if handler.min_ms == 0 {
             format!("unthrottled, {throttled} marks dropped while a run was busy")
         } else {
-            format!("{throttled} marks inside its {} ms interval", handler.min_ms)
+            format!(
+                "{throttled} marks inside its {} ms interval",
+                handler.min_ms
+            )
         };
         if worst == 0 {
             out.push_str(&format!(

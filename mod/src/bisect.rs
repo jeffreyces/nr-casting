@@ -54,11 +54,9 @@ static TICKS: [AtomicU32; PLAN.len()] = [const { AtomicU32::new(0) }; PLAN.len()
 /// The recorder's tick count when the current phase began.
 static PHASE_POLLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static FILLED: [AtomicU32; PLAN.len()] = [const { AtomicU32::new(0) }; PLAN.len()];
-static SERIES: [AtomicU32; PLAN.len() * SLOTS] =
-    [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
+static SERIES: [AtomicU32; PLAN.len() * SLOTS] = [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
 /// Individual gaps over 32 ms in each second, for the "how often" half of the picture.
-static HITCHES: [AtomicU32; PLAN.len() * SLOTS] =
-    [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
+static HITCHES: [AtomicU32; PLAN.len() * SLOTS] = [const { AtomicU32::new(0) }; PLAN.len() * SLOTS];
 
 /// Total wall time a run needs, in seconds (nine minutes).
 pub fn total_seconds() -> u32 {
@@ -175,7 +173,10 @@ pub fn on_second(second: crate::perf::Second) -> bool {
             let next = clock.phase();
             apply_bits(PLAN[next].1);
             log_phase(next);
-            crate::log(&format!("bisect: phase {} recorded {ticks} ticks", phase + 1));
+            crate::log(&format!(
+                "bisect: phase {} recorded {ticks} ticks",
+                phase + 1
+            ));
             false
         }
         PhaseTick::Finished => {
@@ -184,7 +185,10 @@ pub fn on_second(second: crate::perf::Second) -> bool {
             RUNNING.store(false, Ordering::Relaxed);
             apply_bits(0);
             crate::perf::pin_pump(false);
-            crate::log(&format!("bisect: phase {} recorded {ticks} ticks", phase + 1));
+            crate::log(&format!(
+                "bisect: phase {} recorded {ticks} ticks",
+                phase + 1
+            ));
             crate::log("bisect: finished; every subsystem switched back on");
             true
         }
@@ -277,18 +281,24 @@ pub fn section() -> String {
             .unwrap_or(0);
         // The line itself lives in the tested crate: it is a format string with six numbers in
         // it, and the last time one of those drifted it printed the wrong count for weeks.
-        out.push_str(&nr_casting_core::phase_lines(&nr_casting_core::PhaseSummary {
-            index: index + 1,
-            phases: PLAN.len(),
-            label,
-            off: &if *bits == 0 { "nothing".to_string() } else { describe(*bits) },
-            stats,
-            hitches,
-            seconds_with_hitches,
-            seconds: values.len(),
-            worst_at,
-            ticks: TICKS[index].load(Ordering::Relaxed),
-        }));
+        out.push_str(&nr_casting_core::phase_lines(
+            &nr_casting_core::PhaseSummary {
+                index: index + 1,
+                phases: PLAN.len(),
+                label,
+                off: &if *bits == 0 {
+                    "nothing".to_string()
+                } else {
+                    describe(*bits)
+                },
+                stats,
+                hitches,
+                seconds_with_hitches,
+                seconds: values.len(),
+                worst_at,
+                ticks: TICKS[index].load(Ordering::Relaxed),
+            },
+        ));
         out.push('\n');
     }
     // A phase recorded at a different tick rate is a different measurement - the header promises
@@ -299,7 +309,14 @@ pub fn section() -> String {
         .map(|index| {
             let seconds = samples(index).len();
             let ticks = TICKS[index].load(Ordering::Relaxed) as f64;
-            (index, if seconds == 0 { 0.0 } else { ticks / seconds as f64 })
+            (
+                index,
+                if seconds == 0 {
+                    0.0
+                } else {
+                    ticks / seconds as f64
+                },
+            )
         })
         .filter(|(_, rate)| *rate > 0.0)
         .collect();
@@ -335,7 +352,11 @@ pub fn section() -> String {
             .iter()
             .map(|us| format!("{:.1}", *us as f32 / 1000.0))
             .collect();
-        out.push_str(&format!("phase {} {label}:\n  {}\n", index + 1, line.join(" ")));
+        out.push_str(&format!(
+            "phase {} {label}:\n  {}\n",
+            index + 1,
+            line.join(" ")
+        ));
     }
     out.trim_end().to_string()
 }

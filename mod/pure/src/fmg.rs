@@ -172,8 +172,14 @@ mod tests {
     #[test]
     fn inverted_or_out_of_bounds_groups_are_rejected() {
         assert!(!groups_are_coherent(&[(0, 1000, 999)], 4), "inverted range");
-        assert!(!groups_are_coherent(&[(0, 1000, 1009)], 4), "range past the table");
-        assert!(!groups_are_coherent(&[(0, 2000, 2000), (1, 1000, 1000)], 2), "unsorted");
+        assert!(
+            !groups_are_coherent(&[(0, 1000, 1009)], 4),
+            "range past the table"
+        );
+        assert!(
+            !groups_are_coherent(&[(0, 2000, 2000), (1, 1000, 1000)], 2),
+            "unsorted"
+        );
         assert!(!groups_are_coherent(&[], 2), "empty table");
     }
 
@@ -187,10 +193,22 @@ mod tests {
     #[test]
     fn group_lookup_handles_gaps_and_edges() {
         let groups = [(0, 1000, 1000), (1, 1100, 1260), (162, 1400, 1430)];
-        assert_eq!(group_index(&groups, 1000), Some(0), "first id of the first group");
-        assert_eq!(group_index(&groups, 1430), Some(2), "last id of the last group");
+        assert_eq!(
+            group_index(&groups, 1000),
+            Some(0),
+            "first id of the first group"
+        );
+        assert_eq!(
+            group_index(&groups, 1430),
+            Some(2),
+            "last id of the last group"
+        );
         assert_eq!(group_index(&groups, 1200), Some(1), "inside a range");
-        assert_eq!(group_index(&groups, 1050), None, "in the gap between ranges");
+        assert_eq!(
+            group_index(&groups, 1050),
+            None,
+            "in the gap between ranges"
+        );
         assert_eq!(group_index(&groups, 999), None, "before the first id");
         assert_eq!(group_index(&groups, 9999), None, "after the last id");
         assert_eq!(group_index(&[], 1), None, "empty table");
@@ -204,7 +222,11 @@ mod tests {
         assert_eq!(string_index(group, 1430, 200), Some(192));
         assert_eq!(string_index(group, 1399, 200), None, "before the range");
         assert_eq!(string_index(group, 1431, 200), None, "after the range");
-        assert_eq!(string_index((198, 1400, 1430), 1429, 200), None, "past the table");
+        assert_eq!(
+            string_index((198, 1400, 1430), 1429, 200),
+            None,
+            "past the table"
+        );
     }
 
     #[test]
@@ -213,15 +235,29 @@ mod tests {
         assert_eq!(resolve(0x40, base, 0x100_0000), Some(base + 0x40));
         assert_eq!(resolve(0x2000_0000, base, 0x100_0000), Some(0x2000_0000));
         assert_eq!(resolve(0, base, 0x100_0000), None, "empty entry");
-        assert_eq!(resolve(u64::MAX, base, 0x100_0000), None, "pointer that cannot exist");
+        assert_eq!(
+            resolve(u64::MAX, base, 0x100_0000),
+            None,
+            "pointer that cannot exist"
+        );
     }
 
     #[test]
     fn utf16_decodes_until_the_terminator() {
-        assert_eq!(decode_utf16(&utf16_bytes("Scimitar")).as_deref(), Some("Scimitar"));
-        assert_eq!(decode_utf16(&utf16_bytes("Krummsäbel")).as_deref(), Some("Krummsäbel"));
+        assert_eq!(
+            decode_utf16(&utf16_bytes("Scimitar")).as_deref(),
+            Some("Scimitar")
+        );
+        assert_eq!(
+            decode_utf16(&utf16_bytes("Krummsäbel")).as_deref(),
+            Some("Krummsäbel")
+        );
         assert_eq!(decode_utf16(&[0, 0]).as_deref(), None, "empty string");
-        assert_eq!(decode_utf16(&[0x53, 0]).as_deref(), None, "no terminator in the slice");
+        assert_eq!(
+            decode_utf16(&[0x53, 0]).as_deref(),
+            None,
+            "no terminator in the slice"
+        );
         let mut binary = vec![0xFF, 0xFF, 0xFF, 0xFF];
         binary.extend_from_slice(&[0, 0]);
         assert_eq!(decode_utf16(&binary), None, "binary noise is not a name");

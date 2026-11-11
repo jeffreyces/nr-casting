@@ -22,7 +22,10 @@ pub(crate) fn log_path() -> &'static std::path::Path {
 /// "uptime" claimed nine days on a seven-minute session.
 pub fn uptime_ms() -> u128 {
     static START: OnceLock<std::time::Instant> = OnceLock::new();
-    START.get_or_init(std::time::Instant::now).elapsed().as_millis()
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis()
 }
 
 /// Start the uptime clock now.
@@ -83,7 +86,9 @@ pub(crate) fn log(msg: &str) {
     let slot = LOG_FILE.get_or_init(|| Mutex::new(None));
 
     // Size check costs a syscall, so only pay for it occasionally.
-    if LOG_WRITES.fetch_add(1, Ordering::Relaxed).is_multiple_of(256)
+    if LOG_WRITES
+        .fetch_add(1, Ordering::Relaxed)
+        .is_multiple_of(256)
         && std::fs::metadata(log_path()).map(|m| m.len()).unwrap_or(0) > LOG_LIMIT
     {
         let _ = std::fs::rename(log_path(), config::path("nr_casting_probe.old.log"));

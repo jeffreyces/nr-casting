@@ -508,7 +508,9 @@ pub(crate) fn store_customise(weapon: i32) -> bool {
         .unwrap_or([-1; nr_casting_core::SLOTS]);
     store.rows.insert(weapon, inherited);
     commit(&mut store);
-    log(&format!("slots: {weapon} now has its own layout (inherited {base})"));
+    log(&format!(
+        "slots: {weapon} now has its own layout (inherited {base})"
+    ));
     true
 }
 
@@ -629,7 +631,11 @@ pub(crate) fn save_profile_as(name: &str) -> Result<(), &'static str> {
         return Err("nine profiles is the limit");
     }
     let mut sheet = Sheet::with_switches(name, config::balance(), config::skip_assigned());
-    sheet.rows = store.rows.iter().map(|(id, spells)| (*id, *spells)).collect();
+    sheet.rows = store
+        .rows
+        .iter()
+        .map(|(id, spells)| (*id, *spells))
+        .collect();
     store.profiles.sheets.push(sheet);
     let index = store.profiles.sheets.len() - 1;
     if let Some(digit) = nr_casting_core::autobind_digit(&store.profiles) {

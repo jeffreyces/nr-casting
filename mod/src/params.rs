@@ -144,9 +144,12 @@ pub fn flags_validated() -> bool {
     static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *OK.get_or_init(|| {
         use nr_casting_core::CatalystSchools;
-        let staff = catalyst_flags(33_000_000).map(|(a, b)| nr_casting_core::schools_from_flags(a, b));
-        let seal = catalyst_flags(34_000_000).map(|(a, b)| nr_casting_core::schools_from_flags(a, b));
-        let ok = staff == Some(CatalystSchools::SORCERY) && seal == Some(CatalystSchools::INCANTATION);
+        let staff =
+            catalyst_flags(33_000_000).map(|(a, b)| nr_casting_core::schools_from_flags(a, b));
+        let seal =
+            catalyst_flags(34_000_000).map(|(a, b)| nr_casting_core::schools_from_flags(a, b));
+        let ok =
+            staff == Some(CatalystSchools::SORCERY) && seal == Some(CatalystSchools::INCANTATION);
         crate::log(if ok {
             "catalyst: school flags read from the weapon rows (staff and seal both check out)"
         } else {

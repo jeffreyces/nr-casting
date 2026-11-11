@@ -475,10 +475,7 @@ fn publish_profile_modifier(modifier: nr_casting_core::HotkeyModifier) {
 ///
 /// Called only by a profile switch. `None` means the sheet said nothing about that flag, and the
 /// live value is left exactly as it was.
-pub fn apply_profile_flags(
-    balance: Option<nr_casting_core::Balance>,
-    skip_assigned: Option<bool>,
-) {
+pub fn apply_profile_flags(balance: Option<nr_casting_core::Balance>, skip_assigned: Option<bool>) {
     if let Some(mode) = balance {
         save_balance(mode);
     }

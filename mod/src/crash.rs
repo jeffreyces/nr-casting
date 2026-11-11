@@ -92,7 +92,11 @@ fn module_of(address: usize) -> Option<(usize, String)> {
     let mut handle: *mut u8 = std::ptr::null_mut();
     // SAFETY: `FROM_ADDRESS` asks the loader which module contains an address; it does not read it.
     unsafe {
-        if GetModuleHandleExW(FROM_ADDRESS | UNCHANGED_REFCOUNT, address as *const u16, &mut handle) == 0
+        if GetModuleHandleExW(
+            FROM_ADDRESS | UNCHANGED_REFCOUNT,
+            address as *const u16,
+            &mut handle,
+        ) == 0
             || handle.is_null()
         {
             return None;

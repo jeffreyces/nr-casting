@@ -165,7 +165,10 @@ fn write_map(extra: &[String]) {
 
     let target = path("nr_casting_offsets.txt");
     // Skip identical rewrites so the file's timestamp means "something changed".
-    if std::fs::read_to_string(&target).map(|existing| existing == out).unwrap_or(false) {
+    if std::fs::read_to_string(&target)
+        .map(|existing| existing == out)
+        .unwrap_or(false)
+    {
         return;
     }
     if let Err(e) = std::fs::write(&target, out) {
@@ -259,11 +262,15 @@ pub fn validate_player() {
 
     match crate::magic_slots() {
         Some((count, selected)) if count >= 14 && (-1..=count as i32).contains(&selected) => {
-            results.push(format!("probe.magic = ok ({count} slots, selected {selected})"));
+            results.push(format!(
+                "probe.magic = ok ({count} slots, selected {selected})"
+            ));
         }
         Some((count, selected)) => {
             failure.get_or_insert_with(|| format!("magic slots implausible: {count}, {selected}"));
-            results.push(format!("probe.magic = FAILED ({count} slots, selected {selected})"));
+            results.push(format!(
+                "probe.magic = FAILED ({count} slots, selected {selected})"
+            ));
         }
         None => {
             failure.get_or_insert_with(|| "magic slots unreadable".to_string());
@@ -325,7 +332,11 @@ struct MemoryBasicInformation {
 }
 
 extern "system" {
-    fn VirtualQuery(address: *const u8, buffer: *mut MemoryBasicInformation, length: usize) -> usize;
+    fn VirtualQuery(
+        address: *const u8,
+        buffer: *mut MemoryBasicInformation,
+        length: usize,
+    ) -> usize;
 }
 
 /// Is `ptr..ptr+len` committed and readable right now?

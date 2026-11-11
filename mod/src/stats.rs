@@ -98,7 +98,9 @@ pub(crate) fn handoff() {
 pub(crate) fn bound(which: &str) {
     let count = BOUND.fetch_add(1, Ordering::Relaxed) + 1;
     if count <= 8 || count.is_multiple_of(32) {
-        crate::log(&format!("mouse: super + click bound {which} ({count} so far)"));
+        crate::log(&format!(
+            "mouse: super + click bound {which} ({count} so far)"
+        ));
     }
 }
 

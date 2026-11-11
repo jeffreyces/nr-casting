@@ -18,7 +18,11 @@ pub(crate) struct ReportRow {
 
 /// Draw the row. `prompt` is whether the bundle-run explanation is currently on screen.
 pub(crate) fn draw(ui: &Ui, prompt: bool) -> ReportRow {
-    let mut row = ReportRow { diagnostics: false, start_run: false, prompt };
+    let mut row = ReportRow {
+        diagnostics: false,
+        start_run: false,
+        prompt,
+    };
 
     // Its own row, at the same distance as every other section. This used to call `new_line`,
     // which put the cursor a whole *line* below the row above - and that row ends in a combo, taller

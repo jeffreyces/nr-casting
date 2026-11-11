@@ -112,12 +112,19 @@ pub fn adopt_game_window(hwnd: usize) {
         // cursor set, the window manager's own enter-window path supplies it, no matter whether the
         // game ever calls `DefWindowProc`, and no matter what the game's `SetCursor` asked for.
         set_class_cursor(true);
-        crate::log("pointer: game window adopted — its client gets the arrow while the panel is open");
+        crate::log(
+            "pointer: game window adopted — its client gets the arrow while the panel is open",
+        );
     }
 }
 
 /// Our procedure for the game's window: supply a cursor for the client area, then chain.
-unsafe extern "system" fn game_wndproc(hwnd: *mut u8, msg: u32, wparam: usize, lparam: isize) -> isize {
+unsafe extern "system" fn game_wndproc(
+    hwnd: *mut u8,
+    msg: u32,
+    wparam: usize,
+    lparam: isize,
+) -> isize {
     if msg == WM_SETCURSOR && is_open() && (lparam & 0xFFFF) as u32 == HTCLIENT {
         let arrow = arrow();
         if !arrow.is_null() {
@@ -350,10 +357,20 @@ pub fn install() -> Result<(), String> {
                 hook_switchable(c"SetCursorPos", user32, pos_detour as *const (), &POS_TRAMP)
             })
             .and_then(|_| {
-                hook_switchable(c"SetCursor", user32, set_cursor_detour as *const (), &SETCURSOR_TRAMP)
+                hook_switchable(
+                    c"SetCursor",
+                    user32,
+                    set_cursor_detour as *const (),
+                    &SETCURSOR_TRAMP,
+                )
             })
             .and_then(|_| {
-                hook_switchable(c"SetCapture", user32, capture_detour as *const (), &CAPTURE_TRAMP)
+                hook_switchable(
+                    c"SetCapture",
+                    user32,
+                    capture_detour as *const (),
+                    &CAPTURE_TRAMP,
+                )
             })
         // `GetRawInputData` and `GetRawInputBuffer` are deliberately *not* hooked here:
         // `rawinput.rs` owns them, and hooking one address twice chained two trampolines into
@@ -417,7 +434,10 @@ fn confine_to_panel() {
             return;
         }
         let mut rect = Rect::default();
-        if GetWindowRect(panel, &mut rect) == 0 || rect.right <= rect.left || rect.bottom <= rect.top {
+        if GetWindowRect(panel, &mut rect) == 0
+            || rect.right <= rect.left
+            || rect.bottom <= rect.top
+        {
             return;
         }
         let clipped = ClipCursor(&rect);

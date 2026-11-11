@@ -13,14 +13,14 @@
 
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
     KEYEVENTF_KEYUP, VIRTUAL_KEY,
 };
 
 use nr_casting_core::{
-    is_shift_vkey, raw_hide_shift, raw_kind, raw_keyboard, raw_mouse_buttons, raw_set_mouse_buttons,
-    raw_size, RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN,
-    RI_MOUSE_RIGHT_BUTTON_UP, RAW_TYPE_KEYBOARD, RAW_TYPE_MOUSE,
+    is_shift_vkey, raw_hide_shift, raw_keyboard, raw_kind, raw_mouse_buttons,
+    raw_set_mouse_buttons, raw_size, RAW_TYPE_KEYBOARD, RAW_TYPE_MOUSE, RI_MOUSE_LEFT_BUTTON_DOWN,
+    RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP,
 };
 
 use crate::logging::debug;
@@ -106,8 +106,7 @@ unsafe fn bind_gesture(record: &mut [u8]) -> bool {
     if modifier == 0 {
         return false; // gesture disabled in the ini
     }
-    let held_modifier = key_down(modifier)
-        || (modifier == VK_LWIN && key_down(VK_RWIN)); // both Windows keys count as Super
+    let held_modifier = key_down(modifier) || (modifier == VK_LWIN && key_down(VK_RWIN)); // both Windows keys count as Super
     if !held_modifier {
         return false;
     }
@@ -153,8 +152,16 @@ unsafe fn hand_off_to_recluse(record: &mut [u8]) -> bool {
     let mut remaining = buttons;
     let mut press: Option<(u8, bool)> = None;
     for (down, up, key) in [
-        (RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RECLUSE_KEY_4),
-        (RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, RECLUSE_KEY_5),
+        (
+            RI_MOUSE_LEFT_BUTTON_DOWN,
+            RI_MOUSE_LEFT_BUTTON_UP,
+            RECLUSE_KEY_4,
+        ),
+        (
+            RI_MOUSE_RIGHT_BUTTON_DOWN,
+            RI_MOUSE_RIGHT_BUTTON_UP,
+            RECLUSE_KEY_5,
+        ),
     ] {
         if buttons & down != 0 {
             remaining &= !down;
@@ -235,10 +242,9 @@ unsafe fn steer_click(record: &[u8]) {
     let shift = key_down(VK_SHIFT);
     let ctrl = key_down(VK_CONTROL);
     let alt = key_down(VK_MENU);
-    let route = nr_casting_core::mouse_route(left, right, shift, ctrl, alt, crate::input::y_bumper());
-    debug!(
-        "mouse: l={left} r={right} shift={shift} ctrl={ctrl} alt={alt} -> {route:?}"
-    );
+    let route =
+        nr_casting_core::mouse_route(left, right, shift, ctrl, alt, crate::input::y_bumper());
+    debug!("mouse: l={left} r={right} shift={shift} ctrl={ctrl} alt={alt} -> {route:?}");
     if let Some((right_hand, slot, which)) = route {
         if crate::input::steer_mouse(right_hand, slot) {
             stats::steered(which, slot);

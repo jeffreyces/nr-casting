@@ -78,9 +78,7 @@ fn handle_for(tid: u32) -> Option<usize> {
     if cached != 0 && HANDLE_TID.load(Ordering::Relaxed) == tid {
         return Some(cached);
     }
-    let mut handle = unsafe {
-        crate::win32::OpenThread(THREAD_QUERY_LIMITED_INFORMATION, 0, tid)
-    };
+    let mut handle = unsafe { crate::win32::OpenThread(THREAD_QUERY_LIMITED_INFORMATION, 0, tid) };
     if handle.is_null() {
         // Older Windows and some protected threads want the older access right.
         handle = unsafe { crate::win32::OpenThread(THREAD_QUERY_INFORMATION, 0, tid) };

@@ -37,7 +37,11 @@ const SCALE_STEPS: f32 = 20.0;
 pub fn fit_scale(width: f32, height: f32, natural: f32) -> f32 {
     let width = width.max(1.0);
     let height = height.max(1.0);
-    let natural = if natural > 1.0 { natural } else { DESIGN_HEIGHT };
+    let natural = if natural > 1.0 {
+        natural
+    } else {
+        DESIGN_HEIGHT
+    };
     let raw = (width / DESIGN_WIDTH).min((height - 8.0).max(1.0) / natural);
     let stepped = (raw * SCALE_STEPS).floor() / SCALE_STEPS;
     stepped.clamp(MIN_UI_SCALE, MAX_UI_SCALE)
@@ -377,7 +381,9 @@ pub const RI_MOUSE_RIGHT_BUTTON_UP: u32 = 0x0008;
 pub const RI_KEY_BREAK: u16 = 0x0001;
 
 fn le_u16(bytes: &[u8], at: usize) -> Option<u16> {
-    bytes.get(at..at + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
+    bytes
+        .get(at..at + 2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
 }
 
 fn le_u32(bytes: &[u8], at: usize) -> Option<u32> {
@@ -541,7 +547,9 @@ pub fn panel_pos(text: &str) -> Option<(i32, i32)> {
     if text.eq_ignore_ascii_case("auto") {
         return Some((0, 0));
     }
-    let (x, y) = text.split_once(',').or_else(|| text.split_once(['x', 'X']))?;
+    let (x, y) = text
+        .split_once(',')
+        .or_else(|| text.split_once(['x', 'X']))?;
     let x: i32 = x.trim().parse().ok()?;
     let y: i32 = y.trim().parse().ok()?;
     // Beyond this a saved position is a typo or a monitor that no longer exists; the clamp to the
@@ -551,7 +559,6 @@ pub fn panel_pos(text: &str) -> Option<(i32, i32)> {
     }
     Some((x, y))
 }
-
 
 /// Case-insensitive `String::replace`.
 ///
@@ -782,7 +789,10 @@ pub fn gap_stats(values: &[u32]) -> GapStats {
     let quiet = values.iter().filter(|v| **v == 0).count();
     let mut sorted: Vec<u32> = values.iter().copied().filter(|v| *v > 0).collect();
     if sorted.is_empty() {
-        return GapStats { quiet, ..GapStats::default() };
+        return GapStats {
+            quiet,
+            ..GapStats::default()
+        };
     }
     sorted.sort_unstable();
     let at = |q: f64| {
@@ -840,7 +850,9 @@ fn scrub_after(text: &str, marker: &str, separator: char) -> String {
     let mut at = 0;
     while let Some(found) = lower[at..].find(marker) {
         let segment_start = at + found + marker.len();
-        let Some(length) = text[segment_start..].find(separator) else { break };
+        let Some(length) = text[segment_start..].find(separator) else {
+            break;
+        };
         out.push_str(&text[at..segment_start]);
         out.push_str("%USER%");
         at = segment_start + length;
@@ -956,7 +968,10 @@ pub const PHASES: [(&str, u32); 9] = [
     ("cursor hooks taken out", POINTER),
     ("pad casting off (the hook still times)", PAD),
     ("housekeeping thread off", THREADS),
-    ("pad only (raw, cursor and thread off)", RAW | POINTER | THREADS),
+    (
+        "pad only (raw, cursor and thread off)",
+        RAW | POINTER | THREADS,
+    ),
     ("every hook group off", PAD | RAW | POINTER | THREADS),
     ("everything back on", 0),
     ("everything still on (drift check)", 0),
@@ -982,12 +997,18 @@ pub fn due(now: u32, last: u32, min_ms: u32) -> bool {
 ///
 /// Five figures in one format string, so it is assembled here where a test can read it - the last
 /// line of this shape printed the wrong count for weeks because nothing asserted its text.
-pub fn pad_cost_line(name: &str, calls: u32, mean_us: f64, worst_us: u32, slow: u32, slow_us: u64) -> String {
+pub fn pad_cost_line(
+    name: &str,
+    calls: u32,
+    mean_us: f64,
+    worst_us: u32,
+    slow: u32,
+    slow_us: u64,
+) -> String {
     format!(
         "  {name}: {calls} calls, mean {mean_us:.1} us, worst {worst_us} us, {slow} over {slow_us} us"
     )
 }
-
 
 /// Whether assignments are limited to the character's memorised spells.
 ///
@@ -1046,13 +1067,25 @@ pub struct CatalystSchools {
 
 impl CatalystSchools {
     /// Casts both schools.
-    pub const BOTH: Self = CatalystSchools { sorcery: true, incantation: true };
+    pub const BOTH: Self = CatalystSchools {
+        sorcery: true,
+        incantation: true,
+    };
     /// A glintstone staff.
-    pub const SORCERY: Self = CatalystSchools { sorcery: true, incantation: false };
+    pub const SORCERY: Self = CatalystSchools {
+        sorcery: true,
+        incantation: false,
+    };
     /// A sacred seal.
-    pub const INCANTATION: Self = CatalystSchools { sorcery: false, incantation: true };
+    pub const INCANTATION: Self = CatalystSchools {
+        sorcery: false,
+        incantation: true,
+    };
     /// A weapon that is not a catalyst at all.
-    pub const NONE: Self = CatalystSchools { sorcery: false, incantation: false };
+    pub const NONE: Self = CatalystSchools {
+        sorcery: false,
+        incantation: false,
+    };
 
     /// Whether this catalyst offers a spell of that school. Anything unclassified is offered:
     /// greying a spell the player can really cast is the worse error.
@@ -1183,7 +1216,11 @@ pub fn counts(rows: &[RowState]) -> Counts {
 pub fn resolve_row(base: i32, full: i32, rows: &[(i32, Category)]) -> Option<Category> {
     // Full id first: a customised copy overrides the type's default. Then the base id, which is
     // what makes an upgrade keep its layout. A stored row of all -1 is an answer, not a miss.
-    let find = |id: i32| rows.iter().find(|(row, _)| *row == id).map(|(_, spells)| *spells);
+    let find = |id: i32| {
+        rows.iter()
+            .find(|(row, _)| *row == id)
+            .map(|(_, spells)| *spells)
+    };
     find(full).or_else(|| find(base))
 }
 
@@ -1333,8 +1370,14 @@ pub fn copy_rows(
     if row_bytes > src_pitch || row_bytes > dst_pitch {
         return None;
     }
-    let src_needed = height.checked_sub(1)?.checked_mul(src_pitch)?.checked_add(row_bytes)?;
-    let dst_needed = height.checked_sub(1)?.checked_mul(dst_pitch)?.checked_add(row_bytes)?;
+    let src_needed = height
+        .checked_sub(1)?
+        .checked_mul(src_pitch)?
+        .checked_add(row_bytes)?;
+    let dst_needed = height
+        .checked_sub(1)?
+        .checked_mul(dst_pitch)?
+        .checked_add(row_bytes)?;
     if src.len() < src_needed || dst.len() < dst_needed {
         return None;
     }
@@ -1366,7 +1409,6 @@ pub fn balance_notice(catalyst: CatalystSchools, attuned: &[School]) -> Option<&
         _ => None,
     }
 }
-
 
 /// The store's lookup, with the caller's own map instead of a slice.
 ///
@@ -1427,7 +1469,6 @@ pub fn coverage(rows: &[i32], attuned: &[i32]) -> Coverage {
     }
     counts
 }
-
 
 /// `bits_105` bit that says the catalyst casts sorceries.
 pub const CATALYST_SORCERY_BIT: u8 = 0x80;
@@ -1535,7 +1576,9 @@ impl Profiles {
 
     /// The profile bound to `digit`, if any.
     pub fn for_digit(&self, digit: u8) -> Option<usize> {
-        self.sheets.iter().position(|sheet| sheet.hotkey == Some(digit))
+        self.sheets
+            .iter()
+            .position(|sheet| sheet.hotkey == Some(digit))
     }
 }
 
@@ -1546,9 +1589,7 @@ impl Profiles {
 pub fn profile_name_ok(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= PROFILE_NAME_MAX
-        && name
-            .chars()
-            .all(|c| c.is_ascii_graphic() || c == ' ')
+        && name.chars().all(|c| c.is_ascii_graphic() || c == ' ')
         && !name.contains(['/', '\\', '#', '[', ']', '=', '\t'])
 }
 
@@ -1572,7 +1613,10 @@ pub fn parse_profiles(text: &str) -> Profiles {
         if let Some(rest) = line.strip_prefix("[profile") {
             let name = rest.trim_end_matches(']').trim();
             if let Some(sheet) = current.take() {
-                if !sheet.rows.is_empty() || sheet.balance.is_some() || sheet.skip_assigned.is_some() {
+                if !sheet.rows.is_empty()
+                    || sheet.balance.is_some()
+                    || sheet.skip_assigned.is_some()
+                {
                     push_sheet(&mut profiles, sheet);
                 }
             }
@@ -1678,7 +1722,10 @@ pub fn format_profiles(profiles: &Profiles) -> String {
             out.push_str(&format!("balance = {}\n", balance.as_str()));
         }
         if let Some(skip) = sheet.skip_assigned {
-            out.push_str(&format!("skip_assigned = {}\n", if skip { "on" } else { "off" }));
+            out.push_str(&format!(
+                "skip_assigned = {}\n",
+                if skip { "on" } else { "off" }
+            ));
         }
         if let Some(digit) = sheet.hotkey {
             out.push_str(&format!("hotkey = {digit}\n"));
@@ -1714,9 +1761,7 @@ pub fn ensure_default_hotkey(profiles: &mut Profiles) -> bool {
     if profiles.sheets.iter().any(|sheet| sheet.hotkey.is_some()) {
         return false;
     }
-    let index = profiles
-        .index_of(DEFAULT_PROFILE)
-        .unwrap_or(0);
+    let index = profiles.index_of(DEFAULT_PROFILE).unwrap_or(0);
     if profiles.sheets.get(index).is_none() {
         return false;
     }
@@ -1842,11 +1887,8 @@ pub fn hotkey_allowed(
     now_ms: u32,
     last_press_ms: u32,
 ) -> bool {
-    !ui_open
-        && !cast_in_flight
-        && now_ms.wrapping_sub(last_press_ms) > HOTKEY_DEBOUNCE_MS
+    !ui_open && !cast_in_flight && now_ms.wrapping_sub(last_press_ms) > HOTKEY_DEBOUNCE_MS
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1909,7 +1951,10 @@ mod tests {
         // returns, so the all-assigned assertion only means something beside one that must find a
         // free entry.
         let mixed = [100, 101, 102];
-        assert_eq!(crate::next_unassigned(0, &mixed, &assigned(&[100])), Some(1));
+        assert_eq!(
+            crate::next_unassigned(0, &mixed, &assigned(&[100])),
+            Some(1)
+        );
         let spells = [100, 101];
         let ours = assigned(&[100, 101]);
         assert_eq!(crate::next_unassigned(0, &spells, &ours), None);
@@ -2040,8 +2085,8 @@ mod tests {
         // The clock is a u32 of milliseconds and wraps every 49 days. A wrapping subtraction is the
         // whole reason this works, so pin the case: last run just before the wrap, now just after.
         let last = u32::MAX - 50;
-        assert!(due(60, last, 100));      // 111 ms later, across the wrap
-        assert!(!due(20, last, 100));     // 71 ms later, still inside the interval
+        assert!(due(60, last, 100)); // 111 ms later, across the wrap
+        assert!(!due(20, last, 100)); // 71 ms later, still inside the interval
     }
 
     #[test]
@@ -2062,7 +2107,6 @@ mod tests {
             left_bump: lb,
         }
     }
-
 
     #[test]
     fn parses_three_value_lines() {
@@ -2093,7 +2137,10 @@ not a slot
 
     #[test]
     fn trailing_comments_are_stripped() {
-        assert_eq!(parse_slots("7 = 1, 2, 3  # my staff\n"), vec![(7, [1, 2, 3, -1])]);
+        assert_eq!(
+            parse_slots("7 = 1, 2, 3  # my staff\n"),
+            vec![(7, [1, 2, 3, -1])]
+        );
     }
 
     #[test]
@@ -2116,63 +2163,124 @@ not a slot
 
     #[test]
     fn idle_when_nothing_is_held() {
-        assert_eq!(route(&held(0, false, false, false, false), true), Route::Idle);
+        assert_eq!(
+            route(&held(0, false, false, false, false), true),
+            Route::Idle
+        );
     }
 
     #[test]
     fn plain_inputs_cast_their_own_slot() {
         assert_eq!(
             route(&held(0, true, false, false, false), true),
-            Route::Cast { right_hand: true, slot: 1, label: "R2" }
+            Route::Cast {
+                right_hand: true,
+                slot: 1,
+                label: "R2"
+            }
         );
         assert_eq!(
             route(&held(BTN_RIGHT_SHOULDER, false, false, true, false), true),
-            Route::Cast { right_hand: true, slot: 0, label: "R1" }
+            Route::Cast {
+                right_hand: true,
+                slot: 0,
+                label: "R1"
+            }
         );
         assert_eq!(
             route(&held(0, false, true, false, false), true),
-            Route::Cast { right_hand: false, slot: 1, label: "L2" }
+            Route::Cast {
+                right_hand: false,
+                slot: 1,
+                label: "L2"
+            }
         );
         assert_eq!(
             route(&held(BTN_LEFT_SHOULDER, false, false, false, true), true),
-            Route::Cast { right_hand: false, slot: 0, label: "L1" }
+            Route::Cast {
+                right_hand: false,
+                slot: 0,
+                label: "L1"
+            }
         );
     }
 
     #[test]
     fn ash_of_war_wins_over_everything() {
         let all = held(BTN_Y, true, true, true, true);
-        assert_eq!(route(&all, true), Route::Chord { right_hand: true, slot: 2, label: "Y+R2" });
+        assert_eq!(
+            route(&all, true),
+            Route::Chord {
+                right_hand: true,
+                slot: 2,
+                label: "Y+R2"
+            }
+        );
     }
 
     #[test]
     fn y_trigger_is_the_third_slot() {
         assert_eq!(
             route(&held(BTN_Y, true, false, false, false), true),
-            Route::Chord { right_hand: true, slot: 2, label: "Y+R2" }
+            Route::Chord {
+                right_hand: true,
+                slot: 2,
+                label: "Y+R2"
+            }
         );
         assert_eq!(
             route(&held(BTN_Y, false, true, false, false), true),
-            Route::Chord { right_hand: false, slot: 2, label: "Y+L2" }
+            Route::Chord {
+                right_hand: false,
+                slot: 2,
+                label: "Y+L2"
+            }
         );
     }
 
     #[test]
     fn y_without_a_trigger_is_not_a_chord() {
         // Y on its own is two-handing; it must not be swallowed.
-        assert_eq!(route(&held(BTN_Y, false, false, false, false), true), Route::Idle);
+        assert_eq!(
+            route(&held(BTN_Y, false, false, false, false), true),
+            Route::Idle
+        );
     }
 
     #[test]
     fn mouse_mapping_matches_the_pad() {
-        assert_eq!(mouse_route(true, false, false, false, false, true), Some((true, 0, "LMB")));
-        assert_eq!(mouse_route(false, true, false, false, false, true), Some((false, 0, "RMB")));
-        assert_eq!(mouse_route(true, false, false, true, false, true), Some((true, 2, "ctrl + LMB")));
-        assert_eq!(mouse_route(false, true, false, true, false, true), Some((false, 2, "ctrl + RMB")));
-        assert_eq!(mouse_route(true, false, false, false, true, true), Some((true, 3, "alt + LMB")));
-        assert_eq!(mouse_route(false, true, false, false, true, true), Some((false, 3, "alt + RMB")));
-        assert_eq!(mouse_route(true, false, true, false, false, true), Some((true, 1, "shift + LMB")));
-        assert_eq!(mouse_route(false, true, true, false, false, true), Some((false, 1, "shift + RMB")));
+        assert_eq!(
+            mouse_route(true, false, false, false, false, true),
+            Some((true, 0, "LMB"))
+        );
+        assert_eq!(
+            mouse_route(false, true, false, false, false, true),
+            Some((false, 0, "RMB"))
+        );
+        assert_eq!(
+            mouse_route(true, false, false, true, false, true),
+            Some((true, 2, "ctrl + LMB"))
+        );
+        assert_eq!(
+            mouse_route(false, true, false, true, false, true),
+            Some((false, 2, "ctrl + RMB"))
+        );
+        assert_eq!(
+            mouse_route(true, false, false, false, true, true),
+            Some((true, 3, "alt + LMB"))
+        );
+        assert_eq!(
+            mouse_route(false, true, false, false, true, true),
+            Some((false, 3, "alt + RMB"))
+        );
+        assert_eq!(
+            mouse_route(true, false, true, false, false, true),
+            Some((true, 1, "shift + LMB"))
+        );
+        assert_eq!(
+            mouse_route(false, true, true, false, false, true),
+            Some((false, 1, "shift + RMB"))
+        );
         assert_eq!(mouse_route(true, true, false, false, false, true), None);
         assert_eq!(mouse_route(false, false, false, false, false, true), None);
         // On a Recluse character the Alt chords belong to the class port: nothing to steer.
@@ -2227,14 +2335,14 @@ not a slot
         let parsed = parse_slots("33090010 = 4431, 4060, 4710, 4800\n4101 = 1, 2\n");
         assert_eq!(
             parsed,
-            vec![
-                (33090010, [4431, 4060, 4710, 4800]),
-                (4101, [1, 2, -1, -1])
-            ]
+            vec![(33090010, [4431, 4060, 4710, 4800]), (4101, [1, 2, -1, -1])]
         );
         let text = written(&[(33090010, [1, 2, 3, 4])]);
         assert!(text.contains("33090010 = 1, 2, 3, 4"));
-        assert_eq!(parse_profiles(&text).sheets[0].rows, vec![(33090010, [1, 2, 3, 4])]);
+        assert_eq!(
+            parse_profiles(&text).sheets[0].rows,
+            vec![(33090010, [1, 2, 3, 4])]
+        );
     }
 
     #[test]
@@ -2408,7 +2516,9 @@ mod fault_tests {
         access: Option<(usize, usize)>,
     ) -> String {
         let mut buf = [0u8; 512];
-        let len = fault_line(&mut buf, 1234, code, address, thread, base, offset, module, access);
+        let len = fault_line(
+            &mut buf, 1234, code, address, thread, base, offset, module, access,
+        );
         String::from_utf8_lossy(&buf[..len]).to_string()
     }
 
@@ -2448,14 +2558,26 @@ mod fault_tests {
     #[test]
     fn survives_a_missing_module_and_a_short_buffer() {
         let line = render(0xC000_0374, 0x1000, 1, 0, 0x1000, "", None);
-        assert_eq!(line, "[1234] crash: exception 0xc0000374 at 0x1000 thread 1\n");
+        assert_eq!(
+            line,
+            "[1234] crash: exception 0xc0000374 at 0x1000 thread 1\n"
+        );
 
         let mut tiny = [0u8; 12];
-        let len = fault_line(&mut tiny, 7, 0xC000_0005, 0x140_0000_0000, 9, 0, 0, "a.dll", None);
+        let len = fault_line(
+            &mut tiny,
+            7,
+            0xC000_0005,
+            0x140_0000_0000,
+            9,
+            0,
+            0,
+            "a.dll",
+            None,
+        );
         assert_eq!(len, 12);
         assert!(std::str::from_utf8(&tiny).is_ok());
     }
-
 }
 
 #[cfg(test)]
@@ -2477,7 +2599,11 @@ mod raw_tests {
 
     #[test]
     fn reads_a_mouse_record_and_its_button_edges() {
-        let bytes = record(RAW_TYPE_MOUSE, RAW_MOUSE_LEN, &[(RAW_MOUSE_BUTTONS_AT, 0x01)]);
+        let bytes = record(
+            RAW_TYPE_MOUSE,
+            RAW_MOUSE_LEN,
+            &[(RAW_MOUSE_BUTTONS_AT, 0x01)],
+        );
         assert_eq!(raw_kind(&bytes), Some(RAW_TYPE_MOUSE));
         assert_eq!(raw_size(&bytes), Some(RAW_MOUSE_LEN));
         assert_eq!(raw_mouse_buttons(&bytes), Some(RI_MOUSE_LEFT_BUTTON_DOWN));
@@ -2505,7 +2631,11 @@ mod raw_tests {
 
     #[test]
     fn rewrite_buttons_in_place() {
-        let mut bytes = record(RAW_TYPE_MOUSE, RAW_MOUSE_LEN, &[(RAW_MOUSE_BUTTONS_AT, 0x05)]);
+        let mut bytes = record(
+            RAW_TYPE_MOUSE,
+            RAW_MOUSE_LEN,
+            &[(RAW_MOUSE_BUTTONS_AT, 0x05)],
+        );
         assert!(raw_set_mouse_buttons(&mut bytes, RI_MOUSE_RIGHT_BUTTON_UP));
         assert_eq!(raw_mouse_buttons(&bytes), Some(RI_MOUSE_RIGHT_BUTTON_UP));
         // Not a mouse record, and too short: left untouched, reported as not written.
@@ -2633,7 +2763,10 @@ mod raw_tests {
         let out = crate::redact_paths(text);
         assert!(out.ends_with("<path>"), "{out}");
         assert!(!out.contains("Steam"), "{out}");
-        assert!(out.starts_with("[1] XInputGetState: caller stack includes "), "{out}");
+        assert!(
+            out.starts_with("[1] XInputGetState: caller stack includes "),
+            "{out}"
+        );
     }
 
     #[test]
@@ -2674,10 +2807,6 @@ mod raw_tests {
         assert_eq!(out, "log at <path>", "{out}");
     }
 
-
-
-
-
     #[test]
     fn every_marker_is_at_least_six_bytes() {
         // The test that would have caught two false positives: a four-byte needle matches by chance
@@ -2695,11 +2824,20 @@ mod raw_tests {
             b"sl.interposer",
         ];
         for marker in markers {
-            assert!(marker.len() >= 6, "{} is too short", String::from_utf8_lossy(marker));
+            assert!(
+                marker.len() >= 6,
+                "{} is too short",
+                String::from_utf8_lossy(marker)
+            );
         }
         // The exact bytes that produced the wrong label: base64 noise containing "DXvK".
-        let noise = b"bNINCcwaiUktTEzASj0NLS3rigptkyyQqzgL1gr6DXvKo61SjFxuLUonDFgMLg0wa3xs7aq1KaONd60O";
-        assert!(wrapper_markers(noise).is_empty(), "{:?}", wrapper_markers(noise));
+        let noise =
+            b"bNINCcwaiUktTEzASj0NLS3rigptkyyQqzgL1gr6DXvKo61SjFxuLUonDFgMLg0wa3xs7aq1KaONd60O";
+        assert!(
+            wrapper_markers(noise).is_empty(),
+            "{:?}",
+            wrapper_markers(noise)
+        );
     }
 
     #[test]
@@ -2709,7 +2847,11 @@ mod raw_tests {
         assert_eq!(wrapper_markers(dxvk), vec!["DXVK", "Vulkan"]);
         // Three bytes of noise hit by chance in a big binary; nothing here is a wrapper.
         let noise: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
-        assert!(wrapper_markers(&noise).is_empty(), "{:?}", wrapper_markers(&noise));
+        assert!(
+            wrapper_markers(&noise).is_empty(),
+            "{:?}",
+            wrapper_markers(&noise)
+        );
         assert_eq!(wrapper_markers(b"special k"), vec!["Special K"]);
         assert_eq!(wrapper_markers(b"SpecialK"), vec!["SpecialK"]);
     }
@@ -2745,10 +2887,16 @@ mod raw_tests {
             worst_at: 2,
             ticks: 1800,
         });
-        assert!(line.starts_with("phase 4/6 pad casting off (off: pad hooks): "), "{line}");
+        assert!(
+            line.starts_with("phase 4/6 pad casting off (off: pad hooks): "),
+            "{line}"
+        );
         assert!(line.contains("4 s sampled (1 with no pad poll)"), "{line}");
         assert!(line.contains("1800 ticks, 450/s"), "{line}");
-        assert!(line.contains("7 hitches over 32ms in 1 of 4 seconds"), "{line}");
+        assert!(
+            line.contains("7 hitches over 32ms in 1 of 4 seconds"),
+            "{line}"
+        );
         assert!(line.contains("worst 66ms at second 2"), "{line}");
     }
 
@@ -2835,7 +2983,9 @@ mod raw_tests {
         );
         // The same line under Proton names the host's home, and the prefix path.
         assert_eq!(
-            redact_paths("files in: /var/home/<name>/.local/share/Steam/steamapps/compatdata/1245620/pfx"),
+            redact_paths(
+                "files in: /var/home/<name>/.local/share/Steam/steamapps/compatdata/1245620/pfx"
+            ),
             "files in: <path>"
         );
         assert_eq!(
@@ -2864,7 +3014,8 @@ mod raw_tests {
         // The hash stays: it is a per-character id, not a name.
         assert_eq!(out, "nr_casting_slots_<character>-399e89de.txt");
         // A line with the name inside a sentence, twice.
-        let line = "loaded nr_casting_slots_Warlock-2badd3.txt, also nr_casting_slots_warlock-2badd3.txt";
+        let line =
+            "loaded nr_casting_slots_Warlock-2badd3.txt, also nr_casting_slots_warlock-2badd3.txt";
         let out = redact_character_slug(line);
         assert!(!out.to_lowercase().contains("warlock"), "{out}");
         assert_eq!(out.matches("<character>").count(), 2);
@@ -2906,7 +3057,10 @@ mod raw_tests {
         assert_eq!(fit_scale(3840.0, 2160.0, DESIGN_HEIGHT), MAX_UI_SCALE);
         // A window at the design size cannot fit the design height plus its frame, so it is the
         // floor, not 0.98.
-        assert_eq!(fit_scale(DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_HEIGHT), MIN_UI_SCALE);
+        assert_eq!(
+            fit_scale(DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_HEIGHT),
+            MIN_UI_SCALE
+        );
     }
 
     #[test]
@@ -2915,7 +3069,11 @@ mod raw_tests {
             for height in [600.0, 620.0, 792.0, 1080.0, 1440.0, 2160.0] {
                 for natural in [0.0, 400.0, 620.0, 900.0] {
                     let scale = fit_scale(width, height, natural);
-                    let natural = if natural > 1.0 { natural } else { DESIGN_HEIGHT };
+                    let natural = if natural > 1.0 {
+                        natural
+                    } else {
+                        DESIGN_HEIGHT
+                    };
                     if scale == MIN_UI_SCALE {
                         // The floor, not the fit, decided — matching the window's minimum size,
                         // which keeps the panel from shrinking into unreadable text. Nothing to
@@ -2939,10 +3097,17 @@ mod raw_tests {
     #[test]
     fn fit_scale_is_a_step_and_inside_its_bounds() {
         for tenth in 0..=300 {
-            let scale = fit_scale(900.0 + tenth as f32 * 10.0, 620.0 + tenth as f32 * 7.0, 620.0);
+            let scale = fit_scale(
+                900.0 + tenth as f32 * 10.0,
+                620.0 + tenth as f32 * 7.0,
+                620.0,
+            );
             assert!((MIN_UI_SCALE..=MAX_UI_SCALE).contains(&scale), "{scale}");
             let steps = scale * SCALE_STEPS;
-            assert!((steps - steps.round()).abs() < 1e-3, "{scale} is not a 5% step");
+            assert!(
+                (steps - steps.round()).abs() < 1e-3,
+                "{scale} is not a 5% step"
+            );
         }
     }
 
@@ -2953,7 +3118,6 @@ mod raw_tests {
         assert_eq!(fit_scale(-5.0, 3.0, f32::NAN), MIN_UI_SCALE);
     }
 }
-
 
 #[cfg(test)]
 mod balance_tests {
@@ -2995,9 +3159,18 @@ mod balance_tests {
     #[test]
     fn an_empty_row_is_empty_whatever_the_memory_holds() {
         let attuned = [10, 11];
-        assert_eq!(classify(-1, School::Sorcery, CatalystSchools::SORCERY, &attuned), RowState::Empty);
-        assert_eq!(classify(0, School::Unknown, CatalystSchools::BOTH, &attuned), RowState::Empty);
-        assert_eq!(classify(-1, School::Unknown, CatalystSchools::BOTH, &[]), RowState::Empty);
+        assert_eq!(
+            classify(-1, School::Sorcery, CatalystSchools::SORCERY, &attuned),
+            RowState::Empty
+        );
+        assert_eq!(
+            classify(0, School::Unknown, CatalystSchools::BOTH, &attuned),
+            RowState::Empty
+        );
+        assert_eq!(
+            classify(-1, School::Unknown, CatalystSchools::BOTH, &[]),
+            RowState::Empty
+        );
     }
 
     #[test]
@@ -3039,8 +3212,14 @@ mod balance_tests {
             classify(10, School::Sorcery, CatalystSchools::NONE, &[10]),
             RowState::WrongSchool
         );
-        assert_eq!(classify(-1, School::Sorcery, CatalystSchools::NONE, &[10]), RowState::Empty);
-        assert_eq!(balance_notice(CatalystSchools::NONE, &[School::Sorcery]), None);
+        assert_eq!(
+            classify(-1, School::Sorcery, CatalystSchools::NONE, &[10]),
+            RowState::Empty
+        );
+        assert_eq!(
+            balance_notice(CatalystSchools::NONE, &[School::Sorcery]),
+            None
+        );
     }
 
     #[test]
@@ -3051,7 +3230,10 @@ mod balance_tests {
             None
         );
         assert_eq!(
-            balance_notice(CatalystSchools::BOTH, &[School::Sorcery, School::Incantation]),
+            balance_notice(
+                CatalystSchools::BOTH,
+                &[School::Sorcery, School::Incantation]
+            ),
             None
         );
     }
@@ -3130,7 +3312,10 @@ mod balance_tests {
         assert!(RowState::WrongSchool.dormant());
         assert_eq!(RowState::Attuned.label(), "attuned");
         assert_eq!(RowState::NotAttuned.label(), "not attuned");
-        assert_eq!(RowState::WrongSchool.label(), "wrong school for this catalyst");
+        assert_eq!(
+            RowState::WrongSchool.label(),
+            "wrong school for this catalyst"
+        );
         assert_eq!(RowState::Empty.label(), "");
     }
 
@@ -3139,19 +3324,45 @@ mod balance_tests {
     #[test]
     fn a_full_attuned_catalyst_counts_four_live() {
         let rows = [RowState::Attuned; 4];
-        assert_eq!(counts(&rows), Counts { assigned: 4, live: 4, stale: 0 });
+        assert_eq!(
+            counts(&rows),
+            Counts {
+                assigned: 4,
+                live: 4,
+                stale: 0
+            }
+        );
     }
 
     #[test]
     fn a_mixed_catalyst_splits_live_and_stale() {
-        let rows = [RowState::Attuned, RowState::Empty, RowState::NotAttuned, RowState::WrongSchool];
-        assert_eq!(counts(&rows), Counts { assigned: 3, live: 1, stale: 2 });
+        let rows = [
+            RowState::Attuned,
+            RowState::Empty,
+            RowState::NotAttuned,
+            RowState::WrongSchool,
+        ];
+        assert_eq!(
+            counts(&rows),
+            Counts {
+                assigned: 3,
+                live: 1,
+                stale: 2
+            }
+        );
     }
 
     #[test]
     fn all_stale_is_all_stale() {
         let rows = [RowState::NotAttuned; 4];
-        assert_eq!(counts(&rows), Counts { assigned: 4, live: 0, stale: 4 });
+        assert_eq!(
+            counts(&rows),
+            Counts {
+                assigned: 4,
+                live: 0,
+                stale: 4
+            }
+        );
     }
 
     #[test]
@@ -3178,7 +3389,6 @@ mod balance_tests {
         }
     }
 
-
     // ---- layout marker -------------------------------------------------------------------
 
     #[test]
@@ -3186,7 +3396,10 @@ mod balance_tests {
         let text = written(&[(33_090_000, [1, 2, 3, 4])]);
         assert!(per_copy_rows(&text));
         // And the marker is a comment, so an older version parsing it still reads the same rows.
-        assert_eq!(parse_profiles(&text).sheets[0].rows, vec![(33_090_000, [1, 2, 3, 4])]);
+        assert_eq!(
+            parse_profiles(&text).sheets[0].rows,
+            vec![(33_090_000, [1, 2, 3, 4])]
+        );
     }
 
     #[test]
@@ -3194,7 +3407,10 @@ mod balance_tests {
         // No marker: a row on 33090010 is an upgraded id to be folded onto its base, not a layout.
         let legacy = "33090010 = 1, 2, 3, 4\n";
         assert!(!per_copy_rows(legacy));
-        assert_eq!(canonicalize(&parse_slots(legacy)), vec![(33_090_000, [1, 2, 3, 4])]);
+        assert_eq!(
+            canonicalize(&parse_slots(legacy)),
+            vec![(33_090_000, [1, 2, 3, 4])]
+        );
         // With the marker the same row survives as an override.
         let current = format!("{LAYOUT_MARKER}\n33090010 = 1, 2, 3, 4\n");
         assert!(per_copy_rows(&current));
@@ -3206,8 +3422,6 @@ mod balance_tests {
         let text = written(&rows);
         assert_eq!(parse_profiles(&text).sheets[0].rows, rows);
     }
-
-
 
     // ---- catalyst flags ------------------------------------------------------------------
 
@@ -3230,8 +3444,14 @@ mod balance_tests {
         // without building a map-shaped copy of the rule.
         let rows = [(33_090_000, [1, 2, 3, 4]), (33_090_010, [9, 8, 7, 6])];
         let find = |id: i32| rows.iter().find(|(row, _)| *row == id).map(|(_, s)| *s);
-        assert_eq!(resolve_row_with(33_090_000, 33_090_010, find), Some([9, 8, 7, 6]));
-        assert_eq!(resolve_row_with(33_090_000, 33_090_025, find), Some([1, 2, 3, 4]));
+        assert_eq!(
+            resolve_row_with(33_090_000, 33_090_010, find),
+            Some([9, 8, 7, 6])
+        );
+        assert_eq!(
+            resolve_row_with(33_090_000, 33_090_025, find),
+            Some([1, 2, 3, 4])
+        );
         assert_eq!(resolve_row_with(12_345_678, 12_345_678, find), None);
     }
 
@@ -3239,7 +3459,10 @@ mod balance_tests {
     fn the_store_lookup_returns_an_empty_default_as_an_answer() {
         let rows = [(33_090_000, [-1; 4])];
         let find = |id: i32| rows.iter().find(|(row, _)| *row == id).map(|(_, s)| *s);
-        assert_eq!(resolve_row_with(33_090_000, 33_090_010, find), Some([-1; 4]));
+        assert_eq!(
+            resolve_row_with(33_090_000, 33_090_010, find),
+            Some([-1; 4])
+        );
     }
 
     #[test]
@@ -3275,12 +3498,20 @@ mod balance_tests {
         // Three rows, all attuned: three assigned, three reachable.
         assert_eq!(
             coverage(&[10, 11, 12], &attuned),
-            Coverage { assigned: 3, reachable: 3, not_attuned: 0 }
+            Coverage {
+                assigned: 3,
+                reachable: 3,
+                not_attuned: 0
+            }
         );
         // One stale, one empty: the empty row is not an assignment.
         assert_eq!(
             coverage(&[10, 99, -1], &attuned),
-            Coverage { assigned: 2, reachable: 1, not_attuned: 1 }
+            Coverage {
+                assigned: 2,
+                reachable: 1,
+                not_attuned: 1
+            }
         );
         // Nothing at all.
         assert_eq!(coverage(&[], &attuned), Coverage::default());
@@ -3294,7 +3525,11 @@ mod balance_tests {
         let attuned = [10, 11];
         assert_eq!(
             coverage(&[10, 10, 11], &attuned),
-            Coverage { assigned: 3, reachable: 2, not_attuned: 0 }
+            Coverage {
+                assigned: 3,
+                reachable: 2,
+                not_attuned: 0
+            }
         );
     }
 
@@ -3302,7 +3537,11 @@ mod balance_tests {
     fn coverage_is_zero_when_nothing_is_attuned() {
         assert_eq!(
             coverage(&[10, 11], &[]),
-            Coverage { assigned: 2, reachable: 0, not_attuned: 2 }
+            Coverage {
+                assigned: 2,
+                reachable: 0,
+                not_attuned: 2
+            }
         );
     }
 
@@ -3313,10 +3552,7 @@ mod balance_tests {
 
     #[test]
     fn an_override_on_this_copy_wins() {
-        let rows = vec![
-            (BASE, [1, 2, 3, 4]),
-            (PLUS_TEN, [9, 8, 7, 6]),
-        ];
+        let rows = vec![(BASE, [1, 2, 3, 4]), (PLUS_TEN, [9, 8, 7, 6])];
         assert_eq!(resolve_row(BASE, PLUS_TEN, &rows), Some([9, 8, 7, 6]));
     }
 
@@ -3332,7 +3568,10 @@ mod balance_tests {
     #[test]
     fn an_unknown_weapon_resolves_to_nothing() {
         assert_eq!(resolve_row(BASE, PLUS_TEN, &[]), None);
-        assert_eq!(resolve_row(BASE, PLUS_TEN, &[(12_345_678, [1, 2, 3, 4])]), None);
+        assert_eq!(
+            resolve_row(BASE, PLUS_TEN, &[(12_345_678, [1, 2, 3, 4])]),
+            None
+        );
     }
 
     #[test]
@@ -3378,16 +3617,25 @@ mod balance_tests {
             balance_notice(CatalystSchools::SORCERY, &[]),
             Some(ATTUNE_FIRST)
         );
-        assert_eq!(balance_notice(CatalystSchools::BOTH, &[]), Some(ATTUNE_FIRST));
+        assert_eq!(
+            balance_notice(CatalystSchools::BOTH, &[]),
+            Some(ATTUNE_FIRST)
+        );
     }
 
     #[test]
     fn a_staff_needs_a_sorcery() {
         assert_eq!(
-            balance_notice(CatalystSchools::SORCERY, &[School::Incantation, School::Incantation]),
+            balance_notice(
+                CatalystSchools::SORCERY,
+                &[School::Incantation, School::Incantation]
+            ),
             Some("no attuned sorcery left for this staff")
         );
-        assert_eq!(balance_notice(CatalystSchools::SORCERY, &[School::Sorcery]), None);
+        assert_eq!(
+            balance_notice(CatalystSchools::SORCERY, &[School::Sorcery]),
+            None
+        );
     }
 
     #[test]
@@ -3396,13 +3644,22 @@ mod balance_tests {
             balance_notice(CatalystSchools::INCANTATION, &[School::Sorcery]),
             Some("no attuned incantation left for this seal")
         );
-        assert_eq!(balance_notice(CatalystSchools::INCANTATION, &[School::Incantation]), None);
+        assert_eq!(
+            balance_notice(CatalystSchools::INCANTATION, &[School::Incantation]),
+            None
+        );
     }
 
     #[test]
     fn an_unclassified_catalyst_is_never_told_why() {
-        assert_eq!(balance_notice(CatalystSchools::BOTH, &[School::Unknown]), None);
-        assert_eq!(balance_notice(CatalystSchools::BOTH, &[School::Sorcery]), None);
+        assert_eq!(
+            balance_notice(CatalystSchools::BOTH, &[School::Unknown]),
+            None
+        );
+        assert_eq!(
+            balance_notice(CatalystSchools::BOTH, &[School::Sorcery]),
+            None
+        );
     }
 
     #[test]
@@ -3418,7 +3675,6 @@ mod balance_tests {
         }
     }
 }
-
 
 #[cfg(test)]
 mod profile_tests {
@@ -3622,13 +3878,21 @@ mod profile_tests {
         assert!(!hotkey_allowed(true, false, 5_000, 0));
         assert!(!hotkey_allowed(false, true, 5_000, 0));
         assert!(!hotkey_allowed(false, false, 5_100, 5_000));
-        assert!(hotkey_allowed(false, false, 5_000 + HOTKEY_DEBOUNCE_MS + 1, 5_000));
+        assert!(hotkey_allowed(
+            false,
+            false,
+            5_000 + HOTKEY_DEBOUNCE_MS + 1,
+            5_000
+        ));
     }
 
     #[test]
     fn the_label_is_what_the_panel_shows() {
         assert_eq!(hotkey_label(HotkeyModifier::Ctrl, 2), "Ctrl+2");
-        assert_eq!(parse_hotkey_modifier(" control "), Some(HotkeyModifier::Ctrl));
+        assert_eq!(
+            parse_hotkey_modifier(" control "),
+            Some(HotkeyModifier::Ctrl)
+        );
         assert_eq!(parse_hotkey_modifier("SUPER"), Some(HotkeyModifier::Super));
         assert_eq!(parse_hotkey_modifier("hyper"), None);
     }

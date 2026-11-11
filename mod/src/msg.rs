@@ -223,8 +223,12 @@ impl Fmg {
         if mem.u8(base + FMG_VERSION).ok_or("version unreadable")? != 2 {
             return Err("not an FMG v2 buffer");
         }
-        let group_count = mem.u32(base + FMG_GROUP_COUNT).ok_or("group count unreadable")?;
-        let string_count = mem.u32(base + FMG_STRING_COUNT).ok_or("string count unreadable")?;
+        let group_count = mem
+            .u32(base + FMG_GROUP_COUNT)
+            .ok_or("group count unreadable")?;
+        let string_count = mem
+            .u32(base + FMG_STRING_COUNT)
+            .ok_or("string count unreadable")?;
         if group_count == 0 || group_count > MAX_GROUPS {
             return Err("implausible group count");
         }
@@ -235,7 +239,9 @@ impl Fmg {
         if group_count > string_count {
             return Err("more groups than strings");
         }
-        let raw = mem.u64(base + FMG_OFFSETS).ok_or("offset table unreadable")?;
+        let raw = mem
+            .u64(base + FMG_OFFSETS)
+            .ok_or("offset table unreadable")?;
         let offsets = fmg::resolve(raw, base, ABSOLUTE_POINTER).ok_or("offset table pointer")?;
         if !mem.readable(offsets, 8) {
             return Err("offset table not mapped");

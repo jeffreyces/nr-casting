@@ -136,14 +136,8 @@ impl Surface {
         let dst_len = row_bytes * height as usize;
         // SAFETY: the DIB has exactly `row_bytes * height` bytes and is only written here.
         let dst = std::slice::from_raw_parts_mut(self.bits, dst_len);
-        let copied = nr_casting_core::copy_rows(
-            src,
-            src_pitch,
-            dst,
-            row_bytes,
-            height as usize,
-            row_bytes,
-        );
+        let copied =
+            nr_casting_core::copy_rows(src, src_pitch, dst, row_bytes, height as usize, row_bytes);
         context.Unmap(&self.staging, 0);
         if copied.is_none() {
             return Err(format!(
@@ -212,7 +206,11 @@ unsafe fn create_texture(
         } else {
             (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32
         },
-        CPUAccessFlags: if staging { D3D11_CPU_ACCESS_READ.0 as u32 } else { 0 },
+        CPUAccessFlags: if staging {
+            D3D11_CPU_ACCESS_READ.0 as u32
+        } else {
+            0
+        },
         MiscFlags: 0,
     };
     let mut texture: Option<ID3D11Texture2D> = None;

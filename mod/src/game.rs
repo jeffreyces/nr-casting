@@ -233,7 +233,7 @@ pub(crate) fn release_borrowed() -> bool {
     let live = !list.is_empty();
     drop(list);
     BORROW_ACTIVE.store(live, Ordering::Relaxed);
-    
+
     true
 }
 
@@ -332,7 +332,10 @@ pub(crate) fn log_entries() {
         return;
     };
     let ids: Vec<i32> = magic.entries.iter().map(|e| e.param_id).collect();
-    crate::logging::debug!("spell: entries = {ids:?} (selected {})", magic.selected_slot);
+    crate::logging::debug!(
+        "spell: entries = {ids:?} (selected {})",
+        magic.selected_slot
+    );
     // The six carried slots, labelled, on the same line as the wheel: the mapping from
     // `equipment_param_ids` index to hand and number is the one thing here that came from the
     // bindings' documentation rather than from a measurement of our own, so it is printed for the
@@ -666,11 +669,13 @@ pub(crate) fn wheel_tick() {
         hands_capability(),
         crate::overlay::spell_school_static,
     );
-    let Some(target) = nr_casting_core::skip_target(wheel.current, &wheel.spells[..], &hidden) else {
+    let Some(target) = nr_casting_core::skip_target(wheel.current, &wheel.spells[..], &hidden)
+    else {
         // Nothing to do. "Everything is assigned" is worth one line, so a player who presses up and
         // sees the wheel behave normally knows why rather than filing a bug.
         let on_hidden = hidden.contains(&wheel.spells[wheel.current]);
-        let nowhere = nr_casting_core::next_unassigned(wheel.current, &wheel.spells[..], &hidden).is_none();
+        let nowhere =
+            nr_casting_core::next_unassigned(wheel.current, &wheel.spells[..], &hidden).is_none();
         if on_hidden && nowhere && !WARNED_ALL.swap(true, Ordering::Relaxed) {
             WHEEL_ALL_ASSIGNED.fetch_add(1, Ordering::Relaxed);
             crate::log(

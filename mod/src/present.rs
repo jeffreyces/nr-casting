@@ -12,11 +12,12 @@
 
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
+use windows::core::{w, Interface};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDeviceAndSwapChain, ID3D11Device, ID3D11DeviceContext, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-    D3D11_SDK_VERSION,
+    D3D11CreateDeviceAndSwapChain, ID3D11Device, ID3D11DeviceContext,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_DESC, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
@@ -25,9 +26,8 @@ use windows::Win32::Graphics::Dxgi::{
     IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, WS_POPUP, WINDOW_EX_STYLE, WINDOW_STYLE,
+    CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WS_POPUP,
 };
-use windows::core::{w, Interface};
 
 static TRAMPOLINE: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 static INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -80,12 +80,18 @@ unsafe fn present_address() -> Result<*const (), String> {
         BufferDesc: DXGI_MODE_DESC {
             Width: 8,
             Height: 8,
-            RefreshRate: DXGI_RATIONAL { Numerator: 60, Denominator: 1 },
+            RefreshRate: DXGI_RATIONAL {
+                Numerator: 60,
+                Denominator: 1,
+            },
             Format: DXGI_FORMAT_R8G8B8A8_UNORM,
             ScanlineOrdering: Default::default(),
             Scaling: Default::default(),
         },
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: 1,
         OutputWindow: hwnd,
